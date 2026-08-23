@@ -38,8 +38,19 @@ jobs:
       - name: 빌드
         run: pyinstaller --noconfirm packaging/nai-auto-v5.spec
 
+      # GUI 서브시스템 실행 파일(console=False)은 pwsh가 종료를 기다리지 않아
+      # 그냥 호출하면 실패해도 $LASTEXITCODE가 0으로 남는다. Start-Process -Wait로
+      # 끝날 때까지 붙잡고 종료 코드를 직접 확인한다.
       - name: 셀프테스트 (리소스 · keyring 백엔드)
-        run: dist\NAI-Auto-V5\NAI-Auto-V5.exe --selftest
+        shell: pwsh
+        run: |
+          $proc = Start-Process -FilePath "dist\NAI-Auto-V5\NAI-Auto-V5.exe" `
+            -ArgumentList "--selftest" -Wait -PassThru -NoNewWindow `
+            -RedirectStandardOutput selftest.out -RedirectStandardError selftest.err
+          Get-Content selftest.out, selftest.err -ErrorAction SilentlyContinue
+          if ($proc.ExitCode -ne 0) {
+            throw "셀프테스트 실패 (exit $($proc.ExitCode))"
+          }
 
       - name: 압축
         shell: bash

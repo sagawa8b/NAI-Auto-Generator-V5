@@ -35,7 +35,7 @@ datas = [
 ]
 
 analysis = Analysis(
-    [str(PACKAGE_DIR / "ui" / "app.py")],
+    [str(SPEC_DIR / "entry.py")],  # app.py를 직접 쓰면 상대 import가 깨진다 (entry.py 주석 참고)
     pathex=[str(PROJECT_DIR / "src")],
     binaries=keyring_binaries,
     datas=datas,

@@ -45,6 +45,7 @@ NovelAI Diffusion **V5** 이미지 생성을 자동화하는 데스크톱 앱입
 
 [**Releases**](https://github.com/sagawa8b/NAI-Auto-Generator-V5/releases/latest)에서 zip을
 받아 압축을 풀고 `NAI-Auto-V5.exe`를 실행하세요. **Python 설치는 필요 없습니다.**
+(zip 약 49MB, 압축을 풀면 약 125MB)
 
 > 서명하지 않은 실행 파일이라 처음 실행할 때 Windows SmartScreen 경고가 뜹니다 —
 > `추가 정보` → `실행`을 누르면 됩니다.
@@ -139,9 +140,10 @@ wildcards and prompt tooling that the web interface does not provide.
 
 ### Download (Windows)
 
-Grab the zip from [**Releases**](https://github.com/sagawa8b/NAI-Auto-Generator-V5/releases/latest),
-unpack it and run `NAI-Auto-V5.exe` — no Python installation needed. The executable is unsigned, so
-Windows SmartScreen shows a warning on first launch (`More info` → `Run anyway`).
+Grab the zip from [**Releases**](https://github.com/sagawa8b/NAI-Auto-Generator-V5/releases/latest)
+(about 49 MB, ~125 MB unpacked), unpack it and run `NAI-Auto-V5.exe` — no Python installation needed.
+The executable is unsigned, so Windows SmartScreen shows a warning on first launch
+(`More info` → `Run anyway`).
 
 ### Run from source
 
