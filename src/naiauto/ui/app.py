@@ -67,6 +67,24 @@ def _install_qt_message_handler() -> None:
     qInstallMessageHandler(handler)
 
 
+def _emit(text: str) -> None:
+    """어떤 콘솔에서도 안전하게 한 줄 출력한다.
+
+    Windows 러너의 기본 콘솔은 cp1252라 한글을 그대로 쓰면 UnicodeEncodeError가
+    난다. 프로즌 GUI 빌드에서는 그 예외가 PyInstaller의 모달 오류 창을 띄워
+    프로세스가 종료하지 않았다 (릴리스 워크플로가 3분 타임아웃에 걸렸다).
+    windowed 빌드는 sys.stdout이 아예 없기도 하다.
+    """
+    stream = sys.stdout
+    if stream is None:
+        return
+    try:
+        stream.write(text + "\n")
+    except UnicodeEncodeError:
+        stream.write(text.encode("ascii", "backslashreplace").decode("ascii") + "\n")
+    stream.flush()
+
+
 def selftest() -> int:
     """프로즌 빌드가 실제로 쓸 수 있는 상태인지 확인한다 (릴리스 워크플로가 호출).
 
@@ -91,17 +109,17 @@ def selftest() -> int:
         failures.append("keyring 백엔드를 쓸 수 없다 (토큰이 저장되지 않는다)")
 
     for line in failures:
-        print(f"selftest FAIL: {line}")
+        _emit(f"selftest FAIL: {line}")
     if failures:
         return 1
-    print(f"selftest OK — v{__version__}, 언어 {len(languages)}종, 태그 {completer.tag_count:,}개")
+    _emit(f"selftest OK — v{__version__}, 언어 {len(languages)}종, 태그 {completer.tag_count:,}개")
     return 0
 
 
 def main() -> int:
     # QApplication을 만들기 전에 처리해야 하는 인자들 (화면 없는 환경에서도 동작)
     if "--version" in sys.argv[1:]:
-        print(__version__)
+        _emit(__version__)
         return 0
     if "--selftest" in sys.argv[1:]:
         return selftest()
