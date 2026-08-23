@@ -106,6 +106,34 @@ jobs:
             ${{ env.onefile_name }}
 
       # 태그가 아직 없으면 이 커밋에 새로 단다 (dispatch 경로).
+      # 릴리스 본문 = PATCHNOTES.md의 해당 버전 절 + 설치 안내.
+      # 절이 없으면 여기서 실패한다 — 패치 노트 없는 릴리스는 내지 않는다.
+      # 시험 빌드에서도 돌린다 (릴리스에 쓰이진 않는다). 이 단계가 러너에서 실제로
+      # 동작하는지 릴리스를 내지 않고 확인하기 위해서다.
+      - name: 릴리스 본문 만들기
+        shell: bash
+        run: |
+          python tools/patchnotes.py "${release_tag:-v$version}" > notes.md
+
+          {
+            echo "## 변경 사항"
+            echo
+            cat notes.md
+            echo
+            echo "## 설치"
+            echo
+            echo "Python 설치는 필요 없습니다. 둘 중 편한 쪽을 받으세요."
+            echo
+            echo "| 파일 | 설명 |"
+            echo "|---|---|"
+            echo "| \`${zip_name}.zip\` | **권장.** 압축을 풀고 \`NAI-Auto-V5.exe\` 실행. 시작이 빠릅니다. 함께 나오는 \`_internal\` 폴더는 프로그램 파일이니 지우지 마세요. |"
+            echo "| \`${onefile_name}\` | 받아서 바로 실행. 대신 실행할 때마다 내용을 임시 폴더에 풀어 **시작이 5~10초 걸립니다.** |"
+            echo
+            echo "서명하지 않은 실행 파일이라 처음 실행할 때 Windows SmartScreen 경고가 뜹니다 — \`추가 정보\` → \`실행\`을 누르면 됩니다."
+          } > release_body.md
+
+          cat release_body.md
+
       - name: 릴리스 생성
         if: env.release_tag != ''
         uses: softprops/action-gh-release@v2
@@ -115,15 +143,4 @@ jobs:
             ${{ env.zip_name }}.zip
             ${{ env.onefile_name }}
           generate_release_notes: true
-          body: |
-            ## 설치
-
-            Python 설치는 필요 없습니다. 둘 중 편한 쪽을 받으세요.
-
-            | 파일 | 설명 |
-            |---|---|
-            | `...-windows.zip` | **권장.** 압축을 풀고 `NAI-Auto-V5.exe` 실행. 시작이 빠릅니다. 함께 나오는 `_internal` 폴더는 프로그램 파일이니 지우지 마세요. |
-            | `...-windows-onefile.exe` | 받아서 바로 실행. 대신 실행할 때마다 내용을 임시 폴더에 풀어 **시작이 5~10초 걸립니다.** |
-
-            서명하지 않은 실행 파일이라 처음 실행할 때 Windows SmartScreen 경고가 뜹니다 —
-            `추가 정보` → `실행`을 누르면 됩니다.
+          body_path: release_body.md
