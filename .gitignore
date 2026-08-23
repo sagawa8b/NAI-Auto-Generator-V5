@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Test / lint caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# 캡처 원본 (토큰/쿠키 포함 가능) — 반드시 tools/sanitize_capture.py를 거친
+# 파일만 spec/v5/captures/ 에 커밋할 것
+*.har
+spec/v5/captures/raw/
+
+# 생성 결과 / 로컬 산출물
+results/
+save/
+*.log
+
+# IDE
+.idea/
+.vscode/

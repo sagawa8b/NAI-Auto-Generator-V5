@@ -1,0 +1,127 @@
+"""컴포지션 루트 — 프로젝트에서 유일하게 전역 조립을 하는 곳.
+
+설정 로드 → i18n → 세션/클라이언트 → 로그인 → 서비스 → 메인 윈도우.
+import-time 부작용 없음: 모든 초기화는 main() 안에서만 일어난다.
+"""
+
+from __future__ import annotations
+
+import logging
+import sys
+from pathlib import Path
+
+import platformdirs
+from PySide6.QtCore import QtMsgType, qInstallMessageHandler
+from PySide6.QtWidgets import QApplication, QDialog
+
+from ..core.api.client import NAIClient
+from ..core.api.session import NAISession
+from ..core.artist_combos import ArtistComboEngine
+from ..core.i18n.manager import I18nManager
+from ..core.logging_setup import configure_logging, enable_crash_log, install_excepthook
+from ..core.settings import credentials
+from ..core.settings.schema import APP_NAME, AppSettings
+from ..core.settings.store import ensure_dirs, load_settings, save_settings
+from ..core.wildcards.applier import WildcardApplier
+from ..services.generation_service import GenerationService
+from .login_dialog import LoginDialog
+from .main_window import MainWindow
+from .qt_bridge import QtEventBridge
+
+TOKEN_CREDENTIAL_KEY = "api_token"
+
+
+_QT_LEVELS = {
+    QtMsgType.QtDebugMsg: logging.DEBUG,
+    QtMsgType.QtInfoMsg: logging.INFO,
+    QtMsgType.QtWarningMsg: logging.WARNING,
+    QtMsgType.QtCriticalMsg: logging.ERROR,
+    QtMsgType.QtFatalMsg: logging.CRITICAL,
+}
+
+
+def log_dir() -> Path:
+    return Path(platformdirs.user_log_dir(APP_NAME))
+
+
+def build_service(client: NAIClient, settings: AppSettings, bridge: QtEventBridge) -> GenerationService:
+    """프롬프트 확장 엔진까지 붙인 생성 서비스.
+
+    와일드카드는 `apply()`마다 폴더를 다시 읽지만 아티스트 조합 엔진은 그렇지 않아
+    여기서 한 번 `load()`해 둬야 `{artist:그룹}` 치환이 동작한다.
+    """
+    wildcards = WildcardApplier(settings.wildcards_dir)
+    artist_combos = ArtistComboEngine(settings.artist_combos_dir)
+    artist_combos.load()
+    return GenerationService(client, wildcards=wildcards, artist_combos=artist_combos, on_event=bridge)
+
+
+def _install_qt_message_handler() -> None:
+    """Qt 자체 경고도 로그 파일에 남긴다 (콘솔 없이 실행하면 사라지므로)."""
+    qt_logger = logging.getLogger("qt")
+
+    def handler(mode: QtMsgType, context, message: str) -> None:
+        qt_logger.log(_QT_LEVELS.get(mode, logging.INFO), "%s", message)
+
+    qInstallMessageHandler(handler)
+
+
+def main() -> int:
+    settings = load_settings()
+    configure_logging(log_dir(), debug=settings.debug_logging)
+    enable_crash_log(log_dir())  # 세그폴트 등 네이티브 크래시 추적
+    install_excepthook()
+    _install_qt_message_handler()
+    logger = logging.getLogger(__name__)
+    logger.info("%s starting (debug logging: %s)", APP_NAME, settings.debug_logging)
+    i18n = I18nManager(language=settings.language)
+
+    app = QApplication(sys.argv)
+    app.setApplicationName(APP_NAME)
+
+    session = NAISession()
+    client = NAIClient(
+        session,
+        debug_headers=settings.debug_headers,
+        forensics_dir=log_dir() / "forensics",
+    )
+
+    def validate_token(token: str) -> None:
+        session.login_with_token(token)
+        client.get_anlas()  # 실제 API 호출로 토큰 유효성 확인
+
+    # 저장된 토큰으로 자동 로그인 시도, 실패 시 다이얼로그
+    stored = credentials.load_credential(TOKEN_CREDENTIAL_KEY)
+    logged_in = False
+    if stored:
+        try:
+            validate_token(stored)
+            logged_in = True
+        except Exception as e:
+            logger.warning("stored token rejected: %s", e)
+
+    if not logged_in:
+        dialog = LoginDialog(i18n, validate_token, initial_token=stored)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return 0
+        if dialog.remember:
+            credentials.save_credential(TOKEN_CREDENTIAL_KEY, dialog.token)
+        else:
+            credentials.delete_credential(TOKEN_CREDENTIAL_KEY)
+
+    ensure_dirs(settings)
+    bridge = QtEventBridge()
+    service = build_service(client, settings, bridge)
+
+    window = MainWindow(i18n, settings, client, service, bridge)
+    window.show()
+
+    exit_code = app.exec()
+
+    service.shutdown()
+    save_settings(window.collect_settings())
+    return exit_code
+
+
+if __name__ == "__main__":
+    sys.exit(main())

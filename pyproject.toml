@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nai-auto-v5"
+version = "0.1.0"
+description = "NovelAI Diffusion V5 image generation automation app (PySide6)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "PolyForm-Noncommercial-1.0.0" }
+dependencies = [
+    "PySide6>=6.7",
+    "requests>=2.28.0",
+    "argon2-cffi>=21.3.0",
+    "keyring>=24.0",
+    "Pillow>=10.0",
+    "pydantic>=2.0",
+    "platformdirs>=4.0",
+]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.5"]
+
+[project.gui-scripts]
+nai-auto-v5 = "naiauto.ui.app:main"
+
+[project.scripts]
+nai-auto-v5-smoke = "naiauto.smoke:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+naiauto = ["resources/languages/*.json", "resources/tags/*.csv"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501"]
