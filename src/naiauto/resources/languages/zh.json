@@ -583,6 +583,14 @@
       "empty": "(暂无日志记录)",
       "measure_credit": "记录 V5 额度消耗",
       "measure_credit_hint": "每生成一张就把额度与 Anlas 余额写入日志（每张多一次请求）。仅在测量时开启。"
+    },
+    "updates": {
+      "menu": "检查新版本",
+      "checking": "正在检查新版本...",
+      "up_to_date": "已是最新版本 (v{})",
+      "available": "有新版本 {}",
+      "available_body": "版本 {} 已发布 (当前 v{})。\n是否打开下载页面?",
+      "check_on_start": "启动时检查新版本"
     }
   }
 }

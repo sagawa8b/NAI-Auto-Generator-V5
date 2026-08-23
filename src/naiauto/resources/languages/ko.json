@@ -583,6 +583,14 @@
       "empty": "(기록된 로그가 없습니다)",
       "measure_credit": "V5 크레딧 소모량 측정 로그",
       "measure_credit_hint": "생성 1장마다 크레딧·Anlas 잔량을 로그에 남깁니다 (매 장 요청 1회 추가). 측정할 때만 켜세요."
+    },
+    "updates": {
+      "menu": "새 버전 확인",
+      "checking": "새 버전을 확인하는 중...",
+      "up_to_date": "최신 버전입니다 (v{})",
+      "available": "새 버전 {} 이(가) 있습니다",
+      "available_body": "새 버전 {} 이(가) 나왔습니다 (현재 v{}).\n다운로드 페이지를 열까요?",
+      "check_on_start": "시작할 때 새 버전 확인"
     }
   }
 }

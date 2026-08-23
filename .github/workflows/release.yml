@@ -1,0 +1,72 @@
+name: Release
+
+# 태그를 밀면 Windows 러너가 빌드해 Release에 zip을 붙인다.
+# workflow_dispatch는 태그를 달기 전에 산출물을 받아 확인하는 용도 (릴리스는 만들지 않는다).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # Release 생성
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          pip install .
+          pip install pyinstaller
+
+      - name: 버전 확인 (태그 == naiauto.__version__)
+        shell: bash
+        run: |
+          version=$(python -c "import naiauto; print(naiauto.__version__)")
+          echo "version=$version" >> "$GITHUB_ENV"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v$version" ]; then
+            echo "::error::태그 ${GITHUB_REF_NAME} 와 __version__ $version 이 다릅니다"
+            exit 1
+          fi
+
+      - name: 빌드
+        run: pyinstaller --noconfirm packaging/nai-auto-v5.spec
+
+      - name: 셀프테스트 (리소스 · keyring 백엔드)
+        run: dist\NAI-Auto-V5\NAI-Auto-V5.exe --selftest
+
+      - name: 압축
+        shell: bash
+        run: |
+          name="NAI-Auto-V5-v${version}-windows"
+          [ "${GITHUB_REF_TYPE}" = "tag" ] || name="NAI-Auto-V5-${GITHUB_SHA::7}-windows"
+          echo "zip_name=$name" >> "$GITHUB_ENV"
+          7z a -tzip "$name.zip" ./dist/NAI-Auto-V5/*
+          ls -lh "$name.zip"
+
+      - name: 아티팩트 업로드 (시험 빌드)
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.zip_name }}
+          path: ${{ env.zip_name }}.zip
+
+      - name: 릴리스 생성 (태그)
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.zip_name }}.zip
+          generate_release_notes: true
+          body: |
+            ## 설치
+
+            아래 zip을 내려받아 압축을 풀고 `NAI-Auto-V5.exe`를 실행하세요. Python 설치는 필요 없습니다.
+
+            서명하지 않은 실행 파일이라 처음 실행할 때 Windows SmartScreen 경고가 뜹니다 —
+            `추가 정보` → `실행`을 누르면 됩니다.

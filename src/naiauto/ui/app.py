@@ -14,6 +14,7 @@ import platformdirs
 from PySide6.QtCore import QtMsgType, qInstallMessageHandler
 from PySide6.QtWidgets import QApplication, QDialog
 
+from .. import __version__
 from ..core.api.client import NAIClient
 from ..core.api.session import NAISession
 from ..core.artist_combos import ArtistComboEngine
@@ -66,7 +67,45 @@ def _install_qt_message_handler() -> None:
     qInstallMessageHandler(handler)
 
 
+def selftest() -> int:
+    """프로즌 빌드가 실제로 쓸 수 있는 상태인지 확인한다 (릴리스 워크플로가 호출).
+
+    PyInstaller로 묶으면 조용히 깨지기 쉬운 세 가지를 실행해 본다:
+    번들 리소스(언어 파일 4종·내장 태그 DB)와 keyring 백엔드. 어느 하나라도
+    빠지면 앱은 뜨지만 "자동완성이 안 되고 토큰이 저장 안 되는" 상태가 된다.
+    """
+    from ..core.settings import credentials
+    from ..core.tag_completer import TagCompleter, bundled_database_path
+
+    failures: list[str] = []
+
+    languages = sorted(I18nManager().get_available_languages())
+    if len(languages) < 4:
+        failures.append(f"언어 리소스 부족: {languages}")
+
+    completer = TagCompleter(bundled_database_path())
+    if not completer.load() or completer.tag_count == 0:
+        failures.append(f"내장 태그 DB 로드 실패: {bundled_database_path()}")
+
+    if not credentials.is_available():
+        failures.append("keyring 백엔드를 쓸 수 없다 (토큰이 저장되지 않는다)")
+
+    for line in failures:
+        print(f"selftest FAIL: {line}")
+    if failures:
+        return 1
+    print(f"selftest OK — v{__version__}, 언어 {len(languages)}종, 태그 {completer.tag_count:,}개")
+    return 0
+
+
 def main() -> int:
+    # QApplication을 만들기 전에 처리해야 하는 인자들 (화면 없는 환경에서도 동작)
+    if "--version" in sys.argv[1:]:
+        print(__version__)
+        return 0
+    if "--selftest" in sys.argv[1:]:
+        return selftest()
+
     settings = load_settings()
     configure_logging(log_dir(), debug=settings.debug_logging)
     enable_crash_log(log_dir())  # 세그폴트 등 네이티브 크래시 추적

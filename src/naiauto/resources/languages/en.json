@@ -583,6 +583,14 @@
       "empty": "(no log entries yet)",
       "measure_credit": "Log V5 credit usage",
       "measure_credit_hint": "Records credit and Anlas balance after every image (one extra request per image). Enable only while measuring."
+    },
+    "updates": {
+      "menu": "Check for updates",
+      "checking": "Checking for updates…",
+      "up_to_date": "You are up to date (v{})",
+      "available": "Update available: {}",
+      "available_body": "Version {} is available (you have v{}).\nOpen the download page?",
+      "check_on_start": "Check for updates on start"
     }
   }
 }

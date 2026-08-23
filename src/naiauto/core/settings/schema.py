@@ -128,6 +128,7 @@ class AppSettings(BaseModel):
     debug_logging: bool = False  # 로그 뷰어에서 켜면 DEBUG 레벨로 기록
     show_image_source: bool = False  # i2i 패널은 보기 메뉴(F2)로 켤 때만 표시
     measure_credit: bool = False  # V5 크레딧 소모량 측정 로그 (도구 메뉴)
+    check_updates_on_start: bool = True  # 시작 시 새 버전 확인 (기타 메뉴에서 수동 확인도 가능)
     generation: GenerationDefaults = Field(default_factory=GenerationDefaults)
     batch: BatchSettings = Field(default_factory=BatchSettings)
     prompts: PromptState = Field(default_factory=PromptState)

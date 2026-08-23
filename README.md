@@ -39,8 +39,19 @@ NovelAI Diffusion **V5** 이미지 생성을 자동화하는 데스크톱 앱입
 - **🤖 WD14 자동 태깅** — 이미지에서 태그 추출 (ONNX 모델은 직접 준비)
 - **📊 상태 표시** — V5 생성 크레딧 게이지 + Anlas 잔액
 - **🌏 4개 언어** — 한국어 / English / 日本語 / 中文, 재시작 없이 전환
+- **🔔 새 버전 확인** — 릴리스가 올라오면 앱이 알려 줍니다 (자동 확인은 끌 수 있음)
 
-### 📦 설치
+### 📥 다운로드 (Windows)
+
+[**Releases**](https://github.com/sagawa8b/NAI-Auto-Generator-V5/releases/latest)에서 zip을
+받아 압축을 풀고 `NAI-Auto-V5.exe`를 실행하세요. **Python 설치는 필요 없습니다.**
+
+> 서명하지 않은 실행 파일이라 처음 실행할 때 Windows SmartScreen 경고가 뜹니다 —
+> `추가 정보` → `실행`을 누르면 됩니다.
+
+앱이 새 버전을 알려 줍니다 (`기타` → `새 버전 확인`, 시작할 때 자동 확인은 옵션에서 끌 수 있습니다).
+
+### 📦 소스에서 실행 (개발자용)
 
 Python 3.10 이상이 필요합니다.
 
@@ -124,8 +135,15 @@ wildcards and prompt tooling that the web interface does not provide.
 - **WD14 auto-tagging** (bring your own ONNX model)
 - **Status bar** — V5 generation credit gauge and Anlas balance
 - **4 languages** — Korean / English / Japanese / Chinese, switchable at runtime
+- **Update check** — the app tells you when a new release is out (can be turned off)
 
-### Install
+### Download (Windows)
+
+Grab the zip from [**Releases**](https://github.com/sagawa8b/NAI-Auto-Generator-V5/releases/latest),
+unpack it and run `NAI-Auto-V5.exe` — no Python installation needed. The executable is unsigned, so
+Windows SmartScreen shows a warning on first launch (`More info` → `Run anyway`).
+
+### Run from source
 
 Requires Python 3.10+.
 

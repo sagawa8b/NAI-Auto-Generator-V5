@@ -61,6 +61,9 @@ class InterfacePage(OptionsPage):
         self.image_source_check.setEnabled(supports_i2i)
         root.addWidget(self.image_source_check)
 
+        self.update_check_check = QCheckBox(self)
+        root.addWidget(self.update_check_check)
+
         reset_row = QHBoxLayout()
         self.reset_sections_button = QPushButton(self)
         self.reset_sections_button.clicked.connect(self._on_reset_sections)
@@ -76,6 +79,7 @@ class InterfacePage(OptionsPage):
     # ── 드래프트 ↔ 위젯 ────────────────────────────────────────────────
 
     def load(self, draft: AppSettings) -> None:
+        self.update_check_check.setChecked(draft.check_updates_on_start)
         index = self.language_combo.findData(draft.language)
         if index >= 0:
             self.language_combo.setCurrentIndex(index)
@@ -89,6 +93,7 @@ class InterfacePage(OptionsPage):
         if isinstance(code, str) and code:
             draft.language = code
         draft.show_image_source = self.image_source_check.isChecked()
+        draft.check_updates_on_start = self.update_check_check.isChecked()
         if self._reset_sections:
             draft.ui = UiState()
 
@@ -104,6 +109,7 @@ class InterfacePage(OptionsPage):
                 self.language_combo.setItemText(row, names[code])
         self.image_source_check.setText(tr("image_source.menu"))
         self.image_source_check.setToolTip("" if self._supports_i2i else tr("image_source.unsupported"))
+        self.update_check_check.setText(tr("updates.check_on_start"))
         self.reset_sections_button.setText(tr("options.reset_sections"))
         if self._reset_sections:
             self.reset_status_label.setText(tr("options.reset_sections_done"))

@@ -14,8 +14,8 @@ import threading
 from pathlib import Path
 
 import platformdirs
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import __version__
 from ..core.api.client import NAIClient
 from ..core.api.model_specs import MODEL_REGISTRY, ModelSpec, get_spec
 from ..core.api.models import CharacterCaption, GenerationRequest
@@ -52,6 +53,7 @@ from ..core.resolution_catalog import ResolutionCatalog
 from ..core.settings.schema import APP_NAME, QUICK_COUNT_SLOTS, AppSettings, CharacterPromptState
 from ..core.settings.store import ensure_dirs
 from ..core.tag_completer import TagCompleter, resolve_database_path
+from ..core.updates import RELEASES_PAGE, ReleaseInfo, check_for_update
 from ..services.events import (
     GenerationEvent,
     ImageCompleted,
@@ -111,6 +113,7 @@ def _format_duration(seconds: int) -> str:
 
 class MainWindow(QMainWindow):
     _anlas_fetched = Signal(object)  # dict | Exception — 워커 스레드에서 emit
+    _update_checked = Signal(object, bool)  # ReleaseInfo | None, 사용자가 직접 눌렀는가
 
     def __init__(
         self,
@@ -128,6 +131,7 @@ class MainWindow(QMainWindow):
 
         bridge.event_received.connect(self._on_generation_event)
         self._anlas_fetched.connect(self._on_anlas_fetched)
+        self._update_checked.connect(self._on_update_checked)
         i18n.subscribe(self._on_language_changed)
 
         # M3: Credit Estimator — compute remaining images from credit observations
@@ -147,6 +151,8 @@ class MainWindow(QMainWindow):
         self._apply_settings()
         self.retranslate()
         self.refresh_anlas()
+        if settings.check_updates_on_start:
+            self.check_for_updates(manual=False)
 
     # ── UI 조립 ───────────────────────────────────────────
 
@@ -348,6 +354,11 @@ class MainWindow(QMainWindow):
         self.presets_action = self.tools_menu.addAction("")
         self.presets_action.setShortcut("Ctrl+P")
         self.presets_action.triggered.connect(self._on_open_presets)
+
+        # 기타 — 새 버전 확인 (릴리스 zip으로 배포하므로 앱이 대신 알려 준다)
+        self.etc_menu = self.menuBar().addMenu("")
+        self.update_action = self.etc_menu.addAction("")
+        self.update_action.triggered.connect(lambda: self.check_for_updates(manual=True))
 
         self.language_menu = self.menuBar().addMenu("")
         for code, name in self._i18n.get_available_languages().items():
@@ -1160,6 +1171,46 @@ class MainWindow(QMainWindow):
             )
         self.preview_label.setPixmap(pixmap)
 
+    # ── 새 버전 확인 ─────────────────────────────────────
+
+    def check_for_updates(self, *, manual: bool) -> None:
+        """백그라운드로 최신 릴리스를 확인한다 (Anlas 조회와 같은 패턴).
+
+        manual=False(시작 시 자동)는 새 버전이 있을 때만 상태바에 조용히 알린다 —
+        실행하자마자 모달을 띄우지 않는다.
+        """
+        if manual:
+            self.status_label.setText(self._i18n.get_text("updates.checking"))
+
+        def fetch() -> None:
+            release = check_for_update(__version__)
+            try:
+                self._update_checked.emit(release, manual)
+            except RuntimeError:
+                pass  # 확인이 끝나기 전에 창이 닫혔다 — 알릴 곳이 없으면 그냥 버린다
+
+        threading.Thread(target=fetch, name="naiauto-updates", daemon=True).start()
+
+    def _on_update_checked(self, release: object, manual: bool) -> None:
+        tr = self._i18n.get_text
+        if not isinstance(release, ReleaseInfo):
+            if manual:  # 최신이거나 확인 실패 — 자동 확인이면 아무 말도 하지 않는다
+                self.status_label.setText(tr("updates.up_to_date", __version__))
+            return
+
+        self.status_label.setText(tr("updates.available", release.tag))
+        if not manual:
+            return  # 시작 시 확인은 상태바까지만
+        answer = QMessageBox.question(
+            self,
+            tr("updates.menu"),
+            tr("updates.available_body", release.tag, __version__),
+            QMessageBox.StandardButton.Open | QMessageBox.StandardButton.Close,
+            QMessageBox.StandardButton.Open,
+        )
+        if answer == QMessageBox.StandardButton.Open:
+            QDesktopServices.openUrl(QUrl(release.url or RELEASES_PAGE))
+
     # ── Anlas (백그라운드 조회) ───────────────────────────
 
     def refresh_anlas(self) -> None:
@@ -1227,7 +1278,7 @@ class MainWindow(QMainWindow):
 
     def retranslate(self) -> None:
         tr = self._i18n.get_text
-        self.setWindowTitle("NAI-Auto-V5")
+        self.setWindowTitle(f"NAI-Auto-V5 v{__version__}")
         self.prompt_group.setTitle(tr("ui.prompt_group"))
         self.prompt_tabs.retranslate()
         self.model_label.setText(tr("ui.model"))
@@ -1265,6 +1316,8 @@ class MainWindow(QMainWindow):
         self.wd14_action.setText(tr("menu.wd14_auto_tag"))
         self.presets_action.setText(tr("menu.presets"))
         self.gallery_action.setText(tr("menu.gallery_view"))
+        self.etc_menu.setTitle(tr("menu.etc"))
+        self.update_action.setText(tr("updates.menu"))
         self.language_menu.setTitle(tr("menu.languages"))
         if self.preview_label.pixmap().isNull():
             self.preview_label.setText(f"{tr('result.no_image')}\n\n{tr('image_info.drop_hint')}")
