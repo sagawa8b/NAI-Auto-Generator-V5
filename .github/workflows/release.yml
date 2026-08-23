@@ -1,11 +1,19 @@
 name: Release
 
-# 태그를 밀면 Windows 러너가 빌드해 Release에 zip을 붙인다.
-# workflow_dispatch는 태그를 달기 전에 산출물을 받아 확인하는 용도 (릴리스는 만들지 않는다).
+# 릴리스를 내는 길은 두 가지다.
+#   1) v* 태그를 민다 — 평소 방식.
+#   2) Actions에서 이 워크플로를 실행하며 release_tag에 태그를 적는다.
+#      로컬 클론 없이 웹에서 릴리스를 낼 때 쓴다. 태그는 이 실행의 커밋에 새로 달린다.
+# release_tag를 비우고 실행하면 릴리스 없이 산출물만 올린다 (시험 빌드).
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "릴리스를 만들 태그 (예: v0.2.0). 비우면 시험 빌드만 합니다."
+        required: false
+        default: ""
 
 permissions:
   contents: write # Release 생성
@@ -26,15 +34,26 @@ jobs:
           pip install .
           pip install pyinstaller
 
+      # 어긋난 릴리스를 막는다 — 태그와 코드의 버전이 다르면 여기서 멈춘다.
       - name: 버전 확인 (태그 == naiauto.__version__)
         shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.release_tag }}
         run: |
           version=$(python -c "import naiauto; print(naiauto.__version__)")
           echo "version=$version" >> "$GITHUB_ENV"
-          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v$version" ]; then
-            echo "::error::태그 ${GITHUB_REF_NAME} 와 __version__ $version 이 다릅니다"
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tag="${GITHUB_REF_NAME}"
+          else
+            tag="${INPUT_TAG}"
+          fi
+
+          if [ -n "$tag" ] && [ "$tag" != "v$version" ]; then
+            echo "::error::태그 $tag 와 __version__ $version 이 다릅니다"
             exit 1
           fi
+          echo "release_tag=$tag" >> "$GITHUB_ENV"
 
       - name: 빌드
         run: pyinstaller --noconfirm packaging/nai-auto-v5.spec
@@ -59,22 +78,24 @@ jobs:
         shell: bash
         run: |
           name="NAI-Auto-V5-v${version}-windows"
-          [ "${GITHUB_REF_TYPE}" = "tag" ] || name="NAI-Auto-V5-${GITHUB_SHA::7}-windows"
+          [ -n "${release_tag}" ] || name="NAI-Auto-V5-${GITHUB_SHA::7}-windows"
           echo "zip_name=$name" >> "$GITHUB_ENV"
           7z a -tzip "$name.zip" ./dist/NAI-Auto-V5/*
           ls -lh "$name.zip"
 
       - name: 아티팩트 업로드 (시험 빌드)
-        if: github.ref_type != 'tag'
+        if: env.release_tag == ''
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.zip_name }}
           path: ${{ env.zip_name }}.zip
 
-      - name: 릴리스 생성 (태그)
-        if: github.ref_type == 'tag'
+      # 태그가 아직 없으면 이 커밋에 새로 단다 (dispatch 경로).
+      - name: 릴리스 생성
+        if: env.release_tag != ''
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.release_tag }}
           files: ${{ env.zip_name }}.zip
           generate_release_notes: true
           body: |
