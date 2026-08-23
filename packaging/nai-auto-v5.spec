@@ -60,8 +60,26 @@ exe = EXE(
     icon=str(SPEC_DIR / "app_icon.ico"),
 )
 
+# 같은 번들을 가리키는 콘솔 모드 실행 파일. --selftest 검증 전용이다.
+# GUI 서브시스템(console=False) 실행 파일은 sys.stdout이 없어 print가 조용히
+# 사라지고 셸이 종료를 기다리지 못해, 릴리스 워크플로에서 출력도 종료 코드도
+# 얻지 못했다. 분석 결과를 그대로 재사용하므로 빌드 시간은 거의 늘지 않는다.
+# 워크플로가 검증을 마친 뒤 압축 전에 지운다 — 배포본에는 들어가지 않는다.
+exe_selftest = EXE(
+    pyz,
+    analysis.scripts,
+    [],
+    exclude_binaries=True,
+    name=f"{APP_NAME}-selftest",
+    debug=False,
+    strip=False,
+    upx=False,
+    console=True,
+)
+
 COLLECT(
     exe,
+    exe_selftest,
     analysis.binaries,
     analysis.datas,
     strip=False,

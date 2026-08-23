@@ -39,23 +39,21 @@ jobs:
       - name: 빌드
         run: pyinstaller --noconfirm packaging/nai-auto-v5.spec
 
-      # GUI 서브시스템 실행 파일(console=False)은 그냥 호출하면 pwsh가 종료를 기다리지
-      # 않아 실패해도 $LASTEXITCODE가 직전 값(0)으로 남는다. 출력을 변수로 받으면
-      # 파이프라인이 끝날 때까지 기다리므로 종료 코드가 제대로 잡힌다.
-      # (Start-Process -Wait -NoNewWindow + 리다이렉트 조합은 러너에서 멈춰 버렸다.)
-      # timeout-minutes는 그래도 멈추는 경우 잡 전체를 붙잡지 않게 하는 안전장치다.
+      # 검증은 콘솔 모드 실행 파일로 한다. GUI 서브시스템(console=False) exe는
+      # sys.stdout이 없어 print가 사라지고 셸이 종료를 기다리지 못해, 출력도 종료
+      # 코드도 얻지 못한 채 멈췄다 (러너에서 3분 타임아웃으로 확인). spec이 같은
+      # 번들을 가리키는 콘솔 exe를 함께 만들고, 검증 후 압축 전에 지운다.
       - name: 셀프테스트 (리소스 · keyring 백엔드)
-        shell: pwsh
+        shell: bash
         timeout-minutes: 3
         run: |
-          $output = & "dist\NAI-Auto-V5\NAI-Auto-V5.exe" --selftest 2>&1 | Out-String
-          $code = $LASTEXITCODE
-          Write-Host $output
-          # 종료 코드만 믿지 않는다 — 기다리지 못하면 0이 그대로 남으므로,
-          # 성공 문구가 실제로 찍혔는지도 함께 본다.
-          if ($code -ne 0 -or $output -notmatch "selftest OK") {
-            throw "셀프테스트 실패 (exit $code)"
-          }
+          output=$(./dist/NAI-Auto-V5/NAI-Auto-V5-selftest.exe --selftest)
+          echo "$output"
+          grep -q "selftest OK" <<<"$output"
+
+      - name: 셀프테스트 실행 파일 제거 (배포본에는 넣지 않는다)
+        shell: bash
+        run: rm -f "dist/NAI-Auto-V5/NAI-Auto-V5-selftest.exe"
 
       - name: 압축
         shell: bash
