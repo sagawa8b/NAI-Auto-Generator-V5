@@ -16,6 +16,9 @@ APP_NAME = "NAI-Auto-V5"
 CURRENT_SCHEMA_VERSION = 2
 DEFAULT_WORD_LIMIT = 20
 CUSTOM_RESOLUTION_SLOTS = 6
+QUICK_COUNT_SLOTS = 4
+#: 생성 바의 퀵 매수 버튼 기본값 (V4.5의 Quick Generation 프리셋과 같은 자리)
+DEFAULT_QUICK_COUNTS = (5, 10, 30, 200)
 
 
 def default_data_dir() -> Path:
@@ -79,6 +82,8 @@ class BatchSettings(BaseModel):
     count: int = 0  # 0 = 무한
     delay_seconds: float = 3.0  # 요청 간 최소 간격 (보수적 기본값)
     stop_on_anlas_error: bool = True
+    #: 생성 바의 퀵 매수 버튼 4개. 누르면 그 매수로 바로 연속 생성이 시작된다.
+    quick_counts: list[int] = Field(default_factory=lambda: list(DEFAULT_QUICK_COUNTS))
 
 
 class CustomResolution(BaseModel):

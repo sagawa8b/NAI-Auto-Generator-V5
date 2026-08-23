@@ -146,6 +146,7 @@
       "count_10": "10张",
       "count_50": "50张",
       "count_100": "100张",
+      "count_n": "{}张",
       "count_label": "生成次数:",
       "count_unlimited": "(-1 = 无限制)",
       "delay_label": "生成间隔(秒):",
@@ -380,7 +381,9 @@
       "debug_headers": "记录响应头",
       "filename_template": "文件名格式",
       "batch_count": "默认生成张数",
-      "batch_delay": "默认生成间隔(秒)"
+      "batch_delay": "默认生成间隔(秒)",
+      "quick_counts_title": "Quick Generation 数量",
+      "quick_count_button": "{}号按钮:"
     },
     "resolution": {
       "title": "分辨率",

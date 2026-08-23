@@ -146,6 +146,7 @@
       "count_10": "10장",
       "count_50": "50장",
       "count_100": "100장",
+      "count_n": "{}장",
       "count_label": "생성 횟수:",
       "count_unlimited": "(-1 = 무제한)",
       "delay_label": "생성 간격(초):",
@@ -380,7 +381,9 @@
       "debug_headers": "응답 헤더 로깅",
       "filename_template": "파일명 형식",
       "batch_count": "기본 생성 매수",
-      "batch_delay": "기본 생성 간격(초)"
+      "batch_delay": "기본 생성 간격(초)",
+      "quick_counts_title": "Quick Generation 매수",
+      "quick_count_button": "{}번 버튼:"
     },
     "resolution": {
       "title": "해상도",

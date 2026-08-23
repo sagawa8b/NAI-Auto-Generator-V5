@@ -49,7 +49,7 @@ from ..core.logging_setup import configure_logging, crash_log_path, log_path
 from ..core.metadata.reuse import ReusableSettings
 from ..core.presets import GenerationPreset, PresetStore
 from ..core.resolution_catalog import ResolutionCatalog
-from ..core.settings.schema import APP_NAME, AppSettings, CharacterPromptState
+from ..core.settings.schema import APP_NAME, QUICK_COUNT_SLOTS, AppSettings, CharacterPromptState
 from ..core.settings.store import ensure_dirs
 from ..core.tag_completer import TagCompleter, resolve_database_path
 from ..services.events import (
@@ -362,8 +362,10 @@ class MainWindow(QMainWindow):
         self.generate_group = QGroupBox()
         bar_layout = QVBoxLayout(self.generate_group)
         batch_row = QHBoxLayout()
+        quick_row = QHBoxLayout()
         button_row = QHBoxLayout()
         bar_layout.addLayout(batch_row)
+        bar_layout.addLayout(quick_row)
         bar_layout.addLayout(button_row)
 
         self.count_spin = QSpinBox()
@@ -390,6 +392,15 @@ class MainWindow(QMainWindow):
         batch_row.addWidget(self.delay_label)
         batch_row.addWidget(self.delay_spin)
         batch_row.addStretch(1)
+
+        # 퀵 매수 버튼 — 누르면 그 매수로 바로 연속 생성 (V4.5의 Quick Generation)
+        self.quick_buttons: list[QPushButton] = []
+        for index in range(QUICK_COUNT_SLOTS):
+            button = QPushButton()
+            button.clicked.connect(lambda _checked=False, i=index: self._on_quick_generate(i))
+            quick_row.addWidget(button)
+            self.quick_buttons.append(button)
+
         button_row.addWidget(self.once_button)
         button_row.addWidget(self.auto_button)
         button_row.addWidget(self.stop_button)
@@ -732,6 +743,7 @@ class MainWindow(QMainWindow):
             self.seed_edit.setText(str(g.seed))
         self.count_spin.setValue(self._settings.batch.count)
         self.delay_spin.setValue(self._settings.batch.delay_seconds)
+        self._refresh_quick_buttons()
         self.image_source_action.setChecked(
             self._settings.show_image_source and self.image_source_action.isEnabled()
         )
@@ -782,6 +794,18 @@ class MainWindow(QMainWindow):
         ]
         return s
 
+    def _refresh_quick_buttons(self) -> None:
+        """설정의 퀵 매수 값으로 버튼 문구를 다시 만든다 (옵션 저장·언어 전환 후)."""
+        tr = self._i18n.get_text
+        counts = self._settings.batch.quick_counts
+        hint = tr("generate_dialog.preset_group")
+        for index, button in enumerate(self.quick_buttons):
+            has_value = index < len(counts)
+            button.setText(tr("generate_dialog.count_n", counts[index]) if has_value else "")
+            button.setToolTip(hint if has_value else "")
+            button.setVisible(has_value)
+            button.setEnabled(has_value and not self._is_running)
+
     def _seed_value(self) -> int:
         try:
             return max(0, int(self.seed_edit.text().strip() or "0"))
@@ -814,6 +838,7 @@ class MainWindow(QMainWindow):
         s = self._settings
         self.count_spin.setValue(s.batch.count)  # Req 4.2
         self.delay_spin.setValue(s.batch.delay_seconds)
+        self._refresh_quick_buttons()
         self.image_source_action.setChecked(  # Req 6.3 (토글이 패널 표시까지 맞춘다)
             s.show_image_source and self.image_source_action.isEnabled()
         )
@@ -1021,7 +1046,23 @@ class MainWindow(QMainWindow):
         self._start_job(self.build_job(count=1))
 
     def _on_generate_auto(self) -> None:
-        count = self.count_spin.value()
+        self._start_auto(self.count_spin.value())
+
+    def _on_quick_generate(self, index: int) -> None:
+        """퀵 매수 버튼 — 그 매수를 입력란에 넣고 바로 연속 생성한다 (V4.5와 같은 동작).
+
+        입력란까지 같이 바꾸는 이유: 지금 몇 장을 돌리는 중인지 화면에 남고, 종료할 때
+        그 값이 설정에 저장되어 다음 실행에도 이어진다.
+        """
+        counts = self._settings.batch.quick_counts
+        if not 0 <= index < len(counts):
+            return  # 설정이 4칸을 채우지 못한 경우 — 버튼은 비활성 상태다
+        count = counts[index]
+        self.count_spin.setValue(count)
+        self._start_auto(count)
+
+    def _start_auto(self, count: int) -> None:
+        """연속 생성 시작 — 매수 입력란과 퀵 버튼이 함께 쓰는 경로."""
         # 고정 시드로 연속 생성하면 같은 그림만 반복되고 Anlas만 나간다.
         if count != 1 and not self.seed_random_check.isChecked():
             tr = self._i18n.get_text
@@ -1040,9 +1081,11 @@ class MainWindow(QMainWindow):
         self.status_label.setText(self._i18n.get_text("statusbar.generating"))
 
     def _set_running(self, running: bool) -> None:
+        self._is_running = running
         self.once_button.setEnabled(not running)
         self.auto_button.setEnabled(not running)
         self.stop_button.setEnabled(running)
+        self._refresh_quick_buttons()
 
     # ── 서비스 이벤트 (메인 스레드에서 수신) ──────────────
 
@@ -1201,6 +1244,7 @@ class MainWindow(QMainWindow):
         self.generate_group.setTitle(tr("generate.title"))
         self.count_label.setText(tr("batch.count"))
         self.delay_label.setText(tr("batch.delay"))
+        self._refresh_quick_buttons()
         self.once_button.setText(tr("generate.once"))
         self.auto_button.setText(tr("generate.auto"))
         self.stop_button.setText(tr("generate.stop"))
@@ -1228,3 +1272,4 @@ class MainWindow(QMainWindow):
             self.status_label.setText(tr("statusbar.idle"))
 
     _job_total: int | None = None
+    _is_running: bool = False

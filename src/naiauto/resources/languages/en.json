@@ -146,6 +146,7 @@
       "count_10": "10 images",
       "count_50": "50 images",
       "count_100": "100 images",
+      "count_n": "{} images",
       "count_label": "Generation Count:",
       "count_unlimited": "(-1 = Unlimited)",
       "delay_label": "Generation Interval (seconds):",
@@ -371,7 +372,9 @@
       "debug_headers": "Log response headers",
       "filename_template": "Filename template",
       "batch_count": "Default image count",
-      "batch_delay": "Default interval (sec)"
+      "batch_delay": "Default interval (sec)",
+      "quick_counts_title": "Quick generation counts",
+      "quick_count_button": "Button {}:"
     },
     "resolution": {
       "title": "Resolution",

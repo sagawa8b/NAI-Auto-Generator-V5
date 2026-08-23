@@ -146,6 +146,7 @@
       "count_10": "10枚",
       "count_50": "50枚",
       "count_100": "100枚",
+      "count_n": "{}枚",
       "count_label": "生成回数:",
       "count_unlimited": "(-1 = 無制限)",
       "delay_label": "生成間隔(秒):",
@@ -380,7 +381,9 @@
       "debug_headers": "レスポンスヘッダーを記録",
       "filename_template": "ファイル名の形式",
       "batch_count": "既定の生成枚数",
-      "batch_delay": "既定の生成間隔(秒)"
+      "batch_delay": "既定の生成間隔(秒)",
+      "quick_counts_title": "Quick Generation 枚数",
+      "quick_count_button": "{}番ボタン:"
     },
     "resolution": {
       "title": "解像度",

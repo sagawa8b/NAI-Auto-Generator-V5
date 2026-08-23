@@ -99,6 +99,7 @@ OWNED_FIELDS: tuple[str, ...] = (
     "measure_credit",
     "batch.count",
     "batch.delay_seconds",
+    "batch.quick_counts",
     "resolution",
     "ui",
 )
@@ -317,7 +318,10 @@ class OptionsDialog(QDialog):
         """위반 항목이 있는 페이지로 전환하고 "{항목}: {메시지}" 목록을 보여 준다 (Req 1.7)."""
         tr = self._i18n.get_text
         self.select_page(issues[0].page)
-        lines = [f"{tr(issue.field_key)}: {tr(issue.message_key, *issue.args)}" for issue in issues]
+        lines = [
+            f"{tr(issue.field_key, *issue.field_args)}: {tr(issue.message_key, *issue.args)}"
+            for issue in issues
+        ]
         QMessageBox.warning(self, tr("validation.title"), "\n".join(lines))
 
     def _apply_side_effects(self, changed: tuple[str, ...]) -> None:

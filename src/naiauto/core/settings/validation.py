@@ -20,6 +20,7 @@ from .schema import AppSettings
 __all__ = [
     "BATCH_COUNT_RANGE",
     "BATCH_DELAY_RANGE",
+    "QUICK_COUNT_RANGE",
     "OptionIssue",
     "PAGE_FILENAME",
     "PAGE_GENERATION",
@@ -37,6 +38,8 @@ PAGE_RESOLUTION = "resolution"
 WORD_LIMIT_RANGE: tuple[int, int] = (1, 100)
 BATCH_COUNT_RANGE: tuple[int, int] = (0, 99999)
 BATCH_DELAY_RANGE: tuple[float, float] = (0.0, 3600.0)
+#: 퀵 매수 버튼 값. 0(무한)은 버튼으로 의미가 없어 1부터 받는다.
+QUICK_COUNT_RANGE: tuple[int, int] = (1, 99999)
 
 # 알려진 토큰 판정은 `core.metadata.save.has_known_token`이 유일한 구현이다 (TOKEN_NAMES와 같은
 # 목록을 두 번 적지 않기 위해 그대로 재수출한다). save.py는 stdlib만 쓰므로 Qt-free가 유지된다.
@@ -49,14 +52,16 @@ class OptionIssue:
     page: str  # NAV_ORDER의 키 — 어느 Options_Page로 전환할지
     field_key: str  # 항목 이름 i18n 키
     message_key: str  # 메시지 i18n 키
-    args: tuple[object, ...] = ()  # 허용 범위 등 포맷 인자
+    args: tuple[object, ...] = ()  # 허용 범위 등 메시지 포맷 인자
+    field_args: tuple[object, ...] = ()  # 항목 이름 포맷 인자 (예: 퀵 버튼 번호)
 
 
 def validate_options(settings: AppSettings) -> tuple[OptionIssue, ...]:
     """옵션 다이얼로그가 다루는 모든 값을 검사한다. 순서는 NAV_ORDER를 따른다.
 
     filename 페이지: 템플릿 비어 있음 / 토큰 없음 / 단어 수 제한 1–100
-    generation 페이지: batch.count 0–99999 / batch.delay_seconds 0–3600
+    generation 페이지: batch.count 0–99999 / batch.delay_seconds 0–3600 /
+                       batch.quick_counts 각 1–99999
     resolution 페이지: 활성 커스텀 행의 width/height 64–2048 & 64의 배수
     """
     issues: list[OptionIssue] = []
@@ -98,6 +103,18 @@ def _validate_generation(settings: AppSettings) -> list[OptionIssue]:
         issues.append(
             OptionIssue(PAGE_GENERATION, "options.batch_delay", "options.err_range", (delay_low, delay_high))
         )
+    quick_low, quick_high = QUICK_COUNT_RANGE
+    for index, value in enumerate(settings.batch.quick_counts, start=1):
+        if not quick_low <= value <= quick_high:
+            issues.append(
+                OptionIssue(
+                    PAGE_GENERATION,
+                    "options.quick_count_button",
+                    "options.err_range",
+                    (quick_low, quick_high),
+                    field_args=(index,),
+                )
+            )
     return issues
 
 

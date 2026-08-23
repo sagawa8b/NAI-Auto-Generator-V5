@@ -25,6 +25,8 @@ NovelAI Diffusion **V5** 이미지 생성을 자동화하는 데스크톱 앱입
 - **🎨 V5 전용** — `nai-diffusion-5-full` / `nai-diffusion-5-curated`
 - **🔁 연속 생성** — 매수(0 = 무한)와 간격을 정해 두고 자동 생성.
   레이트리밋은 `Retry-After`를 지켜 대기하고, 일시적 오류는 5 → 10 → 20초 백오프로 재시도합니다
+- **⚡ 퀵 매수 버튼** — 생성 바의 `5장 / 10장 / 30장 / 200장`을 누르면 그 매수로 바로 시작합니다.
+  버튼 값은 옵션 → 생성에서 바꿉니다
 - **👥 캐릭터 프롬프트** — 캐릭터마다 프롬프트·네거티브를 따로 쓰고,
   생성 해상도 비율 캔버스에서 마커를 끌어 위치를 지정합니다 (AI 자동 배치도 선택 가능)
 - **🏷 태그 자동완성** — Danbooru 태그 DB가 **내장**되어 설정 없이 바로 동작합니다.
@@ -108,6 +110,8 @@ wildcards and prompt tooling that the web interface does not provide.
 - **V5 only** — `nai-diffusion-5-full` / `nai-diffusion-5-curated`
 - **Batch generation** with count (0 = unlimited) and interval; honours `Retry-After` on rate limits
   and retries transient failures with 5 → 10 → 20 s backoff
+- **Quick count buttons** — one click on `5 / 10 / 30 / 200 images` starts a batch of that size;
+  the four values are configurable in Options → Generation
 - **Character prompts** — per-character prompt/negative, positions dragged on a canvas that matches
   the target aspect ratio (or left to the model)
 - **Tag autocomplete** — Danbooru tag database **bundled**, works out of the box, preserves weight
