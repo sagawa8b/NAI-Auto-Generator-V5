@@ -50,6 +50,7 @@ from ..core.logging_setup import configure_logging, crash_log_path, log_path
 from ..core.metadata.reuse import ReusableSettings
 from ..core.presets import GenerationPreset, PresetStore
 from ..core.resolution_catalog import ResolutionCatalog
+from ..core.settings import credentials
 from ..core.settings.schema import APP_NAME, QUICK_COUNT_SLOTS, AppSettings, CharacterPromptState
 from ..core.settings.store import ensure_dirs
 from ..core.tag_completer import TagCompleter, resolve_database_path
@@ -67,6 +68,7 @@ from ..services.generation_service import GenerationJob, GenerationService
 from .gallery_view import GalleryView
 from .image_info_dialog import ImageInfoDialog
 from .log_dialog import LogDialog
+from .login_dialog import LoginDialog
 from .options_dialog import OptionsDialog
 from .preset_manager_dialog import PresetManagerDialog
 from .qt_bridge import QtEventBridge
@@ -144,6 +146,10 @@ class MainWindow(QMainWindow):
 
         # M3: Preset Store — named parameter snapshots (경로는 옵션에서 바꿀 수 있다, Req 2.5)
         self._preset_store = PresetStore(Path(settings.presets_dir))
+
+        #: 로그인 상태. 생성 버튼 활성 조건에 `_is_running`과 함께 들어간다.
+        #: 실제 값은 창을 띄운 쪽이 `set_logged_in()`으로 정해 준다.
+        self._logged_in = client.session.is_logged_in()
 
         self._build_ui()
         self._setup_m3_components()
@@ -285,6 +291,7 @@ class MainWindow(QMainWindow):
         self.usage_bar.setTextVisible(False)
         self.usage_bar.setFixedSize(110, 12)
         self.anlas_label = QLabel()
+        self.login_label = QLabel()  # 로그인 상태 (V4의 label_loginstate 대응)
 
         # M3: CreditEstimator gauge — "X% (~N images)" display
         self._credit_gauge = StatusBarGauge(self._credit_estimator)
@@ -295,10 +302,15 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self.usage_label)
         self.statusBar().addPermanentWidget(self.usage_bar)
         self.statusBar().addPermanentWidget(self.anlas_label)
+        self.statusBar().addPermanentWidget(self.login_label)
         self._show_usage(None)
 
         # 메뉴: 파일 / 보기 / 언어
         self.file_menu = self.menuBar().addMenu("")
+        self.login_action = self.file_menu.addAction("")
+        self.login_action.setShortcut("Ctrl+I")  # V4와 같은 단축키
+        self.login_action.triggered.connect(self._on_open_login)
+        self.file_menu.addSeparator()
         self.image_info_action = self.file_menu.addAction("")
         self.image_info_action.triggered.connect(self._on_open_image_info)
 
@@ -815,7 +827,7 @@ class MainWindow(QMainWindow):
             button.setText(tr("generate_dialog.count_n", counts[index]) if has_value else "")
             button.setToolTip(hint if has_value else "")
             button.setVisible(has_value)
-            button.setEnabled(has_value and not self._is_running)
+            button.setEnabled(has_value and not self._is_running and self._logged_in)
 
     def _seed_value(self) -> int:
         try:
@@ -931,6 +943,72 @@ class MainWindow(QMainWindow):
         return dialog
 
     # ── 이미지 정보 (드래그&드롭 / 메뉴) ────────────────────
+
+    # ── 로그인 / 로그아웃 (V4식) ──────────────────────────
+
+    def _validate_token(self, token: str) -> None:
+        """토큰으로 로그인하고 실제 API를 한 번 호출해 유효성을 확인한다.
+
+        `login_with_token`은 형식만 보므로, 실제 호출이 실패하면 세션에 못 쓰는 토큰이
+        남는다. 그 상태로 두면 `is_logged_in()`이 참이 되어 로그인된 것처럼 보인다 —
+        실패하면 반드시 되돌린다. `app.main()`의 시작 시 자동 로그인도 같은 절차를 쓴다.
+        """
+        session = self._client.session
+        session.login_with_token(token)
+        try:
+            self._client.get_anlas()
+        except Exception:
+            session.logout()
+            raise
+
+    def _on_open_login(self) -> None:
+        """파일 → 로그인. 로그인 상태면 로그아웃 창을, 아니면 토큰 입력 창을 띄운다."""
+        session = self._client.session
+        dialog = LoginDialog(
+            self._i18n,
+            self._validate_token,
+            parent=self,
+            logged_in=session.is_logged_in(),
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        if dialog.logout_requested:
+            self._logout()
+            return
+
+        # 로그인 성공 (다이얼로그가 이미 검증했다)
+        if dialog.remember:
+            credentials.save_credential(credentials.TOKEN_KEY, dialog.token)
+        else:
+            credentials.delete_credential(credentials.TOKEN_KEY)
+        self.set_logged_in(True)
+
+    def _logout(self) -> None:
+        """세션과 저장된 토큰을 함께 지운다 — 다음 실행 때 다시 물어본다."""
+        tr = self._i18n.get_text
+        self._client.session.logout()
+        credentials.delete_credential(credentials.TOKEN_KEY)
+        self.set_logged_in(False)
+        QMessageBox.information(self, tr("dialogs.logout_complete_title"), tr("dialogs.logout_complete"))
+
+    def set_logged_in(self, logged_in: bool) -> None:
+        """로그인 상태를 반영한다 — 생성 버튼, 상태바, 잔액 표시.
+
+        창을 띄운 쪽(`app.main()`)도 시작 직후 이걸 한 번 부른다.
+        """
+        tr = self._i18n.get_text
+        self._logged_in = logged_in
+        self._refresh_generate_buttons()
+        self.login_label.setText(tr("statusbar.logged_in") if logged_in else tr("statusbar.before_login"))
+        if logged_in:
+            self.refresh_anlas()
+        else:
+            # 남은 잔액 표시가 로그아웃 후에도 떠 있으면 오해를 준다
+            self.anlas_label.clear()
+            self._show_usage(None)
+            self._credit_gauge.setVisible(False)
+            self.status_label.setText(tr("statusbar.before_login"))
 
     def _on_open_image_info(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -1093,9 +1171,14 @@ class MainWindow(QMainWindow):
 
     def _set_running(self, running: bool) -> None:
         self._is_running = running
-        self.once_button.setEnabled(not running)
-        self.auto_button.setEnabled(not running)
-        self.stop_button.setEnabled(running)
+        self._refresh_generate_buttons()
+
+    def _refresh_generate_buttons(self) -> None:
+        """생성 버튼 활성 조건은 두 가지다 — 실행 중이 아니고, 로그인되어 있을 것."""
+        can_start = not self._is_running and self._logged_in
+        self.once_button.setEnabled(can_start)
+        self.auto_button.setEnabled(can_start)
+        self.stop_button.setEnabled(self._is_running)
         self._refresh_quick_buttons()
 
     # ── 서비스 이벤트 (메인 스레드에서 수신) ──────────────
@@ -1302,6 +1385,10 @@ class MainWindow(QMainWindow):
         self.character_prompts.retranslate()
         self.image_source.retranslate()
         self.file_menu.setTitle(tr("menu.file"))
+        self.login_action.setText(tr("menu.login"))
+        self.login_label.setText(
+            tr("statusbar.logged_in") if self._logged_in else tr("statusbar.before_login")
+        )
         self.image_info_action.setText(tr("image_info.menu"))
         self.options_action.setText(tr("ui.options_menu"))
         self.view_menu.setTitle(tr("menu.view"))

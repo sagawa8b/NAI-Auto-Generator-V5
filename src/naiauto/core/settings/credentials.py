@@ -12,6 +12,9 @@ logger = logging.getLogger(__name__)
 
 _SERVICE = "NAI-Auto-V5"
 
+#: 영구 API 토큰을 저장하는 키. UI 쪽에서 이 이름으로 읽고 지운다.
+TOKEN_KEY = "api_token"
+
 try:
     import keyring
     import keyring.errors

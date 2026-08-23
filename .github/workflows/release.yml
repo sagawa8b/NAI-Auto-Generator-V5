@@ -74,21 +74,26 @@ jobs:
         shell: bash
         run: rm -f "dist/NAI-Auto-V5/NAI-Auto-V5-selftest.exe"
 
+      # 두 가지를 낸다: 폴더형 zip(빠른 실행)과 단일 exe(받아서 바로 실행).
       - name: 압축
         shell: bash
         run: |
           name="NAI-Auto-V5-v${version}-windows"
           [ -n "${release_tag}" ] || name="NAI-Auto-V5-${GITHUB_SHA::7}-windows"
           echo "zip_name=$name" >> "$GITHUB_ENV"
+          echo "onefile_name=$name-onefile.exe" >> "$GITHUB_ENV"
           7z a -tzip "$name.zip" ./dist/NAI-Auto-V5/*
-          ls -lh "$name.zip"
+          mv "dist/NAI-Auto-V5-onefile.exe" "$name-onefile.exe"
+          ls -lh "$name.zip" "$name-onefile.exe"
 
       - name: 아티팩트 업로드 (시험 빌드)
         if: env.release_tag == ''
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.zip_name }}
-          path: ${{ env.zip_name }}.zip
+          path: |
+            ${{ env.zip_name }}.zip
+            ${{ env.onefile_name }}
 
       # 태그가 아직 없으면 이 커밋에 새로 단다 (dispatch 경로).
       - name: 릴리스 생성
@@ -96,12 +101,19 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.release_tag }}
-          files: ${{ env.zip_name }}.zip
+          files: |
+            ${{ env.zip_name }}.zip
+            ${{ env.onefile_name }}
           generate_release_notes: true
           body: |
             ## 설치
 
-            아래 zip을 내려받아 압축을 풀고 `NAI-Auto-V5.exe`를 실행하세요. Python 설치는 필요 없습니다.
+            Python 설치는 필요 없습니다. 둘 중 편한 쪽을 받으세요.
+
+            | 파일 | 설명 |
+            |---|---|
+            | `...-windows.zip` | **권장.** 압축을 풀고 `NAI-Auto-V5.exe` 실행. 시작이 빠릅니다. 함께 나오는 `_internal` 폴더는 프로그램 파일이니 지우지 마세요. |
+            | `...-windows-onefile.exe` | 받아서 바로 실행. 대신 실행할 때마다 내용을 임시 폴더에 풀어 **시작이 5~10초 걸립니다.** |
 
             서명하지 않은 실행 파일이라 처음 실행할 때 Windows SmartScreen 경고가 뜹니다 —
             `추가 정보` → `실행`을 누르면 됩니다.

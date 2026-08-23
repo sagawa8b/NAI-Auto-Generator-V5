@@ -29,9 +29,6 @@ from .login_dialog import LoginDialog
 from .main_window import MainWindow
 from .qt_bridge import QtEventBridge
 
-TOKEN_CREDENTIAL_KEY = "api_token"
-
-
 _QT_LEVELS = {
     QtMsgType.QtDebugMsg: logging.DEBUG,
     QtMsgType.QtInfoMsg: logging.INFO,
@@ -88,12 +85,15 @@ def _emit(text: str) -> None:
 def selftest() -> int:
     """프로즌 빌드가 실제로 쓸 수 있는 상태인지 확인한다 (릴리스 워크플로가 호출).
 
-    PyInstaller로 묶으면 조용히 깨지기 쉬운 세 가지를 실행해 본다:
-    번들 리소스(언어 파일 4종·내장 태그 DB)와 keyring 백엔드. 어느 하나라도
-    빠지면 앱은 뜨지만 "자동완성이 안 되고 토큰이 저장 안 되는" 상태가 된다.
+    PyInstaller로 묶으면 조용히 깨지기 쉬운 것들을 실제로 실행해 본다: 번들
+    리소스(언어 파일 4종·내장 태그 DB), keyring 백엔드, 옵션 페이지 등록. 어느 하나라도
+    빠지면 앱은 뜨지만 "자동완성이 안 되고 토큰이 저장 안 되고 옵션 창이 빈" 상태가 된다.
+    셋 다 실제로 v0.1.0~v0.2.0 빌드에서 하나씩 터진 것들이다.
     """
     from ..core.settings import credentials
     from ..core.tag_completer import TagCompleter, bundled_database_path
+    from .options_dialog import NAV_ORDER
+    from .options_pages import registered_pages
 
     failures: list[str] = []
 
@@ -108,11 +108,19 @@ def selftest() -> int:
     if not credentials.is_available():
         failures.append("keyring 백엔드를 쓸 수 없다 (토큰이 저장되지 않는다)")
 
+    pages = registered_pages()
+    missing_pages = [key for key in NAV_ORDER if key not in pages]
+    if missing_pages:
+        failures.append(f"옵션 페이지 누락: {missing_pages} (옵션 창이 비어서 뜬다)")
+
     for line in failures:
         _emit(f"selftest FAIL: {line}")
     if failures:
         return 1
-    _emit(f"selftest OK — v{__version__}, 언어 {len(languages)}종, 태그 {completer.tag_count:,}개")
+    _emit(
+        f"selftest OK — v{__version__}, 언어 {len(languages)}종, "
+        f"태그 {completer.tag_count:,}개, 옵션 페이지 {len(NAV_ORDER)}종"
+    )
     return 0
 
 
@@ -145,32 +153,36 @@ def main() -> int:
 
     def validate_token(token: str) -> None:
         session.login_with_token(token)
-        client.get_anlas()  # 실제 API 호출로 토큰 유효성 확인
+        try:
+            client.get_anlas()  # 실제 API 호출로 토큰 유효성 확인
+        except Exception:
+            session.logout()  # 못 쓰는 토큰이 남아 로그인된 것처럼 보이면 안 된다
+            raise
 
-    # 저장된 토큰으로 자동 로그인 시도, 실패 시 다이얼로그
-    stored = credentials.load_credential(TOKEN_CREDENTIAL_KEY)
-    logged_in = False
+    # 저장된 토큰으로 자동 로그인 시도, 실패하거나 없으면 다이얼로그
+    stored = credentials.load_credential(credentials.TOKEN_KEY)
     if stored:
         try:
             validate_token(stored)
-            logged_in = True
         except Exception as e:
             logger.warning("stored token rejected: %s", e)
 
-    if not logged_in:
+    if not session.is_logged_in():
         dialog = LoginDialog(i18n, validate_token, initial_token=stored)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return 0
-        if dialog.remember:
-            credentials.save_credential(TOKEN_CREDENTIAL_KEY, dialog.token)
-        else:
-            credentials.delete_credential(TOKEN_CREDENTIAL_KEY)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            if dialog.remember:
+                credentials.save_credential(credentials.TOKEN_KEY, dialog.token)
+            else:
+                credentials.delete_credential(credentials.TOKEN_KEY)
+        # 취소해도 앱은 뜬다 (V4와 같다). 로그아웃 상태로 시작하고,
+        # 파일 → 로그인(Ctrl+I)으로 언제든 로그인할 수 있다.
 
     ensure_dirs(settings)
     bridge = QtEventBridge()
     service = build_service(client, settings, bridge)
 
     window = MainWindow(i18n, settings, client, service, bridge)
+    window.set_logged_in(session.is_logged_in())
     window.show()
 
     exit_code = app.exec()

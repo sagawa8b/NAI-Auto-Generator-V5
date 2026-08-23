@@ -1,9 +1,12 @@
 """Options_Dialog의 카테고리 페이지 — 공통 계약과 레지스트리.
 
 셸(`ui/options_dialog.py`)은 페이지 내부를 모른다. 페이지는 `OptionsPage`를 상속하고
-`@register_page`로 자신을 등록하며, 셸은 `discover_pages()` / `page_class(key)`로 KEY만 보고
-클래스를 찾는다. 셸이 7개 페이지 모듈을 하나씩 import하지 않아도 되도록, 발견은 이 패키지의
-서브모듈을 훑는 방식(`pkgutil.iter_modules`)으로 지연 수행한다 — 아직 없는 모듈은 그냥 없는 것이다.
+`@register_page`로 자신을 등록하며, 셸은 `page_class(key)`로 KEY만 보고 클래스를 찾는다.
+
+등록은 이 파일 끝의 **평범한 import 문**으로 일어난다. 예전에는 `pkgutil.iter_modules`로
+서브모듈을 훑었는데, 그러면 어느 코드도 페이지 모듈을 직접 import하지 않게 되어 PyInstaller의
+정적 분석이 이들을 보지 못하고 번들에서 통째로 빠졌다. 프로즌 빌드에서 레지스트리가 비고
+옵션 창이 빈 채로 떴다 (v0.2.0). 발견을 영리하게 만들 이유가 없으므로 import로 되돌렸다.
 
 드래프트 의미론: `load`는 드래프트 → 위젯, `commit`은 위젯 → 드래프트다. 페이지는 라이브
 `AppSettings`를 절대 만지지 않는다 (취소가 진짜 no-op이어야 한다 — Req 1.4, 1.6).
@@ -11,8 +14,6 @@
 
 from __future__ import annotations
 
-import importlib
-import pkgutil
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
@@ -60,7 +61,6 @@ class OptionsPage(QWidget):
 # ── 페이지 레지스트리 ─────────────────────────────────────
 
 _REGISTRY: dict[str, type[OptionsPage]] = {}
-_discovered = False
 
 
 def register_page(cls: type[OptionsPage]) -> type[OptionsPage]:
@@ -75,24 +75,19 @@ def register_page(cls: type[OptionsPage]) -> type[OptionsPage]:
     return cls
 
 
-def discover_pages() -> Mapping[str, type[OptionsPage]]:
-    """이 패키지의 서브모듈을 한 번씩 import해 레지스트리를 채우고 돌려준다."""
-    global _discovered
-    if not _discovered:
-        for info in pkgutil.iter_modules(__path__):
-            importlib.import_module(f"{__name__}.{info.name}")
-        _discovered = True
-    return dict(_REGISTRY)
-
-
 def registered_pages() -> Mapping[str, type[OptionsPage]]:
-    """이미 등록된 페이지만 (import를 유발하지 않는다)."""
+    """등록된 페이지 전부. 이 모듈을 import한 시점에 이미 다 채워져 있다."""
     return dict(_REGISTRY)
+
+
+def discover_pages() -> Mapping[str, type[OptionsPage]]:
+    """`registered_pages()`와 같다 — 발견 단계가 따로 없다."""
+    return registered_pages()
 
 
 def page_class(key: str) -> type[OptionsPage]:
     """KEY로 페이지 클래스를 찾는다. 없으면 `KeyError`."""
-    pages = discover_pages()
+    pages = registered_pages()
     try:
         return pages[key]
     except KeyError:
@@ -124,6 +119,17 @@ def open_in_file_manager(
         return False
     return True
 
+
+# 페이지 등록 — `register_page` 정의 뒤여야 하고, 정적 import여야 한다 (모듈 docstring 참고).
+from . import (  # noqa: E402
+    batch_page,  # noqa: F401
+    filename_page,  # noqa: F401
+    folders_page,  # noqa: F401
+    interface_page,  # noqa: F401
+    logging_page,  # noqa: F401
+    resolution_page,  # noqa: F401
+    tags_page,  # noqa: F401
+)
 
 __all__ = [
     "OptionsPage",

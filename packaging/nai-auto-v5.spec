@@ -86,3 +86,21 @@ COLLECT(
     upx=False,
     name=APP_NAME,
 )
+
+# 단일 파일 배포본 — 모든 것을 exe 하나에 담는다 (V4의 distribute.bat도 둘 다 만들었다).
+# 대가: 실행할 때마다 약 144MB를 %TEMP%에 풀어 시작이 5~10초 걸리고 백신 오탐도 잦다.
+# 그래서 폴더형이 기본이고 이건 "받아서 바로 실행" 편의용이다. 분석 결과를 재사용하므로
+# 빌드 시간은 1분 남짓만 늘어난다.
+exe_onefile = EXE(
+    pyz,
+    analysis.scripts,
+    analysis.binaries,
+    analysis.datas,
+    [],
+    name=f"{APP_NAME}-onefile",
+    debug=False,
+    strip=False,
+    upx=False,
+    console=False,
+    icon=str(SPEC_DIR / "app_icon.ico"),
+)
