@@ -65,6 +65,21 @@ def extract(version: str, text: str | None = None) -> str:
     return body
 
 
+def _write(stream, text: str) -> None:
+    """UTF-8 바이트로 직접 쓴다.
+
+    `print`는 stdout의 인코딩을 따르는데 Windows 러너는 cp1252라, 패치 노트의 이모지에서
+    UnicodeEncodeError로 죽었다. 릴리스 본문은 UTF-8 마크다운이어야 하므로 이스케이프로
+    낮추지 않고 바이트를 그대로 쓴다.
+    """
+    buffer = getattr(stream, "buffer", None)
+    if buffer is None:  # 실제 파이프가 아닌 곳 (pytest의 capsys 등)
+        stream.write(text + "\n")
+        return
+    buffer.write(text.encode("utf-8") + b"\n")
+    buffer.flush()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="PATCHNOTES.md에서 한 버전의 절을 뽑는다")
     parser.add_argument("version", nargs="?", help="예: v0.2.2 (생략하면 naiauto.__version__)")
@@ -78,10 +93,11 @@ def main() -> int:
         version = f"v{__version__}"
 
     try:
-        print(extract(version))
+        body = extract(version)
     except KeyError:
-        print(f"PATCHNOTES.md에 {version} 절이 없습니다 — 릴리스 전에 추가하세요.", file=sys.stderr)
+        _write(sys.stderr, f"PATCHNOTES.md에 {version} 절이 없습니다 — 릴리스 전에 추가하세요.")
         return 1
+    _write(sys.stdout, body)
     return 0
 
 

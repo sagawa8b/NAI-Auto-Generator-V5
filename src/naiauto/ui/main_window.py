@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Callable
 from pathlib import Path
 
 import platformdirs
-from PySide6.QtCore import Qt, QUrl, Signal
+import shiboken6
+from PySide6.QtCore import Qt, QUrl, Signal, SignalInstance
 from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -1270,12 +1272,9 @@ class MainWindow(QMainWindow):
 
         def fetch() -> None:
             release = check_for_update(__version__)
-            try:
-                self._update_checked.emit(release, manual)
-            except RuntimeError:
-                pass  # 확인이 끝나기 전에 창이 닫혔다 — 알릴 곳이 없으면 그냥 버린다
+            self._emit_safely(self._update_checked, release, manual)
 
-        threading.Thread(target=fetch, name="naiauto-updates", daemon=True).start()
+        self._run_in_background(fetch, "naiauto-updates")
 
     def _on_update_checked(self, release: object, manual: bool) -> None:
         tr = self._i18n.get_text
@@ -1299,14 +1298,36 @@ class MainWindow(QMainWindow):
 
     # ── Anlas (백그라운드 조회) ───────────────────────────
 
+    def _run_in_background(self, fn: Callable[[], None], name: str) -> None:
+        """조회를 백그라운드에서 돌린다 (UI를 막지 않기 위해).
+
+        모든 백그라운드 조회가 이 한 곳을 지난다. 테스트는 이 메서드를 동기 실행으로
+        바꿔 끼워, 창이 사라진 뒤 스레드가 시그널을 쏘는 경합을 아예 없앤다.
+        """
+        threading.Thread(target=fn, name=name, daemon=True).start()
+
+    def _emit_safely(self, signal: SignalInstance, *args: object) -> None:
+        """창이 아직 살아 있을 때만 시그널을 쏜다.
+
+        조회가 끝나기 전에 창이 닫히면 알릴 곳이 없다. 파괴된 위젯에 emit하면 파이썬
+        예외가 아니라 **세그폴트**가 나므로(CI에서 실제로 겪었다), 파이썬 쪽에서 먼저 막는다.
+        """
+        if not shiboken6.isValid(self):
+            return
+        try:
+            signal.emit(*args)
+        except RuntimeError:
+            pass  # isValid 확인과 emit 사이에 닫힌 경우
+
     def refresh_anlas(self) -> None:
         def fetch() -> None:
             try:
-                self._anlas_fetched.emit(self._client.get_anlas())
+                result = self._client.get_anlas()
             except Exception as e:
-                self._anlas_fetched.emit(e)
+                result = e
+            self._emit_safely(self._anlas_fetched, result)
 
-        threading.Thread(target=fetch, name="naiauto-anlas", daemon=True).start()
+        self._run_in_background(fetch, "naiauto-anlas")
 
     def _on_anlas_fetched(self, result: object) -> None:
         """보유 Anlas를 그대로 표시한다.
