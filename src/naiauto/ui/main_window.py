@@ -149,13 +149,16 @@ class MainWindow(QMainWindow):
 
         #: 로그인 상태. 생성 버튼 활성 조건에 `_is_running`과 함께 들어간다.
         #: 실제 값은 창을 띄운 쪽이 `set_logged_in()`으로 정해 준다.
-        self._logged_in = client.session.is_logged_in()
+        self._logged_in = client.session.is_logged_in
 
         self._build_ui()
         self._setup_m3_components()
         self._populate_models()
         self._apply_settings()
         self.retranslate()
+        # 창 스스로 로그인 상태와 버튼을 맞춰 둔다. 호출한 쪽이 set_logged_in()을
+        # 부르지 않아도 어긋나지 않게 (로그아웃 상태로 뜰 수 있다).
+        self._refresh_generate_buttons()
         self.refresh_anlas()
         if settings.check_updates_on_start:
             self.check_for_updates(manual=False)
@@ -950,7 +953,7 @@ class MainWindow(QMainWindow):
         """토큰으로 로그인하고 실제 API를 한 번 호출해 유효성을 확인한다.
 
         `login_with_token`은 형식만 보므로, 실제 호출이 실패하면 세션에 못 쓰는 토큰이
-        남는다. 그 상태로 두면 `is_logged_in()`이 참이 되어 로그인된 것처럼 보인다 —
+        남는다. 그 상태로 두면 `is_logged_in`이 참이 되어 로그인된 것처럼 보인다 —
         실패하면 반드시 되돌린다. `app.main()`의 시작 시 자동 로그인도 같은 절차를 쓴다.
         """
         session = self._client.session
@@ -968,7 +971,7 @@ class MainWindow(QMainWindow):
             self._i18n,
             self._validate_token,
             parent=self,
-            logged_in=session.is_logged_in(),
+            logged_in=session.is_logged_in,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return

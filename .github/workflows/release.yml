@@ -70,6 +70,16 @@ jobs:
           echo "$output"
           grep -q "selftest OK" <<<"$output"
 
+      # 창을 실제로 세워 본다. --selftest는 리소스만 보므로, 시작하다 죽는 실수를
+      # 잡지 못했다 (v0.2.1이 프로퍼티를 함수처럼 불러 뜨자마자 죽은 채 릴리스됐다).
+      - name: 스모크테스트 (창 생성 · 옵션 창)
+        shell: bash
+        timeout-minutes: 3
+        run: |
+          output=$(./dist/NAI-Auto-V5/NAI-Auto-V5-selftest.exe --smoketest)
+          echo "$output"
+          grep -q "smoketest OK" <<<"$output"
+
       - name: 셀프테스트 실행 파일 제거 (배포본에는 넣지 않는다)
         shell: bash
         run: rm -f "dist/NAI-Auto-V5/NAI-Auto-V5-selftest.exe"

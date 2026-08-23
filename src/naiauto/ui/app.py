@@ -7,7 +7,9 @@ import-time 부작용 없음: 모든 초기화는 main() 안에서만 일어난�
 from __future__ import annotations
 
 import logging
+import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import platformdirs
@@ -124,6 +126,86 @@ def selftest() -> int:
     return 0
 
 
+def smoketest() -> int:
+    """프로즌 빌드에서 창이 실제로 뜨는지 (릴리스 워크플로가 --selftest 다음에 호출).
+
+    `--selftest`는 리소스와 등록 상태만 본다. 창을 세우는 도중 죽는 실수는 잡지 못했다 —
+    v0.2.1이 프로퍼티를 함수처럼 불러 시작하자마자 TypeError로 죽은 채 릴리스됐다.
+    여기서는 로그아웃 상태로 메인 윈도우를 실제로 만들고 이벤트 루프를 한 바퀴 돌린다.
+
+    화면이 없는 러너에서 돌아야 하므로 offscreen 플랫폼을 강제한다.
+    """
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+    from .options_dialog import NAV_ORDER, OptionsDialog
+
+    settings = AppSettings()
+    settings.check_updates_on_start = False  # 네트워크 없이도 끝나야 한다
+
+    qt_app = QApplication.instance() or QApplication([])
+    session = NAISession()
+    client = NAIClient(session)
+    bridge = QtEventBridge()
+    service = build_service(client, settings, bridge)
+
+    window = MainWindow(I18nManager(language="ko"), settings, client, service, bridge)
+    window.show()
+    qt_app.processEvents()
+
+    failures: list[str] = []
+    if window.once_button.isEnabled():
+        failures.append("로그아웃 상태인데 생성 버튼이 열려 있다")
+    if not window.login_action.isEnabled():
+        failures.append("로그인 메뉴가 비활성이다 (로그인할 방법이 없다)")
+
+    dialog = OptionsDialog(window._i18n, settings, parent=window)
+    if dialog._nav.count() != len(NAV_ORDER):
+        failures.append(f"옵션 창 항목 {dialog._nav.count()}개 (기대 {len(NAV_ORDER)}개)")
+    dialog.close()
+
+    window.close()
+    service.shutdown()
+
+    for line in failures:
+        _emit(f"smoketest FAIL: {line}")
+    if failures:
+        return 1
+    _emit(f"smoketest OK — 창 생성, 옵션 {len(NAV_ORDER)}종, 로그아웃 상태 반영")
+    return 0
+
+
+def ensure_login(
+    session: NAISession,
+    i18n: I18nManager,
+    validate: Callable[[str], None],
+) -> None:
+    """시작 시 로그인 — 저장된 토큰을 먼저 써 보고, 안 되면 다이얼로그를 띄운다.
+
+    `main()`에서 떼어낸 이유: 시작 경로가 테스트되지 않아 프로퍼티를 함수처럼 부르는
+    실수가 그대로 릴리스까지 나갔다 (v0.2.1의 `TypeError: 'bool' object is not callable`).
+
+    취소해도 예외를 내지 않는다 — 앱은 로그아웃 상태로 뜨고, 파일 → 로그인(Ctrl+I)으로
+    언제든 로그인할 수 있다 (V4와 같다).
+    """
+    stored = credentials.load_credential(credentials.TOKEN_KEY)
+    if stored:
+        try:
+            validate(stored)
+        except Exception as e:
+            logging.getLogger(__name__).warning("stored token rejected: %s", e)
+
+    if session.is_logged_in:
+        return
+
+    dialog = LoginDialog(i18n, validate, initial_token=stored)
+    if dialog.exec() != QDialog.DialogCode.Accepted:
+        return
+    if dialog.remember:
+        credentials.save_credential(credentials.TOKEN_KEY, dialog.token)
+    else:
+        credentials.delete_credential(credentials.TOKEN_KEY)
+
+
 def main() -> int:
     # QApplication을 만들기 전에 처리해야 하는 인자들 (화면 없는 환경에서도 동작)
     if "--version" in sys.argv[1:]:
@@ -131,6 +213,8 @@ def main() -> int:
         return 0
     if "--selftest" in sys.argv[1:]:
         return selftest()
+    if "--smoketest" in sys.argv[1:]:
+        return smoketest()
 
     settings = load_settings()
     configure_logging(log_dir(), debug=settings.debug_logging)
@@ -159,30 +243,14 @@ def main() -> int:
             session.logout()  # 못 쓰는 토큰이 남아 로그인된 것처럼 보이면 안 된다
             raise
 
-    # 저장된 토큰으로 자동 로그인 시도, 실패하거나 없으면 다이얼로그
-    stored = credentials.load_credential(credentials.TOKEN_KEY)
-    if stored:
-        try:
-            validate_token(stored)
-        except Exception as e:
-            logger.warning("stored token rejected: %s", e)
-
-    if not session.is_logged_in():
-        dialog = LoginDialog(i18n, validate_token, initial_token=stored)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            if dialog.remember:
-                credentials.save_credential(credentials.TOKEN_KEY, dialog.token)
-            else:
-                credentials.delete_credential(credentials.TOKEN_KEY)
-        # 취소해도 앱은 뜬다 (V4와 같다). 로그아웃 상태로 시작하고,
-        # 파일 → 로그인(Ctrl+I)으로 언제든 로그인할 수 있다.
+    ensure_login(session, i18n, validate_token)
 
     ensure_dirs(settings)
     bridge = QtEventBridge()
     service = build_service(client, settings, bridge)
 
     window = MainWindow(i18n, settings, client, service, bridge)
-    window.set_logged_in(session.is_logged_in())
+    window.set_logged_in(session.is_logged_in)
     window.show()
 
     exit_code = app.exec()
