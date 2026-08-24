@@ -162,7 +162,8 @@
       "change_save_dir": "Change Save Folder...",
       "save_dir_label": "Save to:",
       "choose_save_dir": "Choose a folder for generated images",
-      "open_failed": "Could not open folder: {}"
+      "open_failed": "Could not open folder: {}",
+      "presets": "Presets Folder"
     },
     "enhance": {
       "title": "Image Enhance",
@@ -466,7 +467,8 @@
       "apply_seed": "Seed",
       "apply_model": "Model",
       "apply_characters": "Characters",
-      "nothing_to_apply": "No items selected to apply."
+      "nothing_to_apply": "No items selected to apply.",
+      "empty": "No images available"
     },
     "artist_combo": {
       "title": "Artist Prompt Combination",

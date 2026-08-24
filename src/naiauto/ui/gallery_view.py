@@ -36,6 +36,7 @@ from PySide6.QtGui import QAction, QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QDialog,
     QLabel,
     QListView,
     QMenu,
@@ -232,8 +233,13 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "?")
 
 
-class GalleryView(QWidget):
+class GalleryView(QDialog):
     """Scrollable thumbnail grid with metadata inspection.
+
+    `QDialog`인 이유: 부모(메인 윈도우)를 가진 `QWidget`을 `show()`하면 창이 아니라
+    **자식 위젯**으로 메인 윈도우 안에 그려진다. 제목표시줄도 닫기 버튼도 없어 닫을
+    방법이 없는 흰 사각형이 되어 버렸다 (v0.2.3). 프로젝트의 다른 창들과 같이 QDialog로
+    두면 창 장식과 Esc 닫기가 따라온다. 모달은 아니다 — 생성 중에도 계속 떠 있어야 한다.
 
     Requirements 5.1–5.9 구현:
       - 150×150 스크롤 썸네일 그리드
@@ -286,7 +292,7 @@ class GalleryView(QWidget):
         self._view.clicked.connect(self._on_thumbnail_clicked)
 
         # Empty-directory placeholder label (Requirement 5.8)
-        self._placeholder = QLabel("No images available", self)
+        self._placeholder = QLabel(i18n.get_text("gallery.empty"), self)
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._placeholder.setStyleSheet("color: gray; font-size: 14px;")
         self._placeholder.setVisible(False)

@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__
+from ..core import settings_file
 from ..core.api.client import NAIClient
 from ..core.api.model_specs import MODEL_REGISTRY, ModelSpec, get_spec
 from ..core.api.models import CharacterCaption, GenerationRequest
@@ -50,7 +51,7 @@ from ..core.credit_estimator import CreditEstimator
 from ..core.i18n.manager import I18nManager
 from ..core.logging_setup import configure_logging, crash_log_path, log_path
 from ..core.metadata.reuse import ReusableSettings
-from ..core.presets import GenerationPreset, PresetStore
+from ..core.presets import GenerationPreset, PresetError, PresetStore
 from ..core.resolution_catalog import ResolutionCatalog
 from ..core.settings import credentials
 from ..core.settings.schema import APP_NAME, QUICK_COUNT_SLOTS, AppSettings, CharacterPromptState
@@ -72,6 +73,7 @@ from .image_info_dialog import ImageInfoDialog
 from .log_dialog import LogDialog
 from .login_dialog import LoginDialog
 from .options_dialog import OptionsDialog
+from .options_pages import open_in_file_manager
 from .preset_manager_dialog import PresetManagerDialog
 from .qt_bridge import QtEventBridge
 from .tag_completer_dropdown import TagCompleterDropdown
@@ -217,6 +219,11 @@ class MainWindow(QMainWindow):
         self.cfg_spin = QDoubleSpinBox()
         self.cfg_spin.setRange(0.0, 30.0)
         self.cfg_spin.setSingleStep(0.1)
+        # Prompt Guidance Rescale — 범위는 core/validation.py의 ParamSpec과 맞춘다
+        self.rescale_spin = QDoubleSpinBox()
+        self.rescale_spin.setRange(0.0, 1.0)
+        self.rescale_spin.setSingleStep(0.05)
+        self.rescale_spin.setDecimals(2)
         self.uc_preset_combo = QComboBox()
         self.quality_check = QCheckBox()
         self.quality_check.setChecked(True)
@@ -235,12 +242,14 @@ class MainWindow(QMainWindow):
         self.scheduler_label = QLabel()
         self.steps_label = QLabel()
         self.cfg_label = QLabel()
+        self.rescale_label = QLabel()
         self.seed_label = QLabel()
         self.uc_preset_label = QLabel()
         form.addRow(self.sampler_label, self.sampler_combo)
         form.addRow(self.scheduler_label, self.scheduler_combo)
         form.addRow(self.steps_label, self.steps_spin)
         form.addRow(self.cfg_label, self.cfg_spin)
+        form.addRow(self.rescale_label, self.rescale_spin)
         form.addRow(self.seed_label, seed_row)
         form.addRow(self.uc_preset_label, self.uc_preset_combo)
         form.addRow(self.quality_check)
@@ -319,6 +328,16 @@ class MainWindow(QMainWindow):
         self.image_info_action = self.file_menu.addAction("")
         self.image_info_action.triggered.connect(self._on_open_image_info)
 
+        # 설정 파일 저장/불러오기 (V4의 Ctrl+S). V4는 불러오기가 Ctrl+L이었지만
+        # V5에서 Ctrl+L은 로그 보기라 Ctrl+O를 쓴다.
+        self.file_menu.addSeparator()
+        self.save_settings_action = self.file_menu.addAction("")
+        self.save_settings_action.setShortcut("Ctrl+S")
+        self.save_settings_action.triggered.connect(self._on_save_settings_file)
+        self.load_settings_action = self.file_menu.addAction("")
+        self.load_settings_action.setShortcut("Ctrl+O")
+        self.load_settings_action.triggered.connect(self._on_load_settings_file)
+
         # 설정 진입점은 여기 하나뿐이다 (Req 1.1)
         self.file_menu.addSeparator()
         self.options_action = self.file_menu.addAction("")
@@ -371,6 +390,18 @@ class MainWindow(QMainWindow):
         self.presets_action = self.tools_menu.addAction("")
         self.presets_action.setShortcut("Ctrl+P")
         self.presets_action.triggered.connect(self._on_open_presets)
+
+        # 폴더 — 자주 여는 세 곳을 바로 연다 (V4와 같은 단축키: F5/F6/F7)
+        self.folders_menu = self.menuBar().addMenu("")
+        self.open_results_action = self.folders_menu.addAction("")
+        self.open_results_action.setShortcut("F5")
+        self.open_results_action.triggered.connect(lambda: self._open_folder("save_dir"))
+        self.open_wildcards_action = self.folders_menu.addAction("")
+        self.open_wildcards_action.setShortcut("F6")
+        self.open_wildcards_action.triggered.connect(lambda: self._open_folder("wildcards_dir"))
+        self.open_presets_action = self.folders_menu.addAction("")
+        self.open_presets_action.setShortcut("F7")
+        self.open_presets_action.triggered.connect(lambda: self._open_folder("presets_dir"))
 
         # 기타 — 새 버전 확인 (릴리스 zip으로 배포하므로 앱이 대신 알려 준다)
         self.etc_menu = self.menuBar().addMenu("")
@@ -496,6 +527,16 @@ class MainWindow(QMainWindow):
         """네거티브 입력창에 붙은 드롭다운 (없으면 None)."""
         return self._completer_dropdowns.get(self.negative_edit)
 
+    # ── 폴더 열기 ────────────────────────────────────────
+
+    def _open_folder(self, field: str) -> None:
+        """설정의 경로 필드 하나를 OS 파일 탐색기로 연다 (F5/F6/F7).
+
+        옵션 → 폴더에서 쓰는 것과 같은 헬퍼를 재사용한다 — 폴더가 없으면 만들고,
+        열지 못하면 경고를 띄운다.
+        """
+        open_in_file_manager(getattr(self._settings, field), self._i18n.get_text, parent=self)
+
     # ── M3: Gallery View ─────────────────────────────────
 
     def _on_open_gallery(self) -> None:
@@ -558,6 +599,53 @@ class MainWindow(QMainWindow):
         current = target.toPlainText()
         target.setPlainText(append_tags_to_prompt(current, tags))
 
+    # ── 설정 파일 저장 / 불러오기 (V4 방식) ────────────────
+
+    _SETTINGS_FILE_FILTER = "설정 파일 (*.json *.txt);;모든 파일 (*)"
+
+    def _on_save_settings_file(self) -> None:
+        """현재 생성 설정을 파일 하나로 저장한다 (Ctrl+S)."""
+        tr = self._i18n.get_text
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            tr("menu.save_settings"),
+            str(Path(self._settings.presets_dir) / "settings.json"),
+            self._SETTINGS_FILE_FILTER,
+        )
+        if not path:
+            return
+        seed = None if self.seed_random_check.isChecked() else self._seed_value()
+        try:
+            settings_file.save(Path(path), self._get_current_preset_config(), seed)
+        except OSError as e:
+            QMessageBox.warning(self, tr("errors.title"), f"{tr('menu.save_settings')}\n\n{e}")
+            return
+        self.status_label.setText(tr("menu.save_settings"))
+
+    def _on_load_settings_file(self) -> None:
+        """파일에서 생성 설정을 불러온다 (Ctrl+O). V4가 저장한 .txt도 읽는다."""
+        tr = self._i18n.get_text
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            tr("menu.load_settings"),
+            self._settings.presets_dir,
+            self._SETTINGS_FILE_FILTER,
+        )
+        if not path:
+            return
+
+        spec = get_spec(self.model_combo.currentData())
+        try:
+            loaded = settings_file.load(Path(path), defaults=dict(spec.defaults))
+        except PresetError as e:
+            QMessageBox.warning(self, tr("errors.title"), str(e))
+            return
+
+        self._on_preset_loaded(loaded.preset)
+        if loaded.seed is not None:
+            self.seed_random_check.setChecked(False)
+            self.seed_edit.setText(str(loaded.seed))
+
     # ── M3: Presets ──────────────────────────────────────
 
     def _on_open_presets(self) -> None:
@@ -581,7 +669,7 @@ class MainWindow(QMainWindow):
             height=size[1],
             steps=self.steps_spin.value(),
             cfg_scale=self.cfg_spin.value(),
-            cfg_rescale=float(spec.defaults.get("cfg_rescale", 0.0)),
+            cfg_rescale=self.rescale_spin.value(),
             sampler=self.sampler_combo.currentText(),
             scheduler=self.scheduler_combo.currentText(),
             quality_tags=self.quality_check.isChecked(),
@@ -615,6 +703,7 @@ class MainWindow(QMainWindow):
         # Numeric fields
         self.steps_spin.setValue(preset.steps)
         self.cfg_spin.setValue(preset.cfg_scale)
+        self.rescale_spin.setValue(preset.cfg_rescale)
 
         # UC preset / quality tags
         uc_idx = self.uc_preset_combo.findData(preset.uc_preset)
@@ -747,6 +836,7 @@ class MainWindow(QMainWindow):
         self.scheduler_combo.setCurrentText(str(defaults.get("scheduler", "")))
         self.steps_spin.setValue(int(defaults.get("steps", 28)))
         self.cfg_spin.setValue(float(defaults.get("cfg_scale", 5.0)))
+        self.rescale_spin.setValue(float(defaults.get("cfg_rescale", 0.0)))
 
     # ── 설정 적용/수집 ────────────────────────────────────
 
@@ -760,6 +850,7 @@ class MainWindow(QMainWindow):
             self.sampler_combo.setCurrentText(g.sampler)
         self.steps_spin.setValue(g.steps)
         self.cfg_spin.setValue(g.cfg_scale)
+        self.rescale_spin.setValue(g.cfg_rescale)
         self.quality_check.setChecked(g.quality_tags)
         uc_idx = self.uc_preset_combo.findData(g.uc_preset)
         if uc_idx >= 0:
@@ -805,6 +896,7 @@ class MainWindow(QMainWindow):
         g.scheduler = self.scheduler_combo.currentText()
         g.steps = self.steps_spin.value()
         g.cfg_scale = self.cfg_spin.value()
+        g.cfg_rescale = self.rescale_spin.value()
         g.quality_tags = self.quality_check.isChecked()
         g.uc_preset = self.uc_preset_combo.currentData() or "heavy"
         g.seed = -1 if self.seed_random_check.isChecked() else self._seed_value()
@@ -886,6 +978,7 @@ class MainWindow(QMainWindow):
         for signal in (
             self.steps_spin.valueChanged,
             self.cfg_spin.valueChanged,
+            self.rescale_spin.valueChanged,
             self.sampler_combo.currentTextChanged,
             self.seed_random_check.toggled,
             self.seed_edit.textChanged,
@@ -1050,6 +1143,8 @@ class MainWindow(QMainWindow):
             self.steps_spin.setValue(s.steps)
         if s.cfg_scale is not None:
             self.cfg_spin.setValue(s.cfg_scale)
+        if s.cfg_rescale is not None:
+            self.rescale_spin.setValue(s.cfg_rescale)
         if s.sampler is not None:
             index = self.sampler_combo.findText(s.sampler)
             if index >= 0:
@@ -1112,7 +1207,7 @@ class MainWindow(QMainWindow):
             seed=0 if randomize else self._seed_value(),
             steps=self.steps_spin.value(),
             cfg_scale=self.cfg_spin.value(),
-            cfg_rescale=float(spec.defaults.get("cfg_rescale", 0.0)),
+            cfg_rescale=self.rescale_spin.value(),
             sampler=self.sampler_combo.currentText(),
             scheduler=self.scheduler_combo.currentText(),
             model=spec.key,
@@ -1395,6 +1490,7 @@ class MainWindow(QMainWindow):
         self.scheduler_label.setText(tr("advanced.noise_schedule"))
         self.steps_label.setText(tr("image_options.steps"))
         self.cfg_label.setText(tr("advanced.prompt_guidance"))
+        self.rescale_label.setText(tr("advanced.prompt_guidance_rescale"))
         self.seed_label.setText(tr("image_options.seed"))
         self.seed_random_check.setText(tr("image_options.random"))
         self.uc_preset_label.setText(tr("ui.uc_preset"))
@@ -1414,6 +1510,8 @@ class MainWindow(QMainWindow):
             tr("statusbar.logged_in") if self._logged_in else tr("statusbar.before_login")
         )
         self.image_info_action.setText(tr("image_info.menu"))
+        self.save_settings_action.setText(tr("menu.save_settings"))
+        self.load_settings_action.setText(tr("menu.load_settings"))
         self.options_action.setText(tr("ui.options_menu"))
         self.view_menu.setTitle(tr("menu.view"))
         self.result_panel_action.setText(tr("menu.toggle_panel"))
@@ -1427,6 +1525,10 @@ class MainWindow(QMainWindow):
         self.wd14_action.setText(tr("menu.wd14_auto_tag"))
         self.presets_action.setText(tr("menu.presets"))
         self.gallery_action.setText(tr("menu.gallery_view"))
+        self.folders_menu.setTitle(tr("folders.title"))
+        self.open_results_action.setText(tr("folders.results"))
+        self.open_wildcards_action.setText(tr("folders.wildcards"))
+        self.open_presets_action.setText(tr("folders.presets"))
         self.etc_menu.setTitle(tr("menu.etc"))
         self.update_action.setText(tr("updates.menu"))
         self.language_menu.setTitle(tr("menu.languages"))

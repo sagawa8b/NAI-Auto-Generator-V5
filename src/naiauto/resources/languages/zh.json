@@ -162,7 +162,8 @@
       "change_save_dir": "更改保存文件夹...",
       "save_dir_label": "保存位置:",
       "choose_save_dir": "选择保存生成图像的文件夹",
-      "open_failed": "无法打开文件夹: {}"
+      "open_failed": "无法打开文件夹: {}",
+      "presets": "预设文件夹"
     },
     "enhance": {
       "title": "图像增强 (Image Enhance)",
@@ -466,7 +467,8 @@
       "apply_seed": "种子",
       "apply_model": "模型",
       "apply_characters": "角色",
-      "nothing_to_apply": "未选择要应用的项目。"
+      "nothing_to_apply": "未选择要应用的项目。",
+      "empty": "没有图像"
     },
     "artist_combo": {
       "title": "画师提示词组合",

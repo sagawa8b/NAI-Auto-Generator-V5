@@ -162,7 +162,8 @@
       "change_save_dir": "保存フォルダを変更...",
       "save_dir_label": "保存先:",
       "choose_save_dir": "生成画像を保存するフォルダを選択",
-      "open_failed": "フォルダを開けません: {}"
+      "open_failed": "フォルダを開けません: {}",
+      "presets": "プリセットフォルダ"
     },
     "enhance": {
       "title": "画像強化 (Image Enhance)",
@@ -466,7 +467,8 @@
       "apply_seed": "シード",
       "apply_model": "モデル",
       "apply_characters": "キャラクター",
-      "nothing_to_apply": "適用する項目が選択されていません。"
+      "nothing_to_apply": "適用する項目が選択されていません。",
+      "empty": "画像がありません"
     },
     "artist_combo": {
       "title": "絵師プロンプト組み合わせ",

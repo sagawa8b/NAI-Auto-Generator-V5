@@ -162,7 +162,8 @@
       "change_save_dir": "저장 폴더 변경...",
       "save_dir_label": "저장 위치:",
       "choose_save_dir": "생성 결과를 저장할 폴더 선택",
-      "open_failed": "폴더를 열 수 없습니다: {}"
+      "open_failed": "폴더를 열 수 없습니다: {}",
+      "presets": "프리셋 폴더"
     },
     "enhance": {
       "title": "이미지 향상 (Image Enhance)",
@@ -466,7 +467,8 @@
       "apply_seed": "시드",
       "apply_model": "모델",
       "apply_characters": "캐릭터",
-      "nothing_to_apply": "적용할 항목이 선택되지 않았습니다."
+      "nothing_to_apply": "적용할 항목이 선택되지 않았습니다.",
+      "empty": "이미지가 없습니다"
     },
     "artist_combo": {
       "title": "작가 프롬프트 조합",
