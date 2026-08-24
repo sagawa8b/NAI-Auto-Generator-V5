@@ -388,6 +388,7 @@
       "image_format_png": "PNG（原本、メタデータ保持）",
       "image_format_webp": "WebP（ロスレス、容量削減）",
       "image_format_hint": "WebP でもプロンプト・シードなどの情報が保持され、ギャラリーから再利用できます。",
+      "filename_length_hint": "ファイル名は最大120文字です。超える分はプロンプトとネガティブプロンプトが分け合って短くなります。",
       "batch_count": "既定の生成枚数",
       "batch_delay": "既定の生成間隔(秒)",
       "quick_counts_title": "Quick Generation 枚数",

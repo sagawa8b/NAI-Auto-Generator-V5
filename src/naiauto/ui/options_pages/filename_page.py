@@ -73,6 +73,12 @@ class FilenamePage(OptionsPage):
         self.format_hint.setStyleSheet("color: palette(mid);")
         layout.addWidget(self.format_hint)
 
+        # 길이 상한은 미리보기만 봐서는 알 수 없다 — 예시 프롬프트가 짧아 상한에 안 걸린다.
+        self.length_hint = QLabel()
+        self.length_hint.setWordWrap(True)
+        self.length_hint.setStyleSheet("color: palette(mid);")
+        layout.addWidget(self.length_hint)
+
         self.preview_label = QLabel()
         self.preview_value = QLabel()  # 읽기 전용 (Req 3.9)
         self.preview_value.setWordWrap(True)
@@ -129,6 +135,7 @@ class FilenamePage(OptionsPage):
         for i, fmt in enumerate(IMAGE_FORMATS):
             self.format_combo.setItemText(i, tr(f"options.image_format_{fmt}"))
         self.format_hint.setText(tr("options.image_format_hint"))
+        self.length_hint.setText(tr("options.filename_length_hint"))
         self.preview_label.setText(tr("options.preview"))
         self.token_help.setText(self._token_help_text())
         self._refresh_preview()

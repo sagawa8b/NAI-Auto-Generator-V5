@@ -379,6 +379,7 @@
       "image_format_png": "PNG (original, keeps metadata)",
       "image_format_webp": "WebP (lossless, smaller size)",
       "image_format_hint": "WebP also keeps prompt, seed, and other info — reusable from the gallery.",
+      "filename_length_hint": "Filenames are capped at 120 characters. Past that, prompt and negative prompt share the space.",
       "batch_count": "Default image count",
       "batch_delay": "Default interval (sec)",
       "quick_counts_title": "Quick generation counts",

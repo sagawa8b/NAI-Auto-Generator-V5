@@ -388,6 +388,7 @@
       "image_format_png": "PNG（原始，保留元数据）",
       "image_format_webp": "WebP（无损，体积更小）",
       "image_format_hint": "WebP 同样保留提示词、种子等信息，可在画廊中重新使用。",
+      "filename_length_hint": "文件名最长 120 个字符。超出时提示词与负面提示词会平分剩余空间。",
       "batch_count": "默认生成张数",
       "batch_delay": "默认生成间隔(秒)",
       "quick_counts_title": "Quick Generation 数量",
