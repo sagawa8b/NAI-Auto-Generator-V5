@@ -12,6 +12,7 @@ from PIL import Image
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QDoubleSpinBox,
     QFileDialog,
@@ -93,6 +94,12 @@ class ImageSourceWidget(QGroupBox):
         form.addRow(self.noise_label, self.noise_spin)
         layout.addLayout(form)
 
+        # 인페인팅에서 마스크 밖을 원본 그대로 둘지. 끄면 이미지 전체가 다시 생성되어
+        # 칠하지 않은 영역까지 미세하게 바뀐다 (NAI 웹UI의 "Overlay Original Image").
+        self.overlay_original_check = QCheckBox()
+        self.overlay_original_check.setChecked(True)
+        layout.addWidget(self.overlay_original_check)
+
         self._refresh()
 
     # ── 상태 ─────────────────────────────────────────────
@@ -126,6 +133,11 @@ class ImageSourceWidget(QGroupBox):
     @property
     def noise(self) -> float:
         return self.noise_spin.value()
+
+    @property
+    def add_original_image(self) -> bool:
+        """마스크 밖을 원본으로 덮어쓸지 (인페인팅에만 의미가 있다)."""
+        return self.overlay_original_check.isChecked()
 
     def action(self) -> str:
         if self.image_bytes is None:
@@ -217,4 +229,6 @@ class ImageSourceWidget(QGroupBox):
         self.clear_mask_button.setText(tr("image_source.clear_mask"))
         self.strength_label.setText(tr("image_source.strength"))
         self.noise_label.setText(tr("image_source.noise"))
+        self.overlay_original_check.setText(tr("image_source.overlay_original"))
+        self.overlay_original_check.setToolTip(tr("image_source.overlay_original_tooltip"))
         self._refresh()

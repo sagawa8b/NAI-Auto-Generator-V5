@@ -1220,6 +1220,7 @@ class MainWindow(QMainWindow):
             mask=self.image_source.mask_bytes,
             strength=self.image_source.strength,
             noise=self.image_source.noise,
+            add_original_image=self.image_source.add_original_image,
         )
         return GenerationJob(
             request=request,

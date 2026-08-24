@@ -559,6 +559,8 @@
       "no_image": "未选择图像",
       "strength": "变化强度:",
       "noise": "噪声:",
+      "overlay_original": "保留遮罩外的原图",
+      "overlay_original_tooltip": "修补时保持未涂抹区域与原图一致。关闭后整张图会重新生成，未涂抹处也会略有变化。",
       "draw_mask": "绘制蒙版...",
       "clear_mask": "移除蒙版",
       "mask_present": "已设置蒙版 (局部重绘)",

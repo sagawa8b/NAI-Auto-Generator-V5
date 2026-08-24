@@ -559,6 +559,8 @@
       "no_image": "No image selected",
       "strength": "Strength:",
       "noise": "Noise:",
+      "overlay_original": "Keep original outside mask",
+      "overlay_original_tooltip": "Keeps unpainted areas exactly as in the original. Turn off and the whole image is regenerated, so untouched areas shift slightly.",
       "draw_mask": "Draw mask...",
       "clear_mask": "Remove mask",
       "mask_present": "Mask set (inpainting)",

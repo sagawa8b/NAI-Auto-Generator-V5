@@ -39,7 +39,7 @@ def build_payload_v4(req: GenerationRequest, spec: ModelSpec) -> dict:
             {
                 "image": base64.b64encode(req.image).decode(),
                 "mask": encode_mask(req.mask),
-                "add_original_image": True,
+                "add_original_image": req.add_original_image,
                 "inpaintImg2ImgStrength": req.strength,
                 "noise": 0,
                 "deliberate_euler_ancestral_bug": False,

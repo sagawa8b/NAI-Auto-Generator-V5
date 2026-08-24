@@ -117,7 +117,9 @@ def build_payload_v5(req: GenerationRequest, spec: ModelSpec) -> dict:
             raise ValueError("infill requires 'mask'")
         params["mask"] = MASK_PART
         params["noise"] = 0
-        params["add_original_image"] = False  # 캡처 확인: infill은 false
+        # 캡처는 false였지만(웹UI에서 "Overlay Original Image"를 끈 상태), 켜면 마스크 밖이
+        # 원본 그대로 남는다 — 사용자가 고를 수 있어야 하므로 요청에서 받는다.
+        params["add_original_image"] = req.add_original_image
         model_name = spec.api_name + "-inpainting"
 
     params.update(req.extra_params)

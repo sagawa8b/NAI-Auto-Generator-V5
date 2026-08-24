@@ -559,6 +559,8 @@
       "no_image": "선택된 이미지 없음",
       "strength": "변화 강도:",
       "noise": "노이즈:",
+      "overlay_original": "마스크 밖 원본 유지",
+      "overlay_original_tooltip": "인페인팅에서 칠하지 않은 영역을 원본 그대로 둡니다. 끄면 이미지 전체가 다시 생성되어 칠하지 않은 곳도 미세하게 바뀝니다.",
       "draw_mask": "마스크 그리기...",
       "clear_mask": "마스크 제거",
       "mask_present": "마스크 있음 (인페인팅)",

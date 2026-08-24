@@ -82,6 +82,9 @@ class GenerationRequest:
     strength: float = 0.5
     noise: float = 0.05
     mask: bytes | None = None
+    #: 인페인팅에서 마스크 **밖**을 원본 픽셀로 덮어쓸지 (NAI 웹UI의 "Overlay Original Image").
+    #: False면 이미지 전체가 VAE를 다시 통과해 칠하지 않은 영역까지 미세하게 흔들린다.
+    add_original_image: bool = True
 
     characters: tuple[CharacterCaption, ...] = ()
     vibes: tuple[VibeTransfer, ...] = ()
