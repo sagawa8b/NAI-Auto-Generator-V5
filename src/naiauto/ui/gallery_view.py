@@ -27,6 +27,7 @@ from typing import Literal
 from PySide6.QtCore import (
     QAbstractListModel,
     QModelIndex,
+    QPointF,
     QSize,
     Qt,
     QUrl,
@@ -53,6 +54,7 @@ from PySide6.QtWidgets import (
 from ..core.i18n.manager import I18nManager
 from ..core.metadata.naiinfo import read_metadata
 from ..core.metadata.reuse import extract_reusable
+from .widgets.hidpi_image import scaled_for_screen
 
 logger = logging.getLogger(__name__)
 
@@ -176,8 +178,9 @@ class _ThumbnailDelegate(QStyledItemDelegate):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._cache: dict[str, QPixmap] = {}
-        self._cache_order: list[str] = []
+        # 키에 화면 배율을 넣는다 — 창을 배율이 다른 모니터로 옮기면 새로 만들어야 한다
+        self._cache: dict[tuple[str, float], QPixmap] = {}
+        self._cache_order: list[tuple[str, float]] = []
         self._broken_placeholder: QPixmap | None = None
 
     def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:  # noqa: N802
@@ -194,24 +197,27 @@ class _ThumbnailDelegate(QStyledItemDelegate):
 
         path = index.data(GalleryModel.PathRole)
         if path:
-            pixmap = self._get_thumbnail(path)
+            pixmap = self._get_thumbnail(path, painter.device().devicePixelRatioF())
             if pixmap and not pixmap.isNull():
-                # Center the thumbnail in the cell
-                x = option.rect.x() + (option.rect.width() - pixmap.width()) // 2
-                y = option.rect.y() + (option.rect.height() - pixmap.height()) // 2
-                painter.drawPixmap(x, y, pixmap)
+                # 셀 안에 가운데 정렬 — 픽스맵은 배율만큼 큰 실제 픽셀을 담고 있으므로
+                # 자리 계산에는 논리 크기를 쓴다
+                size = pixmap.deviceIndependentSize()
+                x = option.rect.x() + (option.rect.width() - size.width()) / 2
+                y = option.rect.y() + (option.rect.height() - size.height()) / 2
+                painter.drawPixmap(QPointF(x, y), pixmap)
             else:
                 # Broken image placeholder
                 self._draw_broken_placeholder(painter, option.rect)
         painter.restore()
 
-    def _get_thumbnail(self, path: str) -> QPixmap | None:
+    def _get_thumbnail(self, path: str, ratio: float) -> QPixmap | None:
         """캐시에서 썸네일을 가져오거나, 없으면 로드."""
-        if path in self._cache:
+        key = (path, ratio)
+        if key in self._cache:
             # Move to end (most recently used)
-            self._cache_order.remove(path)
-            self._cache_order.append(path)
-            return self._cache[path]
+            self._cache_order.remove(key)
+            self._cache_order.append(key)
+            return self._cache[key]
 
         # Load and scale
         pixmap = QPixmap(path)
@@ -219,16 +225,12 @@ class _ThumbnailDelegate(QStyledItemDelegate):
             logger.debug("cannot load thumbnail: %s", path)
             return None
 
-        scaled = pixmap.scaled(
-            _THUMB_SIZE,
-            _THUMB_SIZE,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
+        # 화면이 실제로 찍을 픽셀 수만큼 줄인다 — hidpi_image 참조
+        scaled = scaled_for_screen(pixmap, QSize(_THUMB_SIZE, _THUMB_SIZE), ratio)
 
         # Cache with LRU eviction
-        self._cache[path] = scaled
-        self._cache_order.append(path)
+        self._cache[key] = scaled
+        self._cache_order.append(key)
         if len(self._cache_order) > _MAX_CACHE:
             evict = self._cache_order.pop(0)
             self._cache.pop(evict, None)

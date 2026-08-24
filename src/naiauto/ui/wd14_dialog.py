@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PIL import Image
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import QSize, Qt, QThread, Signal
 from PySide6.QtGui import QDragEnterEvent, QDropEvent, QPixmap
 from PySide6.QtWidgets import (
     QDialog,
@@ -25,6 +25,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .widgets.hidpi_image import HiDpiImageLabel
+
 if TYPE_CHECKING:
     from ..core.i18n.manager import I18nManager
     from ..core.wd14_tagger import WD14Tagger
@@ -32,6 +34,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _INFERENCE_TIMEOUT_SECONDS = 30
+_PREVIEW_SIZE = 200  # 미리보기 한 변 (논리 픽셀)
 
 
 class _InferenceWorker(QThread):
@@ -124,7 +127,7 @@ class WD14Dialog(QDialog):
         layout = QVBoxLayout(self)
 
         # Drop zone / image preview area
-        self._image_label = QLabel()
+        self._image_label = HiDpiImageLabel()
         self._image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._image_label.setMinimumHeight(120)
         self._image_label.setStyleSheet(
@@ -255,13 +258,7 @@ class WD14Dialog(QDialog):
         # Show preview
         pixmap = QPixmap(str(path))
         if not pixmap.isNull():
-            scaled = pixmap.scaled(
-                200,
-                200,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            self._image_label.setPixmap(scaled)
+            self._image_label.show_fitted(pixmap, QSize(_PREVIEW_SIZE, _PREVIEW_SIZE))
         else:
             self._image_label.setText(path.name)
 

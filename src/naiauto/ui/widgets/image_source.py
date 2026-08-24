@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...core.i18n.manager import I18nManager
+from .hidpi_image import HiDpiImageLabel
 from .mask_editor import MaskEditorDialog
 
 THUMB_HEIGHT = 150
@@ -50,7 +51,7 @@ class ImageSourceWidget(QGroupBox):
 
         layout = QVBoxLayout(self)
 
-        self.thumbnail = QLabel()
+        self.thumbnail = HiDpiImageLabel()
         self.thumbnail.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.thumbnail.setMinimumHeight(THUMB_HEIGHT)
         layout.addWidget(self.thumbnail)
@@ -208,16 +209,13 @@ class ImageSourceWidget(QGroupBox):
         if has_image:
             pixmap = QPixmap()
             pixmap.loadFromData(self._image)
-            self.thumbnail.setPixmap(
-                pixmap.scaledToHeight(THUMB_HEIGHT, Qt.TransformationMode.SmoothTransformation)
-            )
+            self.thumbnail.show_at_height(pixmap, THUMB_HEIGHT)
             width, height = self._size or (0, 0)
             self.size_label.setText(tr("image_source.size_note", width, height))
             self.mask_status.setText(
                 tr("image_source.mask_present") if self._mask else tr("image_source.mask_absent")
             )
         else:
-            self.thumbnail.setPixmap(QPixmap())
             self.thumbnail.setText(tr("image_source.no_image"))
             self.size_label.setText("")
             self.mask_status.setText("")
