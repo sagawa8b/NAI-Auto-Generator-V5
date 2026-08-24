@@ -11,13 +11,54 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QPixmap, QWheelEvent
+from PySide6.QtCore import QPointF, QSize, Qt
+from PySide6.QtGui import QPainter, QPaintEvent, QPixmap, QWheelEvent
 from PySide6.QtWidgets import QLabel, QScrollArea, QWidget
 
 _MIN_ZOOM = 1.0
 _MAX_ZOOM = 8.0
 _ZOOM_STEP = 1.15  # 휠 한 칸(각도 120)당 배율 — wheel_guard.py의 WHEEL_NOTCH와 같은 단위
+
+
+class _Canvas(QLabel):
+    """이미지를 직접 그리는 라벨.
+
+    QLabel.setPixmap()에 화면 배율만큼 큰 픽스맵을 넘기면 Qt가 논리 크기로 다시
+    줄여 버려 그 픽셀을 잃는다 (Qt 6.11에서 확인 — 1픽셀 체커보드가 균일한 회색이
+    된다). QPainter.drawPixmap()은 배율을 그대로 살려 그리므로, 픽스맵은 우리가 들고
+    있다가 paintEvent에서 직접 그린다. 글자(이미지 없을 때 안내문)는 QLabel에 맡긴다.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._image: QPixmap | None = None
+
+    @property
+    def image(self) -> QPixmap | None:
+        return self._image
+
+    def set_image(self, pixmap: QPixmap | None) -> None:
+        self._image = pixmap
+        if pixmap is not None:
+            super().setText("")
+        self.update()
+
+    def setText(self, text: str) -> None:  # noqa: N802 (Qt 관례)
+        self._image = None
+        super().setText(text)
+
+    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
+        if self._image is None:
+            super().paintEvent(event)
+            return
+        # 논리 크기 — 픽스맵이 그보다 배율만큼 많은 픽셀을 담고 있다
+        size = self._image.deviceIndependentSize()
+        painter = QPainter(self)
+        painter.drawPixmap(
+            QPointF((self.width() - size.width()) / 2, (self.height() - size.height()) / 2),
+            self._image,
+        )
+        painter.end()
 
 
 class ZoomableImageView(QScrollArea):
@@ -29,7 +70,7 @@ class ZoomableImageView(QScrollArea):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._label = QLabel()
+        self._label = _Canvas()
         self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._label.setMinimumSize(320, 320)
         self.setWidget(self._label)
@@ -47,11 +88,11 @@ class ZoomableImageView(QScrollArea):
         self._relayout()
 
     def pixmap(self) -> QPixmap:  # noqa: N802
-        return self._label.pixmap()
+        """현재 표시 중인 픽스맵 (화면 배율만큼의 실제 픽셀 + devicePixelRatio 태그)."""
+        return self._label.image or QPixmap()
 
     def setText(self, text: str) -> None:  # noqa: N802
         self._source = None
-        self._label.setPixmap(QPixmap())
         self._label.setText(text)
         self._label.resize(self._label.sizeHint())
 
@@ -105,11 +146,19 @@ class ZoomableImageView(QScrollArea):
         target = QSize(round(fit.width() * self._zoom), round(fit.height() * self._zoom))
         if target.width() <= 0 or target.height() <= 0:
             return
+
+        # 논리 픽셀이 아니라 화면이 실제로 찍을 픽셀 수만큼 축소한다. Qt6은 고DPI
+        # 스케일링을 끌 수 없어서(V4의 Qt5는 꺼져 있었다) 논리 크기로 넘기면 그릴 때
+        # 배율만큼 다시 확대돼 흐려진다 — 원본에 그 픽셀이 남아 있는데도 버리는 셈이다.
+        ratio = self.devicePixelRatioF()
+        physical = QSize(round(target.width() * ratio), round(target.height() * ratio))
         scaled = self._source.scaled(
-            target, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+            physical, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
         )
-        self._label.setPixmap(scaled)
-        self._label.resize(scaled.size())
+        scaled.setDevicePixelRatio(ratio)
+        self._label.set_image(scaled)
+        # 라벨은 논리 크기로 — 픽스맵이 그 배율만큼의 실제 픽셀을 담고 있다
+        self._label.resize(scaled.deviceIndependentSize().toSize())
 
 
 __all__ = ["ZoomableImageView"]
