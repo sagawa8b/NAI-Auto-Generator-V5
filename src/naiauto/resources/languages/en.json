@@ -560,7 +560,7 @@
       "strength": "Strength:",
       "noise": "Noise:",
       "overlay_original": "Keep original outside mask",
-      "overlay_original_tooltip": "Keeps unpainted areas exactly as in the original. Turn off and the whole image is regenerated, so untouched areas shift slightly.",
+      "overlay_original_tooltip": "Overwrites unpainted areas with the original pixels. Guarantees nothing outside the mask changes, but the seam can show. NAI's web UI leaves this off — at strength around 0.7 the outside stays stable anyway.",
       "draw_mask": "Draw mask...",
       "clear_mask": "Remove mask",
       "mask_present": "Mask set (inpainting)",

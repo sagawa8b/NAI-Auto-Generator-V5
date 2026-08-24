@@ -560,7 +560,7 @@
       "strength": "变化强度:",
       "noise": "噪声:",
       "overlay_original": "保留遮罩外的原图",
-      "overlay_original_tooltip": "修补时保持未涂抹区域与原图一致。关闭后整张图会重新生成，未涂抹处也会略有变化。",
+      "overlay_original_tooltip": "用原图像素覆盖未涂抹区域。可确保遮罩外不变，但接缝可能显现。NAI 网页版默认关闭；强度取 0.7 左右时，关闭也能保持外部稳定。",
       "draw_mask": "绘制蒙版...",
       "clear_mask": "移除蒙版",
       "mask_present": "已设置蒙版 (局部重绘)",

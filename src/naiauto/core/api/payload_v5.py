@@ -69,6 +69,9 @@ _UC_PRESET_TAG_HINT = {"none": 0, "light": 1, "heavy": 2, "human_focus": 3}
 IMAGE_PART = "image"
 MASK_PART = "mask"
 
+#: 잠재 공간 축소 배율. 마스크 경계를 이 격자에 맞춘다 (`_normalize_mask`).
+LATENT_BLOCK = 8
+
 
 def build_binary_parts_v5(req: GenerationRequest, spec: ModelSpec) -> dict[str, bytes]:
     """payload가 이름으로 참조하는 바이너리 파트들 (transport가 multipart에 붙인다)."""
@@ -81,16 +84,27 @@ def build_binary_parts_v5(req: GenerationRequest, spec: ModelSpec) -> dict[str, 
 
 
 def _normalize_mask(mask_bytes: bytes, size: tuple[int, int]) -> bytes:
-    """마스크를 원본 이미지 해상도의 흑백 PNG로 맞춘다.
+    """마스크를 대상 해상도의 흑백 PNG로 맞추고, 잠재 블록 경계에 스냅시킨다.
 
-    V4는 1/8 크기 마스크를 받아 8배 확대해 보냈지만, V5의 파트 방식에서는
-    사용자가 어떤 크기를 주든 대상 해상도에 맞추는 편이 예측 가능하다.
+    확산 모델은 1/8 해상도 잠재 공간에서 동작하므로 마스크 경계도 8픽셀 격자에
+    맞아야 한다. 격자에 걸치면 절반만 덮인 잠재 셀이 생겨 경계에 아티팩트가 남는다.
+    NAI 웹UI의 마스크가 8×8 계단형으로 보이는 것도 같은 이유이고, 우리 V4 경로
+    (`payload_v4.encode_mask`)도 1/8 마스크를 ×8로 확대해 같은 결과를 낸다.
+
+    축소는 `BOX`(면적 평균) 후 임계값이라, 블록에 조금이라도 칠해져 있으면 그 블록이
+    살아남는다. 칠한 영역이 블록 단위로 조금 넓어지는 편이, 좁아져서 고치려던 부분이
+    빠지는 것보다 낫다.
     """
     with Image.open(io.BytesIO(mask_bytes)) as img:
         mask = img.convert("L")
         if mask.size != size:
             mask = mask.resize(size, Image.NEAREST)
-        mask = mask.point(lambda v: 255 if v > 128 else 0, "L").convert("RGB")
+
+        blocks = (max(1, size[0] // LATENT_BLOCK), max(1, size[1] // LATENT_BLOCK))
+        mask = mask.resize(blocks, Image.BOX)  # 블록 안 칠해진 비율
+        mask = mask.point(lambda v: 255 if v > 0 else 0, "L")  # 조금이라도 칠해졌으면 산다
+        mask = mask.resize(size, Image.NEAREST).convert("RGB")
+
         buf = io.BytesIO()
         mask.save(buf, format="PNG")
         return buf.getvalue()

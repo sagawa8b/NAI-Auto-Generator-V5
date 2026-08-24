@@ -83,8 +83,9 @@ class GenerationRequest:
     noise: float = 0.05
     mask: bytes | None = None
     #: 인페인팅에서 마스크 **밖**을 원본 픽셀로 덮어쓸지 (NAI 웹UI의 "Overlay Original Image").
-    #: False면 이미지 전체가 VAE를 다시 통과해 칠하지 않은 영역까지 미세하게 흔들린다.
-    add_original_image: bool = True
+    #: 기본 False — 캡처 2건 모두 웹UI가 false로 보냈다 (`spec/v5/captures/`). true로 켜면
+    #: 마스크 밖이 완전히 보존되는 대신, 생성된 안쪽과 만나는 경계가 이음선으로 드러난다.
+    add_original_image: bool = False
 
     characters: tuple[CharacterCaption, ...] = ()
     vibes: tuple[VibeTransfer, ...] = ()

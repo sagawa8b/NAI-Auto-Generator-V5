@@ -94,10 +94,11 @@ class ImageSourceWidget(QGroupBox):
         form.addRow(self.noise_label, self.noise_spin)
         layout.addLayout(form)
 
-        # 인페인팅에서 마스크 밖을 원본 그대로 둘지. 끄면 이미지 전체가 다시 생성되어
-        # 칠하지 않은 영역까지 미세하게 바뀐다 (NAI 웹UI의 "Overlay Original Image").
+        # 인페인팅에서 마스크 밖을 원본 그대로 둘지 (NAI 웹UI의 "Overlay Original Image").
+        # 기본은 해제 — 웹UI 캡처 2건 모두 false였다. 켜면 마스크 밖은 확실히 보존되지만
+        # 생성된 안쪽과 만나는 경계가 이음선으로 드러난다.
         self.overlay_original_check = QCheckBox()
-        self.overlay_original_check.setChecked(True)
+        self.overlay_original_check.setChecked(False)
         layout.addWidget(self.overlay_original_check)
 
         self._refresh()

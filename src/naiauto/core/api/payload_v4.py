@@ -39,7 +39,12 @@ def build_payload_v4(req: GenerationRequest, spec: ModelSpec) -> dict:
             {
                 "image": base64.b64encode(req.image).decode(),
                 "mask": encode_mask(req.mask),
-                "add_original_image": req.add_original_image,
+                # V4는 원본 앱(naia.py)과의 출력 동등성이 계약이고, 그 앱은 항상 true를
+                # 보냈다 (`tests/core/test_payload_v4_golden.py`가 픽스처로 고정한다).
+                # 그래서 `req.add_original_image`를 따르지 않는다 — V5만 요청 값을 쓴다.
+                # V4 모델은 UI에 노출되지도 않으므로(ui_visible=False, 메타데이터 재사용
+                # 전용) 사용자가 조작할 경로가 줄어드는 것도 아니다.
+                "add_original_image": True,
                 "inpaintImg2ImgStrength": req.strength,
                 "noise": 0,
                 "deliberate_euler_ancestral_bug": False,
