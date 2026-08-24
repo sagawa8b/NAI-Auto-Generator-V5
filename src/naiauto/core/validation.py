@@ -49,7 +49,7 @@ GENERATION_PARAMS: dict[str, ParamSpec] = {
     "cfg_scale": ParamSpec(type="float", default=5.0, min=0.0, max=30.0, description="CFG Scale"),
     "cfg_rescale": ParamSpec(type="float", default=0.4, min=0.0, max=1.0, description="CFG Rescale"),
     "strength": ParamSpec(
-        type="float", default=0.5, min=0.01, max=0.99, description="디노이즈 강도 (i2i/inpaint)"
+        type="float", default=0.5, min=0.01, max=1.0, description="디노이즈 강도 (i2i/inpaint)"
     ),
     "noise": ParamSpec(type="float", default=0.05, min=0.0, max=0.99, description="추가 노이즈 (i2i)"),
 }

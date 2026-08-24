@@ -81,7 +81,8 @@ class ImageSourceWidget(QGroupBox):
 
         form = QFormLayout()
         self.strength_spin = QDoubleSpinBox()
-        self.strength_spin.setRange(0.01, 0.99)
+        # 상한은 NAI 웹UI의 Strength 슬라이더와 같은 1.00 (웹UI는 0.01~1.00을 쓴다)
+        self.strength_spin.setRange(0.01, 1.0)
         self.strength_spin.setSingleStep(0.05)
         self.strength_spin.setValue(0.7)
         self.noise_spin = QDoubleSpinBox()
