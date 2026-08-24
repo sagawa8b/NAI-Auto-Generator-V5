@@ -371,6 +371,8 @@
       "log_dir": "ログフォルダ",
       "open_log_folder": "ログフォルダを開く",
       "folder_save_dir": "生成結果フォルダ",
+      "folder_gallery_dir": "ギャラリーフォルダ",
+      "folder_gallery_dir_hint": "空欄なら結果フォルダを表示します",
       "folder_wildcards_dir": "ワイルドカードフォルダ",
       "folder_presets_dir": "プリセットフォルダ",
       "folder_artist_combos_dir": "アーティスト組み合わせフォルダ",

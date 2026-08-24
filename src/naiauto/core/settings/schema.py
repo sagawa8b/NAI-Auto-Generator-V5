@@ -119,6 +119,9 @@ class AppSettings(BaseModel):
     wildcards_dir: str = Field(default_factory=lambda: str(default_wildcards_dir()))
     presets_dir: str = Field(default_factory=lambda: str(default_presets_dir()))
     artist_combos_dir: str = Field(default_factory=lambda: str(default_artist_combos_dir()))
+    #: 갤러리가 훑을 폴더. 빈 문자열이면 결과 폴더를 본다 — 보통은 그게 맞고,
+    #: V4 시절 모아 둔 이미지를 볼 때만 따로 지정한다.
+    gallery_dir: str = ""
     log_dir: str = ""  # 빈 문자열 = OS 표준 로그 위치
     tag_database_path: str = ""  # 태그 자동완성 DB 경로 (빈 문자열 = 앱에 동봉된 기본 DB)
     filename_template: str = "{datetime}_{seed}"
@@ -138,3 +141,7 @@ class AppSettings(BaseModel):
     def log_dir_path(self) -> Path:
         """설정된 로그 디렉터리. 빈 문자열이면 OS 표준 위치."""
         return Path(self.log_dir) if self.log_dir.strip() else default_log_dir()
+
+    def gallery_dir_path(self) -> Path:
+        """갤러리가 훑을 폴더. 빈 문자열이면 결과 폴더."""
+        return Path(self.gallery_dir) if self.gallery_dir.strip() else Path(self.save_dir)

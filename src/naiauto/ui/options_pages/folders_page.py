@@ -55,7 +55,13 @@ _PATH_FIELDS: tuple[_PathField, ...] = (
     _PathField("wildcards_dir", "options.folder_wildcards_dir", default_wildcards_dir),
     _PathField("presets_dir", "options.folder_presets_dir", default_presets_dir),
     _PathField("artist_combos_dir", "options.folder_artist_combos_dir", default_artist_combos_dir),
+    # 갤러리만 비워 둘 수 있다 — 그러면 결과 폴더를 본다. 그래서 기본값이 save_dir이고,
+    # `commit`의 빈 입력 정규화에서도 빠진다 (`_OPTIONAL_FIELDS`).
+    _PathField("gallery_dir", "options.folder_gallery_dir", default_save_dir),
 )
+
+#: 비워 두는 것이 유효한 필드 — 빈 입력을 기본 경로로 되돌리지 않는다.
+_OPTIONAL_FIELDS = frozenset({"gallery_dir"})
 
 
 @dataclass
@@ -100,6 +106,7 @@ class FoldersPage(OptionsPage):
         self.wildcards_dir_edit = self._rows["wildcards_dir"].edit
         self.presets_dir_edit = self._rows["presets_dir"].edit
         self.artist_combos_dir_edit = self._rows["artist_combos_dir"].edit
+        self.gallery_dir_edit = self._rows["gallery_dir"].edit
 
         self.retranslate()
 
@@ -111,7 +118,8 @@ class FoldersPage(OptionsPage):
             browse_button=QPushButton(),
             open_button=QPushButton(),
         )
-        row.edit.setPlaceholderText(str(field.default()))
+        if field.name not in _OPTIONAL_FIELDS:
+            row.edit.setPlaceholderText(str(field.default()))
         row.browse_button.clicked.connect(lambda _checked=False, f=field: self._browse(f))
         row.open_button.clicked.connect(lambda _checked=False, f=field: self._open(f))
         return row
@@ -136,6 +144,8 @@ class FoldersPage(OptionsPage):
             row.label.setText(tr(row.field.label_key))
             row.browse_button.setText(tr("options.browse"))
             row.open_button.setText(tr("options.open_folder"))
+        # 비워 두면 결과 폴더를 본다는 안내는 자리표시자로 (번역 대상이라 여기서 갱신)
+        self._rows["gallery_dir"].edit.setPlaceholderText(tr("options.folder_gallery_dir_hint"))
 
     def notices(self) -> tuple[str, ...]:
         """와일드카드 폴더가 바뀌었으면 재시작 안내 키를 돌려준다 (Req 2.6)."""
@@ -149,7 +159,23 @@ class FoldersPage(OptionsPage):
 
     @staticmethod
     def _normalize(field: _PathField, text: str) -> str:
-        return text.strip() or str(field.default())
+        """저장할 값. 비워 둘 수 있는 필드는 빈 채로 남긴다."""
+        stripped = text.strip()
+        if stripped:
+            return stripped
+        return "" if field.name in _OPTIONAL_FIELDS else str(field.default())
+
+    def _effective(self, field: _PathField) -> str:
+        """실제로 가리키는 폴더 — `찾아보기`와 `폴더 열기`가 쓴다.
+
+        갤러리를 비워 두면 결과 폴더를 보므로, 여기서도 결과 폴더 입력란의 **현재 값**으로
+        간다 (스키마 기본값이 아니다 — 사용자가 결과 폴더를 옮겨 두었을 수 있다).
+        """
+        text = self._normalize(field, self._rows[field.name].edit.text())
+        if text:
+            return text
+        save_field = _PATH_FIELDS[0]
+        return self._normalize(save_field, self._rows[save_field.name].edit.text())
 
     def _browse(self, field: _PathField) -> None:
         """현재 값을 시작 위치로 하는 디렉터리 선택 다이얼로그 (Req 2.2)."""
@@ -158,7 +184,7 @@ class FoldersPage(OptionsPage):
         chosen = QFileDialog.getExistingDirectory(
             self,
             tr("options.choose_folder", tr(field.label_key)),
-            self._normalize(field, row.edit.text()),
+            self._effective(field),
         )
         if chosen:
             row.edit.setText(str(Path(chosen).resolve()))
@@ -166,7 +192,7 @@ class FoldersPage(OptionsPage):
     def _open(self, field: _PathField) -> None:
         """경로를 만든 뒤 OS 파일 탐색기로 연다 (Req 2.3)."""
         open_in_file_manager(
-            self._normalize(field, self._rows[field.name].edit.text()),
+            self._effective(field),
             self._i18n.get_text,
             parent=self,
         )

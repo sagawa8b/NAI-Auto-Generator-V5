@@ -541,9 +541,10 @@ class MainWindow(QMainWindow):
 
     def _on_open_gallery(self) -> None:
         """Gallery 뷰를 별도 윈도우로 연다."""
+        gallery_dir = str(self._settings.gallery_dir_path())
         if self._gallery_view is None:
             self._gallery_view = GalleryView(
-                save_dir=self._settings.save_dir,
+                save_dir=gallery_dir,
                 i18n=self._i18n,
                 parent=self,
             )
@@ -551,7 +552,9 @@ class MainWindow(QMainWindow):
             self._gallery_view.setWindowTitle(self._i18n.get_text("menu.gallery_view"))
             self._gallery_view.setMinimumSize(600, 400)
 
-        self._gallery_view.refresh()
+        # 옵션에서 폴더를 바꿨을 수 있다 — 열 때마다 설정을 따라간다.
+        # (창 안에서 고른 폴더는 설정을 덮어쓰지 않으므로 여기서 되돌아온다.)
+        self._gallery_view.set_directory(gallery_dir)
         self._gallery_view.show()
         self._gallery_view.raise_()
 
@@ -634,9 +637,11 @@ class MainWindow(QMainWindow):
         if not path:
             return
 
-        spec = get_spec(self.model_combo.currentData())
+        # 파일에 없는 항목은 지금 화면 값을 그대로 둔다 — V4 파일은 버전마다 담는 항목이
+        # 달라서(오래된 것은 `model`조차 없다) 모델 기본값만으로는 필수 항목이 빈다.
+        defaults = self._get_current_preset_config().model_dump()
         try:
-            loaded = settings_file.load(Path(path), defaults=dict(spec.defaults))
+            loaded = settings_file.load(Path(path), defaults=defaults)
         except PresetError as e:
             QMessageBox.warning(self, tr("errors.title"), str(e))
             return

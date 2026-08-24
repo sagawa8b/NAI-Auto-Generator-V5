@@ -371,6 +371,8 @@
       "log_dir": "로그 폴더",
       "open_log_folder": "로그 폴더 열기",
       "folder_save_dir": "결과 저장 폴더",
+      "folder_gallery_dir": "갤러리 폴더",
+      "folder_gallery_dir_hint": "비우면 결과 폴더를 봅니다",
       "folder_wildcards_dir": "와일드카드 폴더",
       "folder_presets_dir": "프리셋 저장 폴더",
       "folder_artist_combos_dir": "아티스트 조합 폴더",

@@ -45,6 +45,10 @@ _V4_FIELD_MAP = {
 }
 
 
+#: 기본값이 없어 파일이나 `defaults`가 반드시 채워 줘야 하는 항목.
+_REQUIRED_FIELDS = frozenset(name for name, f in GenerationPreset.model_fields.items() if f.is_required())
+
+
 @dataclass(frozen=True)
 class LoadedSettings:
     """불러온 설정. `seed`는 `GenerationPreset`에 없어 따로 돌려준다."""
@@ -131,6 +135,12 @@ def load(path: Path, *, defaults: dict[str, Any] | None = None) -> LoadedSetting
 
     merged = {**(defaults or {}), **_coerce_numbers(fields)}
     merged["name"] = ""  # 파일 기반이라 이름이 없다 (UI가 모델 스킵 판단에 쓰는 값과 무관)
+
+    missing = sorted(_REQUIRED_FIELDS - merged.keys())
+    if missing:
+        # 오래된 V4 파일에는 `model`처럼 필수 항목이 아예 없다. pydantic 덤프를 그대로
+        # 보여 주는 대신 무엇이 없는지 말한다 (호출부가 `defaults`로 채워 주면 여기 안 온다).
+        raise PresetError(f"설정 파일에 필요한 항목이 없습니다: {', '.join(missing)}")
 
     try:
         preset = GenerationPreset(**_clamp_preset_fields(merged))

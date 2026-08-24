@@ -371,6 +371,8 @@
       "log_dir": "日志文件夹",
       "open_log_folder": "打开日志文件夹",
       "folder_save_dir": "结果保存文件夹",
+      "folder_gallery_dir": "画廊文件夹",
+      "folder_gallery_dir_hint": "留空则使用结果文件夹",
       "folder_wildcards_dir": "通配符文件夹",
       "folder_presets_dir": "预设保存文件夹",
       "folder_artist_combos_dir": "画师组合文件夹",

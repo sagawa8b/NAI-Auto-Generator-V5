@@ -362,6 +362,8 @@
       "log_dir": "Log folder",
       "open_log_folder": "Open log folder",
       "folder_save_dir": "Results folder",
+      "folder_gallery_dir": "Gallery folder",
+      "folder_gallery_dir_hint": "Leave empty to use the results folder",
       "folder_wildcards_dir": "Wildcards folder",
       "folder_presets_dir": "Presets folder",
       "folder_artist_combos_dir": "Artist combos folder",

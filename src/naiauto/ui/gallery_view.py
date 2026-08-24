@@ -37,9 +37,13 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QDialog,
+    QFileDialog,
+    QHBoxLayout,
     QLabel,
     QListView,
     QMenu,
+    QPushButton,
+    QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
     QVBoxLayout,
@@ -179,8 +183,11 @@ class _ThumbnailDelegate(QStyledItemDelegate):
 
     def paint(self, painter, option, index) -> None:
         painter.save()
-        # Background
-        if option.state & option.State_Selected:  # type: ignore[attr-defined]
+        # Background.
+        # `QStyle.StateFlag.State_Selected`로 쓴다 — `option.State_Selected`는 PySide6의
+        # QStyleOptionViewItem에 없다. 그렇게 쓰면 셀마다 AttributeError가 나고 PySide6가
+        # 그 예외를 stderr로만 흘려 보내, 그리기가 통째로 멈춘 빈 흰 격자가 남는다 (v0.2.4).
+        if option.state & QStyle.StateFlag.State_Selected:
             painter.fillRect(option.rect, option.palette.highlight())
 
         path = index.data(GalleryModel.PathRole)
@@ -297,9 +304,24 @@ class GalleryView(QDialog):
         self._placeholder.setStyleSheet("color: gray; font-size: 14px;")
         self._placeholder.setVisible(False)
 
+        # 폴더 줄 — 지금 보고 있는 폴더를 밝히고, 그 자리에서 다른 폴더로 옮겨 갈 수 있게 한다.
+        # 여기서 고른 폴더는 이 창에만 적용된다 (설정에 남기려면 옵션 → 폴더).
+        self._folder_button = QPushButton(i18n.get_text("gallery.select_folder"), self)
+        self._folder_button.setToolTip(i18n.get_text("gallery.select_folder_tooltip"))
+        self._folder_button.clicked.connect(self._on_choose_folder)
+        self._folder_label = QLabel(self)
+        self._folder_label.setStyleSheet("color: gray;")
+        self._folder_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+
+        toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(6, 6, 6, 0)
+        toolbar.addWidget(self._folder_button)
+        toolbar.addWidget(self._folder_label, 1)
+
         # Layout
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.addLayout(toolbar)
         layout.addWidget(self._view)
         layout.addWidget(self._placeholder)
 
@@ -311,24 +333,62 @@ class GalleryView(QDialog):
     # ------------------------------------------------------------------
 
     def refresh(self) -> None:
-        """Re-scan save_dir for *.png files and reload the grid."""
+        """폴더를 다시 훑어 격자를 채운다.
+
+        하위 폴더까지 본다 — V5는 결과를 한 폴더에 평평하게 쌓지만, V4 시절 날짜별로
+        나눠 둔 폴더를 지정하는 경우가 있다.
+        """
+        self._folder_label.setText(self._save_dir)
         save_path = Path(self._save_dir)
-        if not save_path.exists():
+        if not save_path.is_dir():
             self._model.set_entries([])
             self._update_placeholder()
             return
-        png_files = [str(p) for p in save_path.iterdir() if p.suffix.lower() == ".png" and p.is_file()]
+        png_files = [str(p) for p in save_path.rglob("*") if p.suffix.lower() == ".png" and p.is_file()]
         self._model.set_entries(png_files)
         self._update_placeholder()
+
+    def set_directory(self, path: str) -> None:
+        """볼 폴더를 바꾸고 다시 훑는다."""
+        self._save_dir = path
+        self.refresh()
+
+    @property
+    def directory(self) -> str:
+        """지금 보고 있는 폴더."""
+        return self._save_dir
+
+    def _on_choose_folder(self) -> None:
+        """`폴더 선택` — 이 창에서만 쓸 폴더를 고른다."""
+        chosen = QFileDialog.getExistingDirectory(
+            self,
+            self._i18n.get_text("gallery.folder_dialog_title"),
+            self._save_dir,
+        )
+        if chosen:
+            self.set_directory(chosen)
 
     def append_image(self, path: str) -> None:
         """Append a newly generated image without full refresh.
 
         Called by the generation service when a new image is saved.
         The model inserts at the correct sorted position.
+
+        보고 있는 폴더 밖의 이미지는 무시한다 — 갤러리를 다른 폴더로 옮겨 둔 채 생성하면
+        그 폴더에 있지도 않은 이미지가 섞여 보인다.
         """
+        if not self._contains(path):
+            return
         self._model.append_image(path)
         self._update_placeholder()
+
+    def _contains(self, path: str) -> bool:
+        """`path`가 지금 보고 있는 폴더(하위 포함) 안에 있는가."""
+        try:
+            Path(path).resolve().relative_to(Path(self._save_dir).resolve())
+        except (ValueError, OSError):
+            return False
+        return True
 
     def set_sort_order(self, order: Literal["date", "name"]) -> None:
         """Change sort order: 'date' (newest first) or 'name' (alpha ascending)."""
