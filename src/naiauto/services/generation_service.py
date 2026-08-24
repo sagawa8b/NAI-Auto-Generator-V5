@@ -66,6 +66,7 @@ class GenerationJob:
     delay_seconds: float = 3.0  # 요청 간 최소 간격
     save_dir: str = "results"
     filename_template: str = "{datetime}_{seed}"
+    image_format: str = "png"  # "png" | "webp" — core.metadata.save.IMAGE_FORMATS
     prompt_word_limit: int = 20  # {prompt} 토큰에 남길 단어 수 (Req 3.5)
     character_word_limit: int = 20  # {character} 토큰에 남길 단어 수 (Req 3.6)
     randomize_seed: bool = True  # True: 매 장 새 시드 / False: request.seed 고정
@@ -170,10 +171,12 @@ class GenerationService:
                         "seed": req.seed,
                         "model": req.model,
                         "prompt": req.prompt,
+                        "negative_prompt": req.negative_prompt,
                         "character": req.characters[0].prompt if req.characters else "",
                     },
                     prompt_word_limit=job.prompt_word_limit,
                     character_word_limit=job.character_word_limit,
+                    image_format=job.image_format,
                 )
                 completed += 1
                 self._emit(

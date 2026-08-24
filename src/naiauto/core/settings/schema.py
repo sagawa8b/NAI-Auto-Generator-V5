@@ -125,6 +125,9 @@ class AppSettings(BaseModel):
     log_dir: str = ""  # 빈 문자열 = OS 표준 로그 위치
     tag_database_path: str = ""  # 태그 자동완성 DB 경로 (빈 문자열 = 앱에 동봉된 기본 DB)
     filename_template: str = "{datetime}_{seed}"
+    #: 생성 이미지 저장 형식. "png"(기본, 원본 그대로) 또는 "webp"(무손실, 메타데이터는
+    #: EXIF로 옮겨 재사용 가능 — core/metadata/save.py 참고).
+    image_format: str = "png"
     prompt_word_limit: int = DEFAULT_WORD_LIMIT
     character_word_limit: int = DEFAULT_WORD_LIMIT
     debug_headers: bool = False  # V5 초기 rate-limit 헤더 관찰용

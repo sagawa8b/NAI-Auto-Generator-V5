@@ -84,6 +84,7 @@ from .widgets.prompt_tabs import PromptTabs
 from .widgets.resolution_panel import ResolutionPanel
 from .widgets.status_bar_gauge import StatusBarGauge
 from .widgets.wheel_guard import guard_wheel
+from .widgets.zoomable_image_view import ZoomableImageView
 
 logger = logging.getLogger(__name__)
 
@@ -287,13 +288,9 @@ class MainWindow(QMainWindow):
         column_layout.addWidget(self._build_generate_bar())
         splitter.addWidget(left_column)
 
-        # 오른쪽: 결과 미리보기
-        self.preview_label = QLabel()
-        self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview_label.setMinimumSize(320, 320)
-        self.result_panel = QScrollArea()
-        self.result_panel.setWidget(self.preview_label)
-        self.result_panel.setWidgetResizable(True)
+        # 오른쪽: 결과 미리보기 — 마우스 스크롤로 확대/축소된다 (ZoomableImageView)
+        self.preview_label = ZoomableImageView()
+        self.result_panel = self.preview_label
         splitter.addWidget(self.result_panel)
         splitter.setSizes(list(SPLITTER_SIZES))
 
@@ -1230,6 +1227,7 @@ class MainWindow(QMainWindow):
             delay_seconds=self.delay_spin.value(),
             save_dir=self._settings.save_dir,
             filename_template=self._settings.filename_template,
+            image_format=self._settings.image_format,
             prompt_word_limit=self._settings.prompt_word_limit,  # Req 3.5
             character_word_limit=self._settings.character_word_limit,  # Req 3.6
             randomize_seed=randomize,
@@ -1350,14 +1348,7 @@ class MainWindow(QMainWindow):
         pixmap = QPixmap(path)
         if pixmap.isNull():
             return
-        target = self.preview_label.parentWidget().size() if self.preview_label.parentWidget() else None
-        if target is not None and target.isValid():
-            pixmap = pixmap.scaled(
-                target,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-        self.preview_label.setPixmap(pixmap)
+        self.preview_label.setPixmap(pixmap)  # ZoomableImageView가 뷰포트에 맞춰 앉힌다
 
     # ── 새 버전 확인 ─────────────────────────────────────
 

@@ -58,6 +58,8 @@ logger = logging.getLogger(__name__)
 
 _THUMB_SIZE = 150
 _MAX_CACHE = 200
+#: WebP 저장 옵션으로 생긴 결과도 함께 보여준다 (core.metadata.save.IMAGE_FORMATS).
+_IMAGE_SUFFIXES = frozenset({".png", ".webp"})
 
 
 class _ImageEntry:
@@ -344,8 +346,10 @@ class GalleryView(QDialog):
             self._model.set_entries([])
             self._update_placeholder()
             return
-        png_files = [str(p) for p in save_path.rglob("*") if p.suffix.lower() == ".png" and p.is_file()]
-        self._model.set_entries(png_files)
+        image_files = [
+            str(p) for p in save_path.rglob("*") if p.suffix.lower() in _IMAGE_SUFFIXES and p.is_file()
+        ]
+        self._model.set_entries(image_files)
         self._update_placeholder()
 
     def set_directory(self, path: str) -> None:

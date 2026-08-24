@@ -1,7 +1,12 @@
-"""결과 저장 — API가 준 PNG bytes를 재인코딩 없이 그대로 쓴다.
+"""결과 저장 — API가 준 PNG bytes를 저장한다.
 
-V4 앱은 PIL로 재저장하면서 NAI tEXt 청크를 잃고 stealth 메타데이터만 남는
-문제가 있었다. 여기서는 raw_bytes verbatim 저장이 유일한 경로다.
+PNG은 재인코딩 없이 그대로 쓴다. V4 앱은 PIL로 재저장하면서 NAI tEXt 청크를 잃고
+stealth 메타데이터만 남는 문제가 있었다 — raw_bytes verbatim 저장이 그래서 원칙이다.
+
+WebP는 무손실로 다시 인코딩해야 하므로 이 원칙에서 벗어난다. WebP는 PNG의 tEXt 같은
+텍스트 청크가 없어서, 같은 정보를 JSON으로 묶어 EXIF UserComment에 옮겨 싣는다 —
+naiinfo.read_metadata()가 이를 그대로 읽어 PNG와 동일하게 프롬프트·시드를 재사용할 수
+있게 한다 (표준 EXIF 인코딩 프리픽스는 넣지 않는다 — 우리 쪽 리더만 읽으면 된다).
 
 파일명 템플릿 토큰은 `TOKEN_NAMES`에 한 번만 적는다 — UI(토큰 도움말)와
 설정 검증(`has_known_token`)이 모두 이 목록을 참조한다.
@@ -9,19 +14,35 @@ V4 앱은 PIL로 재저장하면서 NAI tEXt 청크를 잃고 stealth 메타데�
 
 from __future__ import annotations
 
+import io
+import json
 import re
 from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-TOKEN_NAMES: tuple[str, ...] = ("datetime", "date", "time", "prompt", "character", "seed", "model")
+TOKEN_NAMES: tuple[str, ...] = (
+    "datetime",
+    "date",
+    "time",
+    "prompt",
+    "negative_prompt",
+    "character",
+    "seed",
+    "model",
+)
 DEFAULT_WORD_LIMIT = 20
 _MAX_STEM_LEN = 120
+
+#: 지원하는 저장 형식. UI 콤보와 설정 검증이 이 목록을 그대로 쓴다.
+IMAGE_FORMATS: tuple[str, ...] = ("png", "webp")
+DEFAULT_IMAGE_FORMAT = "png"
 
 SAMPLE_CONTEXT: dict[str, object] = {  # Req 3.9 — 미리보기용 고정 예시 값
     "seed": 1234567890,
     "prompt": "1girl dancing in the rain",
+    "negative_prompt": "lowres, bad anatomy",
     "character": "red hair, blue dress",
     "model": "nai-diffusion-5-full",
 }
@@ -81,6 +102,8 @@ def token_values(
         "date": now.strftime("%Y%m%d"),
         "time": now.strftime("%H%M%S"),
         "prompt": limit_words(str(context.get("prompt", "")), prompt_word_limit),
+        # 네거티브 프롬프트도 본문 프롬프트와 같은 단어 수 제한을 쓴다 — 별도 설정을 두지 않는다.
+        "negative_prompt": limit_words(str(context.get("negative_prompt", "")), prompt_word_limit),
         # 첫 번째 캐릭터 프롬프트를 뽑는 책임은 호출자에 있다 (Req 3.3, 3.4).
         "character": limit_words(str(context.get("character", "")), character_word_limit),
         "seed": str(context.get("seed", "")),
@@ -140,8 +163,13 @@ def save_raw_png(
     *,
     prompt_word_limit: int = DEFAULT_WORD_LIMIT,
     character_word_limit: int = DEFAULT_WORD_LIMIT,
+    image_format: str = DEFAULT_IMAGE_FORMAT,
 ) -> Path:
-    """PNG 원본 bytes를 그대로 저장. 파일명 충돌 시 _1, _2… 접미사."""
+    """API가 준 PNG 원본을 저장한다. 파일명 충돌 시 _1, _2… 접미사.
+
+    image_format="png"(기본)이면 bytes를 그대로 쓴다. "webp"면 무손실로 다시
+    인코딩하고, PNG의 텍스트 청크는 EXIF로 옮겨 싣는다 (모듈 docstring 참고).
+    """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -151,11 +179,31 @@ def save_raw_png(
         prompt_word_limit=prompt_word_limit,
         character_word_limit=character_word_limit,
     )
-    path = out_dir / f"{stem}.png"
+    suffix = ".webp" if image_format == "webp" else ".png"
+    path = out_dir / f"{stem}{suffix}"
     counter = 1
     while path.exists():
-        path = out_dir / f"{stem}_{counter}.png"
+        path = out_dir / f"{stem}_{counter}{suffix}"
         counter += 1
 
-    path.write_bytes(raw_bytes)
+    path.write_bytes(_encode_webp(raw_bytes) if image_format == "webp" else raw_bytes)
     return path
+
+
+def _encode_webp(png_bytes: bytes) -> bytes:
+    """NAI PNG를 무손실 WebP로 변환하고, PNG 텍스트 필드를 EXIF UserComment에 옮긴다."""
+    from PIL import Image
+    from PIL.ExifTags import Base as ExifBase
+
+    with Image.open(io.BytesIO(png_bytes)) as img:
+        text_fields = {k: v for k, v in (img.info or {}).items() if isinstance(v, str)}
+        if img.mode not in ("RGB", "RGBA"):
+            img = img.convert("RGB")
+
+        exif = Image.Exif()
+        if text_fields:
+            exif[ExifBase.UserComment.value] = json.dumps(text_fields, ensure_ascii=False).encode("utf-8")
+
+        buffer = io.BytesIO()
+        img.save(buffer, format="WEBP", lossless=True, exif=exif.tobytes() if text_fields else b"")
+        return buffer.getvalue()
