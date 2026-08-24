@@ -25,6 +25,8 @@ from ...core.i18n.manager import I18nManager
 DEFAULT_BRUSH = 48
 MIN_BRUSH = 4
 MAX_BRUSH = 300
+#: 마스크 오버레이 불투명도 — 칠한 영역이 눈에 띄면서 아래 원본도 보이는 정도.
+MASK_OVERLAY_OPACITY = 0.5
 
 
 class MaskCanvas(QWidget):
@@ -117,14 +119,17 @@ class MaskCanvas(QWidget):
                 Qt.TransformationMode.SmoothTransformation,
             ),
         )
-        # 마스크를 반투명 빨강으로 겹쳐 보여준다
+        # 마스크를 반투명 빨강으로 겹쳐 보여준다.
+        #
+        # 마스크의 회색 강도를 그대로 **알파 채널**로 삼는다 — 칠한 곳(255)만 불투명한
+        # 빨강이 되고 안 칠한 곳(0)은 완전히 투명해진다. 예전에는 마스크를 ARGB 위에
+        # drawImage로 얹고 SourceIn으로 빨강을 채웠는데, Grayscale8에는 알파 채널이 없어
+        # 모든 픽셀이 불투명으로 변환됐다. 그래서 SourceIn이 화면 전체를 빨갛게 칠했고,
+        # 칠하든 안 칠하든 똑같이 보여 브러시가 동작하지 않는 것처럼 보였다 (v0.3.2).
         overlay = QImage(self.mask.size(), QImage.Format.Format_ARGB32)
-        overlay.fill(Qt.GlobalColor.transparent)
-        tint = QPainter(overlay)
-        tint.drawImage(0, 0, self.mask)
-        tint.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
-        tint.fillRect(overlay.rect(), QColor(255, 60, 60, 130))
-        tint.end()
+        overlay.fill(QColor(255, 60, 60))
+        overlay.setAlphaChannel(self.mask)
+        painter.setOpacity(MASK_OVERLAY_OPACITY)  # 아래 원본이 비쳐 보이게
         painter.drawImage(
             int(offset_x),
             int(offset_y),
@@ -132,6 +137,7 @@ class MaskCanvas(QWidget):
                 width, height, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.FastTransformation
             ),
         )
+        painter.setOpacity(1.0)
         painter.end()
 
 
