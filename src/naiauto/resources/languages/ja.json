@@ -93,7 +93,8 @@
       "summary_seed_random": "ランダム",
       "section_expanded": "展開",
       "section_collapsed": "折りたたみ",
-      "options_menu": "オプション..."
+      "options_menu": "オプション...",
+      "manual_position": "手動位置指定"
     },
     "image_options": {
       "title": "画像オプション",
@@ -550,7 +551,13 @@
       "field_scale": "Prompt Guidance",
       "field_sampler": "サンプラー",
       "field_characters": "キャラクター",
-      "field_raw": "元のメタデータ"
+      "field_raw": "元のメタデータ",
+      "filter_images": "画像ファイル",
+      "drop_hint": "ここに画像をドロップ",
+      "no_file": "ファイルを選択してください",
+      "open_file": "ファイルを開く",
+      "apply_selected": "選択項目を適用",
+      "zoom_hint": "スクロール: ズーム、ダブルクリック: リセット"
     },
     "image_source": {
       "title": "画像から画像 (i2i / インペイント)",

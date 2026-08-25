@@ -9,7 +9,7 @@ V5도 캐릭터 프롬프트를 지원한다 (2026-08-21 캡처의 `characterPro
 
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QSettings, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -25,6 +25,7 @@ from ...core.api.models import CharacterCaption
 from ...core.i18n.manager import I18nManager
 from .position_picker import PositionPicker, clamp_coord
 from .prompt_tabs import PromptTabs
+from .resize_handle import ResizeHandle
 from .wheel_guard import WheelGuard, guard_wheel
 
 X_LABELS = ("A", "B", "C", "D", "E")
@@ -45,6 +46,7 @@ class CharacterSlot(QFrame):
 
     remove_requested = Signal(object)
     changed = Signal()
+    height_changed = Signal()
 
     def __init__(self, i18n: I18nManager, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -81,14 +83,24 @@ class CharacterSlot(QFrame):
             prompt_placeholder="ui.character_prompt",
             negative_placeholder="ui.negative_prompt_add",
         )
-        self.tabs.setMaximumHeight(120)
         layout.addWidget(self.tabs)
+
+        self._resize_handle = ResizeHandle(
+            target=self.tabs,
+            settings=QSettings(),
+            parent=self,
+            settings_key="ui/character_slot_height",
+            default_height=120,
+        )
+        layout.addWidget(self._resize_handle)
+        self._resize_handle.height_persisted.connect(self.height_changed)
 
         # 다른 코드가 쓰는 이름은 그대로 유지한다 (탭 안의 같은 편집기)
         self.prompt_edit = self.tabs.prompt_edit
         self.uc_edit = self.tabs.negative_edit
         self.prompt_edit.textChanged.connect(self.changed)
         self._refresh_position_text()
+        self._resize_handle.restore_height()
 
     # ── 상태 ─────────────────────────────────────────────
 
@@ -178,11 +190,15 @@ class CharacterPromptsWidget(QGroupBox):
         self.ai_position_check = QCheckBox()
         self.ai_position_check.setChecked(False)
         self.ai_position_check.toggled.connect(self._refresh_position_enabled)
+        self.manual_position_check = QCheckBox()
+        self.manual_position_check.setChecked(False)
+        self.manual_position_check.toggled.connect(self._refresh_position_enabled)
         self.add_button = QPushButton()
         self.add_button.clicked.connect(self.add_character)
         self.clear_button = QPushButton()
         self.clear_button.clicked.connect(self.clear_all)
         controls.addWidget(self.ai_position_check)
+        controls.addWidget(self.manual_position_check)
         controls.addStretch(1)
         controls.addWidget(self.add_button)
         controls.addWidget(self.clear_button)
@@ -220,6 +236,7 @@ class CharacterPromptsWidget(QGroupBox):
         slot.remove_requested.connect(self.remove_character)
         slot.enabled_check.toggled.connect(self._refresh_position_enabled)
         slot.changed.connect(self._refresh_position_enabled)
+        slot.height_changed.connect(self._sync_slot_heights)
         self._slots.append(slot)
         self._slots_layout.addWidget(slot)
         slot.retranslate()
@@ -245,6 +262,21 @@ class CharacterPromptsWidget(QGroupBox):
         for i, slot in enumerate(self._slots, start=1):
             slot.set_index(i)
         self._refresh_position_enabled()
+
+    def _sync_slot_heights(self) -> None:
+        """모든 슬롯의 PromptTabs 높이를 QSettings에서 읽은 값으로 동기화."""
+        settings = QSettings()
+        raw = settings.value("ui/character_slot_height")
+        if raw is None:
+            return
+        try:
+            height = int(raw)
+        except (TypeError, ValueError):
+            return
+        if not (120 <= height <= 600):
+            return
+        for slot in self._slots:
+            slot.tabs.setFixedHeight(height)
 
     # ── 위치 ─────────────────────────────────────────────
 
@@ -279,9 +311,11 @@ class CharacterPromptsWidget(QGroupBox):
                 slot.set_center((i + 0.5) / count, DEFAULT_CENTER, by_user=False)
 
     def _refresh_position_enabled(self) -> None:
-        """좌표 지정 가능 조건: AI 위치 선택 꺼짐 + 체크된 캐릭터 2명 이상."""
+        """좌표 지정 가능 조건: AI 위치 선택 꺼짐 + 체크된 캐릭터 2명 이상 (또는 수동 위치 토글 ON + 1명)."""
         placed = self._marker_slots()
-        enabled = self.use_coords() and len(placed) >= 2
+        enabled = self.use_coords() and (
+            len(placed) >= 2 or (len(placed) == 1 and self.manual_position_check.isChecked())
+        )
         if enabled:
             self._auto_arrange(placed)
         for slot in self._slots:
@@ -302,8 +336,21 @@ class CharacterPromptsWidget(QGroupBox):
         self.ai_position_check.setChecked(not use_coords)
         self._refresh_position_enabled()
 
+    def manual_position_override(self) -> bool:
+        """수동 위치 지정 토글 상태."""
+        return self.manual_position_check.isChecked()
+
+    def set_manual_position_override(self, enabled: bool) -> None:
+        """설정 복원용 — True면 수동 위치 지정이 켜진다."""
+        self.manual_position_check.setChecked(enabled)
+        self._refresh_position_enabled()
+
     def captions(self) -> tuple[CharacterCaption, ...]:
         use_coords = self.use_coords()
+        enabled_slots = [s for s in self._slots if s.is_enabled and s.prompt_edit.toPlainText().strip()]
+        # 수동 위치 토글 ON + 1명이면 좌표를 보낸다 (기존: 1명이면 항상 0.5/0.5)
+        if self.manual_position_check.isChecked() and len(enabled_slots) == 1:
+            use_coords = True
         result = [s.to_caption(use_coords) for s in self._slots]
         return tuple(c for c in result if c is not None)
 
@@ -322,6 +369,7 @@ class CharacterPromptsWidget(QGroupBox):
         # 설명은 자리를 차지하지 않게 툴팁으로만 둔다
         self.setToolTip(tr("ui.character_prompt_info"))
         self.ai_position_check.setText(tr("ui.ai_position"))
+        self.manual_position_check.setText(tr("ui.manual_position"))
         self.add_button.setText(tr("ui.add_character"))
         self.clear_button.setText(tr("ui.clear_all"))
         self.position_hint.setText(tr("ui.position_hint"))

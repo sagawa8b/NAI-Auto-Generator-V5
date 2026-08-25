@@ -93,7 +93,8 @@
       "summary_seed_random": "随机",
       "section_expanded": "已展开",
       "section_collapsed": "已折叠",
-      "options_menu": "选项..."
+      "options_menu": "选项...",
+      "manual_position": "手动位置"
     },
     "image_options": {
       "title": "图像选项",
@@ -550,7 +551,13 @@
       "field_scale": "Prompt Guidance",
       "field_sampler": "采样器",
       "field_characters": "角色",
-      "field_raw": "原始元数据"
+      "field_raw": "原始元数据",
+      "filter_images": "图片文件",
+      "drop_hint": "将图片拖放到此处",
+      "no_file": "请选择文件",
+      "open_file": "打开文件",
+      "apply_selected": "应用所选",
+      "zoom_hint": "滚动: 缩放，双击: 重置"
     },
     "image_source": {
       "title": "图生图 (i2i / 局部重绘)",

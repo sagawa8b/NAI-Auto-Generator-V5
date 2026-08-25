@@ -133,12 +133,41 @@ class GenerationService:
         except Exception:
             logger.exception("event callback failed")
 
-    def _wait(self, seconds: float) -> None:
-        """stop-aware 대기. 중지 요청 시 즉시 _StopRequested."""
-        if seconds > 0 and self._stop.wait(timeout=seconds):
-            raise _StopRequested
+    def _wait(self, seconds: float, next_index: int | None = None) -> None:
+        """stop-aware countdown wait. Emits WaitingNext per second when next_index is provided."""
+        if seconds <= 0:
+            return
         if self._stop.is_set():
             raise _StopRequested
+
+        # If no next_index, this is a simple stop-aware wait (e.g. retry backoff)
+        if next_index is None:
+            if self._stop.wait(timeout=seconds):
+                raise _StopRequested
+            return
+
+        if seconds < 1.0:
+            # Sub-second delay: single emission, then wait
+            self._emit(WaitingNext(next_index=next_index, wait_seconds=seconds))
+            if self._stop.wait(timeout=seconds):
+                raise _StopRequested
+            return
+
+        remaining = seconds
+        # Initial emission with full delay
+        self._emit(WaitingNext(next_index=next_index, wait_seconds=remaining))
+
+        while remaining >= 1.0:
+            if self._stop.wait(timeout=1.0):
+                raise _StopRequested
+            remaining -= 1.0
+            if remaining >= 1.0:
+                self._emit(WaitingNext(next_index=next_index, wait_seconds=remaining))
+
+        # Fractional remainder — no emission
+        if remaining > 0:
+            if self._stop.wait(timeout=remaining):
+                raise _StopRequested
 
     def _run(self, job: GenerationJob) -> None:
         self._emit(JobStarted(total=job.count))
@@ -192,9 +221,7 @@ class GenerationService:
                     self._log_credit(index)
 
                 if job.count == 0 or index < job.count:
-                    if job.delay_seconds > 0:
-                        self._emit(WaitingNext(next_index=index + 1, wait_seconds=job.delay_seconds))
-                    self._wait(job.delay_seconds)
+                    self._wait(job.delay_seconds, next_index=index + 1)
 
             obs = tuple(self._credit_observations) if job.measure_credit else ()
             self._emit(JobFinished(completed=completed, credit_observations=obs))

@@ -76,6 +76,7 @@ class PromptState(BaseModel):
     negative_prompt: str = ""
     characters: list[CharacterPromptState] = Field(default_factory=list)
     use_coords: bool = True  # False = AI 위치 선택
+    manual_position_override: bool = False  # True = 1명일 때도 수동 위치 지정
 
 
 class BatchSettings(BaseModel):

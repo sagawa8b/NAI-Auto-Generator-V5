@@ -93,7 +93,8 @@
       "summary_seed_random": "랜덤",
       "section_expanded": "펼침",
       "section_collapsed": "접힘",
-      "options_menu": "옵션..."
+      "options_menu": "옵션...",
+      "manual_position": "수동 위치 지정"
     },
     "image_options": {
       "title": "이미지 옵션",
@@ -539,7 +540,6 @@
       "apply": "이 설정 불러오기",
       "close": "닫기",
       "no_metadata": "이 PNG에는 NovelAI 생성 정보가 없습니다.",
-      "drop_hint": "PNG 파일을 여기에 끌어다 놓으면 생성 정보를 볼 수 있습니다",
       "applied": "설정을 불러왔습니다.",
       "field_prompt": "프롬프트",
       "field_negative": "네거티브",
@@ -550,7 +550,13 @@
       "field_scale": "Prompt Guidance",
       "field_sampler": "샘플러",
       "field_characters": "캐릭터",
-      "field_raw": "원본 메타데이터"
+      "field_raw": "원본 메타데이터",
+      "filter_images": "이미지 파일",
+      "drop_hint": "여기에 이미지를 끌어 놓으세요",
+      "no_file": "파일을 선택하세요",
+      "open_file": "파일 열기",
+      "apply_selected": "선택 항목 적용",
+      "zoom_hint": "스크롤: 확대/축소, 더블클릭: 원래 크기"
     },
     "image_source": {
       "title": "이미지 → 이미지 (i2i / 인페인팅)",

@@ -16,7 +16,7 @@ from pathlib import Path
 
 import platformdirs
 import shiboken6
-from PySide6.QtCore import Qt, QUrl, Signal, SignalInstance
+from PySide6.QtCore import QSettings, Qt, QUrl, Signal, SignalInstance
 from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -81,6 +81,7 @@ from .widgets.character_prompts import CharacterPromptsWidget, CharacterSlot
 from .widgets.collapsible_section import CollapsibleSection, compose_ai_summary
 from .widgets.image_source import ImageSourceWidget
 from .widgets.prompt_tabs import PromptTabs
+from .widgets.resize_handle import ResizeHandle
 from .widgets.resolution_panel import ResolutionPanel
 from .widgets.status_bar_gauge import StatusBarGauge
 from .widgets.wheel_guard import guard_wheel
@@ -156,7 +157,11 @@ class MainWindow(QMainWindow):
         #: 실제 값은 창을 띄운 쪽이 `set_logged_in()`으로 정해 준다.
         self._logged_in = client.session.is_logged_in
 
+        self._qsettings = QSettings()
+
         self._build_ui()
+        self._resize_handle.restore_height()
+        self._restore_prompt_char_splitter()
         self._setup_m3_components()
         self._populate_models()
         self._apply_settings()
@@ -185,15 +190,24 @@ class MainWindow(QMainWindow):
         pg_layout = QVBoxLayout(self.prompt_group)
         self.prompt_tabs = PromptTabs(self._i18n)
         self.prompt_tabs.setMinimumHeight(150)
-        self.prompt_tabs.setMaximumHeight(230)  # 아래 그룹들이 밀려나지 않도록
         pg_layout.addWidget(self.prompt_tabs)
+        self._resize_handle = ResizeHandle(self.prompt_tabs, self._qsettings)
+        pg_layout.addWidget(self._resize_handle)
         self.prompt_edit = self.prompt_tabs.prompt_edit
         self.negative_edit = self.prompt_tabs.negative_edit
-        left_layout.addWidget(self.prompt_group)
 
         # 캐릭터 프롬프트 — 기본 프롬프트 바로 아래 (V5도 지원, 캡처의 characterPrompts)
         self.character_prompts = CharacterPromptsWidget(self._i18n)
-        left_layout.addWidget(self.character_prompts)
+
+        # 프롬프트 ↔ 캐릭터 프롬프트 사이를 드래그로 비율 조절 (V4 스플리터와 동일)
+        self._prompt_char_splitter = QSplitter(Qt.Orientation.Vertical)
+        self._prompt_char_splitter.setChildrenCollapsible(False)
+        self._prompt_char_splitter.addWidget(self.prompt_group)
+        self._prompt_char_splitter.addWidget(self.character_prompts)
+        self._prompt_char_splitter.setHandleWidth(6)
+        # 초기 비율 6:4 (프롬프트 : 캐릭터 프롬프트)
+        self._prompt_char_splitter.setSizes([600, 400])
+        left_layout.addWidget(self._prompt_char_splitter)
 
         # 모델 — 접힘 영역 밖 (모델을 바꾸면 샘플러·해상도 카탈로그가 전부 바뀐다)
         self.model_row = QWidget()
@@ -791,6 +805,20 @@ class MainWindow(QMainWindow):
         """캐릭터 위치 캔버스를 생성 해상도 비율로 맞춘다."""
         self.character_prompts.set_aspect(*self.target_size())
 
+    # ── 프롬프트/캐릭터 스플리터 상태 저장·복원 ─────────────────
+
+    _SPLITTER_KEY = "ui/prompt_char_splitter"
+
+    def _save_prompt_char_splitter(self) -> None:
+        """스플리터 상태를 QSettings에 저장한다."""
+        self._qsettings.setValue(self._SPLITTER_KEY, self._prompt_char_splitter.saveState())
+
+    def _restore_prompt_char_splitter(self) -> None:
+        """QSettings에서 스플리터 상태를 복원한다."""
+        state = self._qsettings.value(self._SPLITTER_KEY)
+        if state is not None:
+            self._prompt_char_splitter.restoreState(state)
+
     def _on_resolution_changed(self) -> None:
         """해상도가 바뀌면 캐릭터 위치 캔버스 비율을 다시 맞춘다 (Req 10.14).
 
@@ -887,9 +915,11 @@ class MainWindow(QMainWindow):
                 )
             )
         self.character_prompts.set_use_coords(p.use_coords)
+        self.character_prompts.set_manual_position_override(p.manual_position_override)
 
     def collect_settings(self) -> AppSettings:
         """현재 위젯 상태를 설정 객체로 (종료 시 영속화용)."""
+        self._save_prompt_char_splitter()
         s = self._settings
         g = s.generation
         g.model = self.model_combo.currentData()
@@ -910,6 +940,7 @@ class MainWindow(QMainWindow):
         p.prompt = self.prompt_edit.toPlainText()
         p.negative_prompt = self.negative_edit.toPlainText()
         p.use_coords = self.character_prompts.use_coords()
+        p.manual_position_override = self.character_prompts.manual_position_override()
         p.characters = [
             CharacterPromptState(prompt=c.prompt, uc=c.uc, center_x=c.center_x, center_y=c.center_y)
             for c in self.character_prompts.captions()
@@ -1115,16 +1146,19 @@ class MainWindow(QMainWindow):
             self,
             self._i18n.get_text("image_info.open"),
             self._settings.save_dir,
-            "PNG (*.png)",
+            "Images (*.png *.webp)",
         )
         if path:
             self.open_image_info(path)
 
     def open_image_info(self, path: str) -> ImageInfoDialog:
         """PNG의 생성 정보를 보여주고, 사용자가 수락하면 설정을 UI에 적용한다."""
-        dialog = ImageInfoDialog(self._i18n, path, self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.apply_reusable(dialog.settings)
+        from pathlib import Path as _Path
+
+        dialog = ImageInfoDialog(self._i18n, self)
+        dialog.settings_selected.connect(self.apply_reusable)
+        dialog.load_file(_Path(path))
+        dialog.exec()
         return dialog
 
     def apply_reusable(self, s: ReusableSettings) -> None:
@@ -1164,23 +1198,23 @@ class MainWindow(QMainWindow):
     # ── 드래그&드롭 ─────────────────────────────────────
 
     def dragEnterEvent(self, event) -> None:  # noqa: N802 (Qt 콜백 이름)
-        if self._dropped_png(event) is not None:
+        if self._dropped_image(event) is not None:
             event.acceptProposedAction()
 
     def dropEvent(self, event) -> None:  # noqa: N802 (Qt 콜백 이름)
-        path = self._dropped_png(event)
+        path = self._dropped_image(event)
         if path is not None:
             event.acceptProposedAction()
             self.open_image_info(path)
 
     @staticmethod
-    def _dropped_png(event) -> str | None:
+    def _dropped_image(event) -> str | None:
         mime = event.mimeData()
         if not mime.hasUrls():
             return None
         for url in mime.urls():
             local = url.toLocalFile()
-            if local.lower().endswith(".png"):
+            if Path(local).suffix.lower() in (".png", ".webp"):
                 return local
         return None
 

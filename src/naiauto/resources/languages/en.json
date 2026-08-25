@@ -93,7 +93,8 @@
       "summary_seed_random": "Random",
       "section_expanded": "expanded",
       "section_collapsed": "collapsed",
-      "options_menu": "Options..."
+      "options_menu": "Options...",
+      "manual_position": "Manual Position"
     },
     "image_options": {
       "title": "Image Options",
@@ -539,7 +540,6 @@
       "apply": "Load these settings",
       "close": "Close",
       "no_metadata": "This PNG has no NovelAI generation info.",
-      "drop_hint": "Drop a PNG here to inspect its generation info",
       "applied": "Settings loaded.",
       "field_prompt": "Prompt",
       "field_negative": "Negative",
@@ -550,7 +550,13 @@
       "field_scale": "Prompt Guidance",
       "field_sampler": "Sampler",
       "field_characters": "Characters",
-      "field_raw": "Raw metadata"
+      "field_raw": "Raw metadata",
+      "filter_images": "Image Files",
+      "drop_hint": "Drop image here",
+      "no_file": "Select a file",
+      "open_file": "Open File",
+      "apply_selected": "Apply Selected",
+      "zoom_hint": "Scroll: zoom, Double-click: reset"
     },
     "image_source": {
       "title": "Image to Image (i2i / Inpainting)",

@@ -420,12 +420,14 @@ class GalleryView(QDialog):
         if not path:
             return
 
+        from pathlib import Path as _Path
+
         from .image_info_dialog import ImageInfoDialog
 
-        dialog = ImageInfoDialog(self._i18n, path, parent=self)
-        if dialog.exec() == ImageInfoDialog.DialogCode.Accepted:
-            # User chose "Load these settings"
-            self.reuse_requested.emit(path)
+        dialog = ImageInfoDialog(self._i18n, parent=self)
+        dialog.load_file(_Path(path))
+        dialog.settings_selected.connect(lambda _s: self.reuse_requested.emit(path))
+        dialog.exec()
 
     # ------------------------------------------------------------------
     # Right-click context menu (Req 5.6, 5.7)
