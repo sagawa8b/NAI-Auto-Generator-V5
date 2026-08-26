@@ -531,7 +531,9 @@
     },
     "batch": {
       "count": "생성 매수 (0=무한):",
-      "delay": "간격(초):"
+      "delay": "간격(초):",
+      "random_resolution": "매 장마다 해상도 랜덤 (세로/가로/정방형)",
+      "random_resolution_tooltip": "생성할 때마다 Wide/Square/Portrait 중 하나를 무작위로 골라 해상도를 바꿉니다. i2i/인페인팅 중에는 원본 이미지 크기가 우선이라 적용되지 않습니다."
     },
     "image_info": {
       "title": "이미지 정보",

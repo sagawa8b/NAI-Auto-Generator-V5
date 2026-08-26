@@ -236,6 +236,25 @@ class ResolutionPanel(QGroupBox):
     def is_source_locked(self) -> bool:
         return self._source_locked
 
+    def aspect_random_choices(self) -> tuple[tuple[int, int], ...]:
+        """현재 등급에서 사용 가능한 각 Aspect의 대표 해상도 (랜덤 해상도 기능용).
+
+        "직접 입력" 상태(`current_group()`이 None)면 카탈로그 전체에서 Aspect별 첫 해상도를 쓴다.
+        """
+        if self._catalog is None:
+            return ()
+        group = self.current_group()
+        sizes: list[tuple[int, int]] = []
+        for aspect in self._available_aspects():
+            item = (
+                self._catalog.first_of_aspect(group, aspect)
+                if group is not None
+                else self._first_of_aspect_any(aspect)
+            )
+            if item is not None:
+                sizes.append(item.size)
+        return tuple(sizes)
+
     def current_group(self) -> ResolutionGroup | None:
         """콤보에서 선택된 등급. "직접 입력"이면 None.
 

@@ -531,7 +531,9 @@
     },
     "batch": {
       "count": "生成枚数 (0=無限):",
-      "delay": "間隔(秒):"
+      "delay": "間隔(秒):",
+      "random_resolution": "1枚ごとに解像度をランダム化 (縦/横/正方形)",
+      "random_resolution_tooltip": "生成ごとにWide/Square/Portraitのいずれかをランダムに選んで解像度を変更します。i2i/インペイント中は元画像サイズが優先されるため適用されません。"
     },
     "image_info": {
       "title": "画像情報",

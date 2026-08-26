@@ -51,7 +51,7 @@ from ..core.credit_estimator import CreditEstimator
 from ..core.i18n.manager import I18nManager
 from ..core.logging_setup import configure_logging, crash_log_path, log_path
 from ..core.metadata.reuse import ReusableSettings
-from ..core.presets import GenerationPreset, PresetError, PresetStore
+from ..core.presets import CharacterPromptPreset, GenerationPreset, PresetError, PresetStore
 from ..core.resolution_catalog import ResolutionCatalog
 from ..core.settings import credentials
 from ..core.settings.schema import APP_NAME, QUICK_COUNT_SLOTS, AppSettings, CharacterPromptState
@@ -447,6 +447,7 @@ class MainWindow(QMainWindow):
         self.delay_spin.setMaximumWidth(90)
         self.count_label = QLabel()
         self.delay_label = QLabel()
+        self.random_resolution_check = QCheckBox()
 
         self.once_button = QPushButton()
         self.auto_button = QPushButton()
@@ -461,6 +462,8 @@ class MainWindow(QMainWindow):
         batch_row.addSpacing(12)
         batch_row.addWidget(self.delay_label)
         batch_row.addWidget(self.delay_spin)
+        batch_row.addSpacing(12)
+        batch_row.addWidget(self.random_resolution_check)
         batch_row.addStretch(1)
 
         # 퀵 매수 버튼 — 누르면 그 매수로 바로 연속 생성 (V4.5의 Quick Generation)
@@ -692,6 +695,12 @@ class MainWindow(QMainWindow):
             uc_preset=self.uc_preset_combo.currentData() or "heavy",
             prompt=self.prompt_edit.toPlainText(),
             negative_prompt=self.negative_edit.toPlainText(),
+            characters=[
+                CharacterPromptPreset(prompt=c.prompt, uc=c.uc, center_x=c.center_x, center_y=c.center_y)
+                for c in self.character_prompts.captions()
+            ],
+            use_coords=self.character_prompts.use_coords(),
+            manual_position_override=self.character_prompts.manual_position_override(),
         )
 
     def _on_preset_loaded(self, preset: GenerationPreset) -> None:
@@ -732,6 +741,16 @@ class MainWindow(QMainWindow):
             self.prompt_edit.setPlainText(preset.prompt)
         if preset.negative_prompt:
             self.negative_edit.setPlainText(preset.negative_prompt)
+
+        # Characters (Bug fix: 프리셋에 캐릭터 프롬프트가 없으면 기존 캐릭터도 정리한다 — 원자적 적용)
+        self.character_prompts.load_captions(
+            tuple(
+                CharacterCaption(prompt=c.prompt, uc=c.uc, center_x=c.center_x, center_y=c.center_y)
+                for c in preset.characters
+            )
+        )
+        self.character_prompts.set_use_coords(preset.use_coords)
+        self.character_prompts.set_manual_position_override(preset.manual_position_override)
 
         self.status_label.setText(self._i18n.get_text("menu.preset_applied"))
 
@@ -892,6 +911,7 @@ class MainWindow(QMainWindow):
             self.seed_edit.setText(str(g.seed))
         self.count_spin.setValue(self._settings.batch.count)
         self.delay_spin.setValue(self._settings.batch.delay_seconds)
+        self.random_resolution_check.setChecked(self._settings.batch.random_resolution)
         self._refresh_quick_buttons()
         self.image_source_action.setChecked(
             self._settings.show_image_source and self.image_source_action.isEnabled()
@@ -934,6 +954,7 @@ class MainWindow(QMainWindow):
         g.seed = -1 if self.seed_random_check.isChecked() else self._seed_value()
         s.batch.count = self.count_spin.value()
         s.batch.delay_seconds = self.delay_spin.value()
+        s.batch.random_resolution = self.random_resolution_check.isChecked()
         s.show_image_source = self.image_source_action.isChecked()
         s.measure_credit = self.measure_credit_action.isChecked()
         p = s.prompts
@@ -1234,6 +1255,11 @@ class MainWindow(QMainWindow):
         # i2i/인페인팅은 원본 이미지 크기를 그대로 쓴다 (스모크로 검증된 동작)
         size = self.target_size()
         randomize = self.seed_random_check.isChecked()
+        # i2i/인페인팅으로 해상도가 잠겨 있으면 랜덤 해상도는 원본 크기를 덮어쓰면 안 되므로 끈다.
+        resolution_choices = (
+            self.resolution_panel.aspect_random_choices() if self.image_source.size is None else ()
+        )
+        randomize_resolution = self.random_resolution_check.isChecked() and len(resolution_choices) >= 2
         request = GenerationRequest(
             action=self.image_source.action(),
             prompt=prompt,
@@ -1267,6 +1293,8 @@ class MainWindow(QMainWindow):
             character_word_limit=self._settings.character_word_limit,  # Req 3.6
             randomize_seed=randomize,
             measure_credit=self.measure_credit_action.isChecked(),
+            randomize_resolution=randomize_resolution,
+            resolution_choices=resolution_choices,
         )
 
     def _on_generate_once(self) -> None:
@@ -1529,6 +1557,8 @@ class MainWindow(QMainWindow):
         self.generate_group.setTitle(tr("generate.title"))
         self.count_label.setText(tr("batch.count"))
         self.delay_label.setText(tr("batch.delay"))
+        self.random_resolution_check.setText(tr("batch.random_resolution"))
+        self.random_resolution_check.setToolTip(tr("batch.random_resolution_tooltip"))
         self._refresh_quick_buttons()
         self.once_button.setText(tr("generate.once"))
         self.auto_button.setText(tr("generate.auto"))

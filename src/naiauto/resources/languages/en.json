@@ -531,7 +531,9 @@
     },
     "batch": {
       "count": "Count (0=infinite):",
-      "delay": "Delay (sec):"
+      "delay": "Delay (sec):",
+      "random_resolution": "Random resolution per image (Wide/Square/Portrait)",
+      "random_resolution_tooltip": "Picks a random Wide/Square/Portrait resolution for each generated image. Ignored while i2i/inpainting locks the size to the source image."
     },
     "image_info": {
       "title": "Image Info",

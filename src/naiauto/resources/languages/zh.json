@@ -531,7 +531,9 @@
     },
     "batch": {
       "count": "生成数量 (0=无限):",
-      "delay": "间隔(秒):"
+      "delay": "间隔(秒):",
+      "random_resolution": "每张随机分辨率 (横/竖/正方形)",
+      "random_resolution_tooltip": "每次生成时随机选择 Wide/Square/Portrait 中的一种分辨率。i2i/局部重绘时会优先使用原图尺寸，因此不生效。"
     },
     "image_info": {
       "title": "图像信息",

@@ -29,6 +29,7 @@ from ..core.api.models import GenerationRequest
 from ..core.artist_combos import ArtistComboEngine
 from ..core.credit_estimator import CreditObservation
 from ..core.metadata.save import save_raw_png
+from ..core.prompt_choices import resolve_prompt_choices
 from ..core.wildcards.applier import WildcardApplier
 from .events import (
     GenerationEvent,
@@ -71,6 +72,8 @@ class GenerationJob:
     character_word_limit: int = 20  # {character} 토큰에 남길 단어 수 (Req 3.6)
     randomize_seed: bool = True  # True: 매 장 새 시드 / False: request.seed 고정
     measure_credit: bool = False  # 매 장 후 V5 크레딧/Anlas를 로그에 기록 (요청 1회 추가)
+    randomize_resolution: bool = False  # True: 매 장 resolution_choices 중 하나로 해상도 변경
+    resolution_choices: tuple[tuple[int, int], ...] = ()  # Aspect별 대표 해상도 (2개 미만이면 무시)
 
 
 class GenerationService:
@@ -321,6 +324,23 @@ class GenerationService:
             )
             self._artist_combos.advance_loopcard_indices()
             req = dataclasses.replace(req, prompt=prompt, negative_prompt=negative, characters=characters)
+
+        prompt = resolve_prompt_choices(req.prompt, self._rng)
+        negative = resolve_prompt_choices(req.negative_prompt, self._rng)
+        characters = tuple(
+            dataclasses.replace(
+                c,
+                prompt=resolve_prompt_choices(c.prompt, self._rng),
+                uc=resolve_prompt_choices(c.uc, self._rng),
+            )
+            for c in req.characters
+        )
+        req = dataclasses.replace(req, prompt=prompt, negative_prompt=negative, characters=characters)
+
+        if job.randomize_resolution and len(job.resolution_choices) >= 2:
+            width, height = self._rng.choice(job.resolution_choices)
+            req = dataclasses.replace(req, width=width, height=height)
+
         if job.randomize_seed:
             req = req.with_seed(self._rng.randint(1, 2**32 - 1))
         return req

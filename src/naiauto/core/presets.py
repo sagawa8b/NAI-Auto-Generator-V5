@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .validation import GENERATION_PARAMS
 
@@ -25,6 +25,15 @@ _SAFE_FILENAME_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 class PresetError(Exception):
     """Raised when a preset file cannot be loaded (malformed JSON, etc.)."""
+
+
+class CharacterPromptPreset(BaseModel):
+    """캐릭터 슬롯 1개의 프리셋 저장 형태 (settings.CharacterPromptState와 같은 모양)."""
+
+    prompt: str = ""
+    uc: str = ""
+    center_x: float = 0.5
+    center_y: float = 0.5
 
 
 class GenerationPreset(BaseModel):
@@ -44,6 +53,9 @@ class GenerationPreset(BaseModel):
     var_plus: bool = False
     prompt: str = ""
     negative_prompt: str = ""
+    characters: list[CharacterPromptPreset] = Field(default_factory=list)
+    use_coords: bool = True
+    manual_position_override: bool = False
 
 
 def _sanitize_filename(name: str) -> str:

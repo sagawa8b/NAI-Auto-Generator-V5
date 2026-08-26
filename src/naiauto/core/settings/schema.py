@@ -85,6 +85,8 @@ class BatchSettings(BaseModel):
     stop_on_anlas_error: bool = True
     #: 생성 바의 퀵 매수 버튼 4개. 누르면 그 매수로 바로 연속 생성이 시작된다.
     quick_counts: list[int] = Field(default_factory=lambda: list(DEFAULT_QUICK_COUNTS))
+    #: True면 매 장마다 Wide/Square/Portrait 중 하나를 무작위로 골라 생성한다 (i2i/인페인팅 잠금 중엔 무시).
+    random_resolution: bool = False
 
 
 class CustomResolution(BaseModel):
