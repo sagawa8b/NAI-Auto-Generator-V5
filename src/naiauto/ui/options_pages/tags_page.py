@@ -17,6 +17,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
@@ -69,6 +70,9 @@ class TagsPage(OptionsPage):
 
         layout = QVBoxLayout(self)
 
+        self.enabled_check = QCheckBox(self)
+        layout.addWidget(self.enabled_check)
+
         form = QFormLayout()
         self.path_label = QLabel(self)
         path_row = QHBoxLayout()
@@ -95,16 +99,19 @@ class TagsPage(OptionsPage):
     # ── OptionsPage 계약 ────────────────────────────────────────────────
 
     def load(self, draft: AppSettings) -> None:
+        self.enabled_check.setChecked(draft.tag_autocomplete_enabled)
         self.path_edit.setText(draft.tag_database_path)
         # 값이 그대로면 textChanged가 오지 않으므로 직접 갱신한다.
         self._refresh_status()
 
     def commit(self, draft: AppSettings) -> None:
         """공백만 남은 입력은 빈 문자열(= 앱에 동봉된 기본 DB 사용)로 정규화한다."""
+        draft.tag_autocomplete_enabled = self.enabled_check.isChecked()
         draft.tag_database_path = self.path_edit.text().strip()
 
     def retranslate(self) -> None:
         tr = self._i18n.get_text
+        self.enabled_check.setText(tr("options.tags_autocomplete_enabled"))
         self.path_label.setText(tr("options.tag_database_path"))
         self.browse_button.setText(tr("options.browse"))
         key, count = self._status

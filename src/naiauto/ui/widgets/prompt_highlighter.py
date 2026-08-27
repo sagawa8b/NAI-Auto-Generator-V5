@@ -8,8 +8,9 @@ V4.5는 `QTextEdit.ExtraSelection`으로 칠했지만 V5의 입력창은 `QPlain
     ::artist:name::   숫자 없는 강조 → 파랑
     (               짝이 없는 괄호 → 빨강
 
-색은 팔레트와 무관한 고정색이다 (V4.5와 같은 값). 어두운 테마에서도 읽히는 채도라
-테마별 분기를 두지 않는다.
+기본 색은 팔레트와 무관한 고정색이다 (V4.5와 같은 값. 어두운 테마에서도 읽히는 채도라
+테마별 분기를 두지 않는다). 강조/약화 색은 `set_colors()`로 바꿀 수 있다 (V4의
+`high_emphasis_color`/`low_emphasis_color` 옵션 이식, Options → 인터페이스).
 """
 
 from __future__ import annotations
@@ -60,11 +61,24 @@ def _format(color: QColor, *, bold: bool = False) -> QTextCharFormat:
 class PromptHighlighter(QSyntaxHighlighter):
     """프롬프트 입력창 하나에 붙는 강조기. 문서 수명과 함께 산다."""
 
-    def __init__(self, document: QTextDocument) -> None:
+    def __init__(
+        self,
+        document: QTextDocument,
+        *,
+        high_color: QColor | None = None,
+        low_color: QColor | None = None,
+    ) -> None:
         super().__init__(document)
         self._marker_format = _format(COLOR_MARKER, bold=True)
-        self._low_format = _format(COLOR_LOW)
         self._unmatched_format = _format(COLOR_UNMATCHED, bold=True)
+        self._high_color = high_color or COLOR_HIGH
+        self._low_format = _format(low_color or COLOR_LOW)
+
+    def set_colors(self, high_color: QColor | None, low_color: QColor | None) -> None:
+        """강조(>1.0)/약화(<1.0) 색을 바꾸고 즉시 다시 칠한다. None이면 기본 고정색."""
+        self._high_color = high_color or COLOR_HIGH
+        self._low_format = _format(low_color or COLOR_LOW)
+        self.rehighlight()
 
     def highlightBlock(self, text: str) -> None:  # noqa: N802 (Qt 콜백 이름)
         covered: set[int] = set()
@@ -93,7 +107,7 @@ class PromptHighlighter(QSyntaxHighlighter):
         """가중치가 클수록 굵게 (V4.5와 같은 계산), 1.0 미만은 회색."""
         if weight < 1.0:
             return self._low_format
-        fmt = _format(COLOR_HIGH)
+        fmt = _format(self._high_color)
         steps = QFont.Weight.Normal.value + int((weight - 1.0) * 3) * 100
         fmt.setFontWeight(QFont.Weight(min(QFont.Weight.Black.value, max(QFont.Weight.Normal.value, steps))))
         return fmt

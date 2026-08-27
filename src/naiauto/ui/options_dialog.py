@@ -91,6 +91,8 @@ OWNED_FIELDS: tuple[str, ...] = (
     "gallery_dir",
     "log_dir",
     "tag_database_path",
+    "tag_autocomplete_enabled",
+    "prompt_font",
     "filename_template",
     "image_format",
     "prompt_word_limit",
@@ -114,8 +116,8 @@ def apply_draft(draft: AppSettings, live: AppSettings) -> tuple[str, ...]:
     """`OWNED_FIELDS`만 draft → live로 복사하고, 실제로 바뀐 경로 목록을 돌려준다 (Req 1.5, 1.6).
 
     돌려받은 목록은 부수효과 판단(언어 전환, 로깅 재구성, `applied` 후속 처리)에 그대로 쓴다.
-    중첩 모델(`resolution`, `ui`)은 드래프트의 하위 객체를 그대로 넘긴다 — 드래프트는 저장 직후
-    폐기되므로 소유권 이전이 안전하다.
+    중첩 모델(`resolution`, `ui`, `prompt_font`)은 드래프트의 하위 객체를 그대로 넘긴다 —
+    드래프트는 저장 직후 폐기되므로 소유권 이전이 안전하다.
     """
     changed: list[str] = []
     for path in OWNED_FIELDS:

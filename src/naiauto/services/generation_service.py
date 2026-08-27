@@ -95,6 +95,11 @@ class GenerationService:
         self._future: Future | None = None
         self._last_probe: tuple[int | None, int | None] | None = None
         self._last_probe_at: float = 0.0
+        # GUI 스레드 → 워커 스레드로 넘어가는 유일한 값(_stop 제외): 배치 도중 해상도 패널에서
+        # 크기를 바꾸면 다음 이미지부터 반영하기 위한 실시간 오버라이드 (Lock으로 보호).
+        self._live_resolution_lock = threading.Lock()
+        self._live_resolution: tuple[int, int] | None = None
+        self._live_resolution_choices: tuple[tuple[int, int], ...] = ()
 
     def reload_artist_combos(self, combos_dir: str) -> None:
         """아티스트 조합 폴더를 다시 읽는다 (옵션에서 경로를 바꿨을 때).
@@ -117,12 +122,24 @@ class GenerationService:
         if self.is_running:
             raise RuntimeError("a generation job is already running")
         self._stop.clear()
+        with self._live_resolution_lock:
+            self._live_resolution = None
+            self._live_resolution_choices = ()
         self._future = self._executor.submit(self._run, job)
         return self._future
 
     def stop(self) -> None:
         """현재 잡에 중지 요청. 진행 중인 HTTP 요청은 완료를 기다린다."""
         self._stop.set()
+
+    def set_live_resolution(self, width: int, height: int, choices: tuple[tuple[int, int], ...] = ()) -> None:
+        """해상도 패널이 바뀔 때 GUI 스레드에서 호출 — 다음 `_prepare_request()`부터 반영된다.
+
+        진행 중인 이미지에는 영향이 없다 (다음 이미지의 요청을 만들 때만 읽는다).
+        """
+        with self._live_resolution_lock:
+            self._live_resolution = (width, height)
+            self._live_resolution_choices = choices
 
     def shutdown(self) -> None:
         self._stop.set()
@@ -337,9 +354,15 @@ class GenerationService:
         )
         req = dataclasses.replace(req, prompt=prompt, negative_prompt=negative, characters=characters)
 
-        if job.randomize_resolution and len(job.resolution_choices) >= 2:
-            width, height = self._rng.choice(job.resolution_choices)
+        with self._live_resolution_lock:
+            live_size = self._live_resolution
+            live_choices = self._live_resolution_choices
+        choices = live_choices or job.resolution_choices
+        if job.randomize_resolution and len(choices) >= 2:
+            width, height = self._rng.choice(choices)
             req = dataclasses.replace(req, width=width, height=height)
+        elif live_size is not None:
+            req = dataclasses.replace(req, width=live_size[0], height=live_size[1])
 
         if job.randomize_seed:
             req = req.with_seed(self._rng.randint(1, 2**32 - 1))

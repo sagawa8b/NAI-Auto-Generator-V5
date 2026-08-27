@@ -115,6 +115,19 @@ class UiState(BaseModel):
     ai_settings_expanded: bool = False
 
 
+class PromptFontSettings(BaseModel):
+    """프롬프트·네거티브·캐릭터 프롬프트 입력란 전용 폰트 크기/색상 (V4 기능 이식).
+
+    `emphasis_color`/`deemphasis_color`는 가중치 문법(`2::text::`, `-2::text::`)의
+    강조/약화 색이다 — V4의 `high_emphasis_color`/`low_emphasis_color`에 대응.
+    """
+
+    size: int = 0  # 0 = 기본값(적용 안 함)
+    color: str = ""  # "" = 기본값, 값이 있으면 "#rrggbb"
+    emphasis_color: str = ""  # "" = 기본 고정색 (가중치 > 1.0, 예: "2::text::")
+    deemphasis_color: str = ""  # "" = 기본 고정색 (가중치 < 1.0, 예: "-2::text::")
+
+
 class AppSettings(BaseModel):
     schema_version: int = CURRENT_SCHEMA_VERSION
     language: str = "ko"
@@ -127,6 +140,7 @@ class AppSettings(BaseModel):
     gallery_dir: str = ""
     log_dir: str = ""  # 빈 문자열 = OS 표준 로그 위치
     tag_database_path: str = ""  # 태그 자동완성 DB 경로 (빈 문자열 = 앱에 동봉된 기본 DB)
+    tag_autocomplete_enabled: bool = True  # False면 DB가 있어도 자동완성 드롭다운을 붙이지 않는다
     filename_template: str = "{datetime}_{seed}"
     #: 생성 이미지 저장 형식. "png"(기본, 원본 그대로) 또는 "webp"(무손실, 메타데이터는
     #: EXIF로 옮겨 재사용 가능 — core/metadata/save.py 참고).
@@ -143,6 +157,7 @@ class AppSettings(BaseModel):
     prompts: PromptState = Field(default_factory=PromptState)
     resolution: ResolutionOptions = Field(default_factory=ResolutionOptions)
     ui: UiState = Field(default_factory=UiState)
+    prompt_font: PromptFontSettings = Field(default_factory=PromptFontSettings)
 
     def log_dir_path(self) -> Path:
         """설정된 로그 디렉터리. 빈 문자열이면 OS 표준 위치."""

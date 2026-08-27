@@ -17,7 +17,7 @@ from pathlib import Path
 import platformdirs
 import shiboken6
 from PySide6.QtCore import QSettings, Qt, QUrl, Signal, SignalInstance
-from PySide6.QtGui import QDesktopServices, QPixmap
+from PySide6.QtGui import QColor, QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -178,7 +178,8 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         splitter = self._splitter = QSplitter(Qt.Orientation.Horizontal, self)
         self.setCentralWidget(splitter)
-        self.resize(*WINDOW_SIZE)
+        if not self._restore_window_geometry():
+            self.resize(*WINDOW_SIZE)
         self.setAcceptDrops(True)  # PNG를 끌어다 놓으면 생성 정보 표시
 
         # 왼쪽: 입력
@@ -492,6 +493,7 @@ class MainWindow(QMainWindow):
         self._completer_dropdowns: dict[QPlainTextEdit, TagCompleterDropdown] = {}
         self.character_prompts.slot_added.connect(self._attach_slot_completers)
         self.character_prompts.slot_removed.connect(self._detach_slot_completers)
+        self.character_prompts.slot_added.connect(lambda _slot: self._apply_prompt_font())
         self._refresh_tag_completer()
 
         # Gallery View — save_dir 기반 썸네일 그리드
@@ -515,7 +517,7 @@ class MainWindow(QMainWindow):
 
     def _attach_completer(self, edit: QPlainTextEdit) -> None:
         """완성기가 활성이면 편집기 하나에 드롭다운을 붙인다."""
-        if not self._tag_completer.is_enabled:
+        if not self._tag_completer.is_enabled or not self._settings.tag_autocomplete_enabled:
             return
         self._completer_dropdowns[edit] = TagCompleterDropdown(edit, self._tag_completer)
 
@@ -827,6 +829,7 @@ class MainWindow(QMainWindow):
     # ── 프롬프트/캐릭터 스플리터 상태 저장·복원 ─────────────────
 
     _SPLITTER_KEY = "ui/prompt_char_splitter"
+    _GEOMETRY_KEY = "ui/main_window_geometry"
 
     def _save_prompt_char_splitter(self) -> None:
         """스플리터 상태를 QSettings에 저장한다."""
@@ -838,12 +841,24 @@ class MainWindow(QMainWindow):
         if state is not None:
             self._prompt_char_splitter.restoreState(state)
 
+    def _save_window_geometry(self) -> None:
+        """창 크기·위치를 QSettings에 저장한다."""
+        self._qsettings.setValue(self._GEOMETRY_KEY, self.saveGeometry())
+
+    def _restore_window_geometry(self) -> bool:
+        """QSettings에 저장된 크기·위치가 있으면 복원한다. 복원했으면 True."""
+        state = self._qsettings.value(self._GEOMETRY_KEY)
+        if state is None:
+            return False
+        return bool(self.restoreGeometry(state))
+
     def _on_resolution_changed(self) -> None:
         """해상도가 바뀌면 캐릭터 위치 캔버스 비율을 다시 맞춘다 (Req 10.14).
 
         크레딧 경고 표시는 패널이 스스로 처리한다.
         """
         self._sync_position_aspect()
+        self._push_live_resolution()
 
     def _on_image_source_changed(self) -> None:
         """i2i / 인페인팅 원본이 있으면 해상도 입력을 잠근다 (Req 10.13).
@@ -854,6 +869,18 @@ class MainWindow(QMainWindow):
         size = self.image_source.size
         self.resolution_panel.set_source_locked(size is not None, size)
         self._sync_position_aspect()
+        self._push_live_resolution()
+
+    def _push_live_resolution(self) -> None:
+        """배치 진행 중이면 해상도 변경을 다음 이미지부터 반영한다 (진행 중인 이미지는 그대로).
+
+        i2i/인페인팅으로 잠겨 있으면 랜덤 후보를 만들지 않는다 (build_job과 동일한 규칙).
+        """
+        if not self._service.is_running:
+            return
+        size = self.target_size()
+        choices = () if self.image_source.size is not None else self.resolution_panel.aspect_random_choices()
+        self._service.set_live_resolution(size[0], size[1], choices)
 
     def _on_model_changed(self) -> None:
         spec = self.current_spec()
@@ -918,9 +945,36 @@ class MainWindow(QMainWindow):
         )
         self.measure_credit_action.setChecked(self._settings.measure_credit)
         self._apply_prompts()
+        self._apply_prompt_font()
         self._sync_position_aspect()
         self._apply_section_states()  # Req 12.2
         self._refresh_section_summaries()  # Req 11.6, 11.8
+
+    def _apply_prompt_font(self) -> None:
+        """설정된 폰트 크기·색상을 프롬프트·네거티브·캐릭터 프롬프트 입력란에 적용한다.
+
+        크기 0 / 색상 ""이면 해당 속성을 스타일시트에서 뺀다 — 테마 기본값이 그대로 보인다.
+        강조(`2::text::`)/약화(`-2::text::`) 색은 위젯 스타일시트가 아니라 각 `PromptTabs`가
+        들고 있는 `PromptHighlighter`에 적용한다 (V4의 high_emphasis_color/low_emphasis_color).
+        """
+        f = self._settings.prompt_font
+        parts = []
+        if f.size > 0:
+            parts.append(f"font-size: {f.size}pt;")
+        if f.color:
+            parts.append(f"color: {f.color};")
+        qss = " ".join(parts)
+        edits = [self.prompt_edit, self.negative_edit]
+        for slot in self.character_prompts.slots:
+            edits.extend((slot.prompt_edit, slot.uc_edit))
+        for edit in edits:
+            edit.setStyleSheet(qss)
+
+        high_color = QColor(f.emphasis_color) if f.emphasis_color else None
+        low_color = QColor(f.deemphasis_color) if f.deemphasis_color else None
+        self.prompt_tabs.set_emphasis_colors(high_color, low_color)
+        for slot in self.character_prompts.slots:
+            slot.tabs.set_emphasis_colors(high_color, low_color)
 
     def _apply_prompts(self) -> None:
         """마지막 세션의 프롬프트 복원."""
@@ -940,6 +994,7 @@ class MainWindow(QMainWindow):
     def collect_settings(self) -> AppSettings:
         """현재 위젯 상태를 설정 객체로 (종료 시 영속화용)."""
         self._save_prompt_char_splitter()
+        self._save_window_geometry()
         s = self._settings
         g = s.generation
         g.model = self.model_combo.currentData()
@@ -1018,6 +1073,7 @@ class MainWindow(QMainWindow):
         )
         self.measure_credit_action.setChecked(s.measure_credit)  # Req 8.8
         self._refresh_tag_completer()  # Req 7.3
+        self._apply_prompt_font()
         ensure_dirs(s)  # 새로 지정한 폴더를 미리 만들어 둔다
         self._preset_store = PresetStore(Path(s.presets_dir))  # Req 2.5
         self._service.reload_artist_combos(s.artist_combos_dir)

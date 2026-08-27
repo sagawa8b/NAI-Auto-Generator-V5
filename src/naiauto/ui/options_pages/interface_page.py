@@ -8,14 +8,19 @@
 
 from __future__ import annotations
 
+from functools import partial
+
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox,
+    QColorDialog,
     QComboBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -23,6 +28,17 @@ from PySide6.QtWidgets import (
 from ...core.i18n.manager import I18nManager
 from ...core.settings.schema import AppSettings, UiState
 from . import OptionsPage, register_page
+
+#: 0 = 폰트 크기를 바꾸지 않는다 (Qt/테마 기본값 유지).
+FONT_SIZE_RANGE = (0, 48)
+
+#: prompt_font 필드명 → (라벨 i18n 키, 색상 다이얼로그 제목 i18n 키). 셋 다 "" = 기본값이라
+#: 저장/복원/버튼 배선이 같은 모양이라 표로 두고 한 번에 돌린다.
+COLOR_FIELDS: tuple[tuple[str, str], ...] = (
+    ("color", "options.prompt_font_color"),
+    ("emphasis_color", "options.prompt_emphasis_color"),
+    ("deemphasis_color", "options.prompt_deemphasis_color"),
+)
 
 __all__ = ["InterfacePage"]
 
@@ -46,6 +62,7 @@ class InterfacePage(OptionsPage):
         self._i18n = i18n
         self._supports_i2i = supports_i2i
         self._reset_sections = False  # commit에서 UiState()를 대입할지 여부 (Req 6.4)
+        self._colors: dict[str, str] = {field: "" for field, _label_key in COLOR_FIELDS}  # "" = 기본값
 
         root = QVBoxLayout(self)
 
@@ -63,6 +80,31 @@ class InterfacePage(OptionsPage):
 
         self.update_check_check = QCheckBox(self)
         root.addWidget(self.update_check_check)
+
+        font_form = QFormLayout()
+        self.font_size_label = QLabel(self)
+        self.font_size_spin = QSpinBox(self)
+        self.font_size_spin.setRange(*FONT_SIZE_RANGE)
+        font_form.addRow(self.font_size_label, self.font_size_spin)
+
+        #: 필드명 → (라벨, 색상 버튼, 기본값 버튼). load/commit/retranslate가 함께 순회한다.
+        self.color_labels: dict[str, QLabel] = {}
+        self.color_buttons: dict[str, QPushButton] = {}
+        self.color_reset_buttons: dict[str, QPushButton] = {}
+        for field, _label_key in COLOR_FIELDS:
+            label = QLabel(self)
+            row = QHBoxLayout()
+            button = QPushButton(self)
+            button.clicked.connect(partial(self._pick_color, field))
+            reset_button = QPushButton(self)
+            reset_button.clicked.connect(partial(self._reset_color, field))
+            row.addWidget(button)
+            row.addWidget(reset_button)
+            font_form.addRow(label, row)
+            self.color_labels[field] = label
+            self.color_buttons[field] = button
+            self.color_reset_buttons[field] = reset_button
+        root.addLayout(font_form)
 
         reset_row = QHBoxLayout()
         self.reset_sections_button = QPushButton(self)
@@ -84,6 +126,10 @@ class InterfacePage(OptionsPage):
         if index >= 0:
             self.language_combo.setCurrentIndex(index)
         self.image_source_check.setChecked(draft.show_image_source)
+        self.font_size_spin.setValue(draft.prompt_font.size)
+        for field, _label_key in COLOR_FIELDS:
+            self._colors[field] = getattr(draft.prompt_font, field)
+            self._refresh_color_button(field)
         # 다시 열릴 때마다 초기화 요청은 백지에서 시작한다.
         self._reset_sections = False
         self.reset_status_label.setText("")
@@ -94,6 +140,9 @@ class InterfacePage(OptionsPage):
             draft.language = code
         draft.show_image_source = self.image_source_check.isChecked()
         draft.check_updates_on_start = self.update_check_check.isChecked()
+        draft.prompt_font.size = self.font_size_spin.value()
+        for field, _label_key in COLOR_FIELDS:
+            setattr(draft.prompt_font, field, self._colors[field])
         if self._reset_sections:
             draft.ui = UiState()
 
@@ -110,6 +159,12 @@ class InterfacePage(OptionsPage):
         self.image_source_check.setText(tr("image_source.menu"))
         self.image_source_check.setToolTip("" if self._supports_i2i else tr("image_source.unsupported"))
         self.update_check_check.setText(tr("updates.check_on_start"))
+        self.font_size_label.setText(tr("options.prompt_font_size"))
+        self.font_size_spin.setSpecialValueText(tr("options.prompt_font_size_default"))
+        for field, label_key in COLOR_FIELDS:
+            self.color_labels[field].setText(tr(label_key))
+            self.color_buttons[field].setText(tr("options.choose_color"))
+            self.color_reset_buttons[field].setText(tr("options.reset_to_default"))
         self.reset_sections_button.setText(tr("options.reset_sections"))
         if self._reset_sections:
             self.reset_status_label.setText(tr("options.reset_sections_done"))
@@ -123,3 +178,20 @@ class InterfacePage(OptionsPage):
     def reset_sections_requested(self) -> bool:
         """저장 시 `ui`를 기본값으로 되돌릴 예정인지 (테스트·셸 조회용)."""
         return self._reset_sections
+
+    def _pick_color(self, field: str) -> None:
+        current = self._colors[field]
+        initial = QColor(current) if current else QColor(Qt.GlobalColor.white)
+        label_key = next(key for f, key in COLOR_FIELDS if f == field)
+        color = QColorDialog.getColor(initial, self, self._i18n.get_text(label_key))
+        if color.isValid():
+            self._colors[field] = color.name()
+            self._refresh_color_button(field)
+
+    def _reset_color(self, field: str) -> None:
+        self._colors[field] = ""
+        self._refresh_color_button(field)
+
+    def _refresh_color_button(self, field: str) -> None:
+        color = self._colors[field]
+        self.color_buttons[field].setStyleSheet(f"background-color: {color};" if color else "")

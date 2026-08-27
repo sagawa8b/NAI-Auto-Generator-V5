@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QPlainTextEdit, QTabWidget, QWidget
 
 from ...core.i18n.manager import I18nManager
@@ -45,6 +46,11 @@ class PromptTabs(QTabWidget):
 
     def texts(self) -> tuple[str, str]:
         return self.prompt_edit.toPlainText(), self.negative_edit.toPlainText()
+
+    def set_emphasis_colors(self, high_color: QColor | None, low_color: QColor | None) -> None:
+        """가중치 강조(>1.0)/약화(<1.0) 색을 두 편집기 모두에 적용한다. None이면 기본 고정색."""
+        for highlighter in self._highlighters:
+            highlighter.set_colors(high_color, low_color)
 
     def show_negative(self) -> None:
         """네거티브 탭으로 전환 (설정 재사용 등으로 값이 바뀌었을 때 알리기 위해)."""
