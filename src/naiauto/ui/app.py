@@ -14,6 +14,7 @@ from pathlib import Path
 
 import platformdirs
 from PySide6.QtCore import QtMsgType, qInstallMessageHandler
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QDialog
 
 from .. import __version__
@@ -42,6 +43,11 @@ _QT_LEVELS = {
 
 def log_dir() -> Path:
     return Path(platformdirs.user_log_dir(APP_NAME))
+
+
+def app_icon_path() -> Path:
+    """번들 앱 아이콘 경로 — 언어 파일·태그 DB와 같은 규칙(`naiauto/resources/`)을 따른다."""
+    return Path(__file__).resolve().parent.parent / "resources" / "icons" / "app_icon.ico"
 
 
 def build_service(client: NAIClient, settings: AppSettings, bridge: QtEventBridge) -> GenerationService:
@@ -106,6 +112,9 @@ def selftest() -> int:
     completer = TagCompleter(bundled_database_path())
     if not completer.load() or completer.tag_count == 0:
         failures.append(f"내장 태그 DB 로드 실패: {bundled_database_path()}")
+
+    if not app_icon_path().is_file():
+        failures.append(f"앱 아이콘 리소스 누락: {app_icon_path()} (작업 표시줄 아이콘이 빠진다)")
 
     if not credentials.is_available():
         failures.append("keyring 백엔드를 쓸 수 없다 (토큰이 저장되지 않는다)")
@@ -225,8 +234,20 @@ def main() -> int:
     logger.info("%s starting (debug logging: %s)", APP_NAME, settings.debug_logging)
     i18n = I18nManager(language=settings.language)
 
+    # Windows 작업 표시줄에서 python.exe/제네릭 아이콘 대신 앱 고유 아이콘이 표시되도록 설정
+    # (V4의 gui.py와 동일한 방식). AppUserModelID가 없으면 프로즌 빌드가 아닌 개발 실행에서
+    # 작업 표시줄 아이콘이 파이썬 인터프리터 것으로 그룹핑된다.
+    if sys.platform == "win32":
+        import ctypes
+
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("sagawa8b.NAIAutoV5")
+        except OSError:
+            logging.getLogger(__name__).warning("failed to set AppUserModelID", exc_info=True)
+
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
+    app.setWindowIcon(QIcon(str(app_icon_path())))
 
     session = NAISession()
     client = NAIClient(

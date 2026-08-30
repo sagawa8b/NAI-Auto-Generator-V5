@@ -39,7 +39,9 @@
       "auto_error_wait": "Error occurred. Retrying in {} seconds...",
       "job_finished": "Done: {} images",
       "job_stopped": "Stopped ({} generated)",
-      "job_error": "Aborted: {}"
+      "job_error": "Aborted: {}",
+      "by_settings_progress": "Generating by settings ({}/{}) - {}",
+      "by_settings_progress_inf": "Generating by settings ({}) - {}"
     },
     "status": {
       "tags_reloaded": "Tag completion reloaded successfully."

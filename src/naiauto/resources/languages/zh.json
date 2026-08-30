@@ -39,7 +39,9 @@
       "auto_error_wait": "发生错误。{}秒后重试...",
       "job_finished": "完成: 生成{}张",
       "job_stopped": "已停止 (生成{}张)",
-      "job_error": "因错误中止: {}"
+      "job_error": "因错误中止: {}",
+      "by_settings_progress": "按设置连续生成中 ({}/{}) - {}",
+      "by_settings_progress_inf": "按设置连续生成中 ({}张) - {}"
     },
     "status": {
       "tags_reloaded": "标签自动完成已重新加载。"

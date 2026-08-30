@@ -39,7 +39,9 @@
       "auto_error_wait": "エラーが発生しました。{}秒後に再試行...",
       "job_finished": "完了: {}枚生成",
       "job_stopped": "停止 ({}枚生成)",
-      "job_error": "エラーで中断: {}"
+      "job_error": "エラーで中断: {}",
+      "by_settings_progress": "設定別連続生成中 ({}/{}) - {}",
+      "by_settings_progress_inf": "設定別連続生成中 ({}枚) - {}"
     },
     "status": {
       "tags_reloaded": "タグ自動補完が再読み込みされました。"

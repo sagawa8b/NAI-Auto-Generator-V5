@@ -25,7 +25,7 @@ from dataclasses import dataclass
 
 from ..core.api.client import NAIClient
 from ..core.api.errors import NAIError, NetworkError, RateLimitError, ServerBusyError
-from ..core.api.models import GenerationRequest
+from ..core.api.models import CharacterCaption, GenerationRequest
 from ..core.artist_combos import ArtistComboEngine
 from ..core.credit_estimator import CreditObservation
 from ..core.metadata.save import save_raw_png
@@ -93,6 +93,12 @@ class GenerationService:
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="naiauto-gen")
         self._stop = threading.Event()
         self._future: Future | None = None
+        # `is_running`의 근거. `_future.done()`에 기대면 경합이 생긴다 — 워커 스레드는
+        # `_run()` 안에서 `JobFinished`를 emit한 *뒤에도* 아직 함수가 안 끝나 future가
+        # done 처리되기 전이라, 그 이벤트를 받은 GUI 스레드가 곧바로 다음 잡을 `start()`하면
+        # (세팅별 연속 생성처럼) `is_running`이 여전히 True로 보여 RuntimeError가 난다.
+        # 그래서 `JobFinished`를 emit하기 *직전에* 이 플래그부터 내린다 (`_emit()` 참고).
+        self._running = False
         self._last_probe: tuple[int | None, int | None] | None = None
         self._last_probe_at: float = 0.0
         # GUI 스레드 → 워커 스레드로 넘어가는 유일한 값(_stop 제외): 배치 도중 해상도 패널에서
@@ -100,6 +106,9 @@ class GenerationService:
         self._live_resolution_lock = threading.Lock()
         self._live_resolution: tuple[int, int] | None = None
         self._live_resolution_choices: tuple[tuple[int, int], ...] = ()
+        # 같은 이유로: 배치 도중 프롬프트/캐릭터 프롬프트를 고치면 다음 이미지부터 반영한다.
+        self._live_prompt_lock = threading.Lock()
+        self._live_prompt: tuple[str, str, tuple[CharacterCaption, ...], bool] | None = None
 
     def reload_artist_combos(self, combos_dir: str) -> None:
         """아티스트 조합 폴더를 다시 읽는다 (옵션에서 경로를 바꿨을 때).
@@ -115,16 +124,19 @@ class GenerationService:
 
     @property
     def is_running(self) -> bool:
-        return self._future is not None and not self._future.done()
+        return self._running
 
     def start(self, job: GenerationJob) -> Future:
         """잡 시작. 이미 실행 중이면 RuntimeError (직렬 생성 강제)."""
         if self.is_running:
             raise RuntimeError("a generation job is already running")
+        self._running = True
         self._stop.clear()
         with self._live_resolution_lock:
             self._live_resolution = None
             self._live_resolution_choices = ()
+        with self._live_prompt_lock:
+            self._live_prompt = None
         self._future = self._executor.submit(self._run, job)
         return self._future
 
@@ -141,6 +153,21 @@ class GenerationService:
             self._live_resolution = (width, height)
             self._live_resolution_choices = choices
 
+    def set_live_prompt(
+        self,
+        prompt: str,
+        negative_prompt: str,
+        characters: tuple[CharacterCaption, ...],
+        use_coords: bool,
+    ) -> None:
+        """프롬프트/캐릭터 프롬프트가 바뀔 때 GUI 스레드에서 호출 — 다음 `_prepare_request()`부터
+        반영된다 (`set_live_resolution`과 같은 패턴). 진행 중인 이미지에는 영향이 없다.
+
+        `use_coords`도 함께 넘긴다 — 캐릭터별 좌표는 이미 그 값을 기준으로 굳어 있으므로
+        (`captions()`), 요청의 최상위 플래그가 어긋나면 payload가 일관되지 않는다."""
+        with self._live_prompt_lock:
+            self._live_prompt = (prompt, negative_prompt, characters, use_coords)
+
     def shutdown(self) -> None:
         self._stop.set()
         self._executor.shutdown(wait=False, cancel_futures=True)
@@ -148,6 +175,10 @@ class GenerationService:
     # ── 실행 루프 ─────────────────────────────────────────
 
     def _emit(self, event: GenerationEvent) -> None:
+        if isinstance(event, JobFinished):
+            # 콜백을 부르기 전에 내려야 한다 — 콜백이 (세팅별 연속 생성처럼) 그 자리에서
+            # 바로 `start()`를 부를 수 있고, 그 시점엔 `is_running`이 이미 False여야 한다.
+            self._running = False
         try:
             self._on_event(event)
         except Exception:
@@ -313,6 +344,13 @@ class GenerationService:
     def _prepare_request(self, job: GenerationJob) -> GenerationRequest:
         """이미지 1장분 불변 요청 파생: 와일드카드 1사이클 + 아티스트 콤보 1사이클 + 시드 결정."""
         req = job.request
+        with self._live_prompt_lock:
+            live_prompt = self._live_prompt
+        if live_prompt is not None:
+            prompt, negative, characters, use_coords = live_prompt
+            req = dataclasses.replace(
+                req, prompt=prompt, negative_prompt=negative, characters=characters, use_coords=use_coords
+            )
         if self._wildcards is not None:
             self._wildcards.create_index_snapshot()
             prompt = self._wildcards.apply_wildcards_with_snapshot(req.prompt)

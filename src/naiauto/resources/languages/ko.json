@@ -39,7 +39,9 @@
       "auto_error_wait": "에러 발생. {}초 후 재시도...",
       "job_finished": "완료: {}장 생성",
       "job_stopped": "중지됨 ({}장 생성)",
-      "job_error": "오류로 중단: {}"
+      "job_error": "오류로 중단: {}",
+      "by_settings_progress": "세팅별 연속 생성 중 ({}/{}) - {}",
+      "by_settings_progress_inf": "세팅별 연속 생성 중 ({}장) - {}"
     },
     "status": {
       "tags_reloaded": "태그 자동완성이 새로고침되었습니다."

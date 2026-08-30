@@ -99,6 +99,7 @@ class CharacterSlot(QFrame):
         self.prompt_edit = self.tabs.prompt_edit
         self.uc_edit = self.tabs.negative_edit
         self.prompt_edit.textChanged.connect(self.changed)
+        self.uc_edit.textChanged.connect(self.changed)
         self._refresh_position_text()
         self._resize_handle.restore_height()
 
@@ -177,6 +178,9 @@ class CharacterPromptsWidget(QGroupBox):
     #: 슬롯이 생기거나 사라질 때 — 메인 윈도우가 태그 자동완성을 붙이고 뗀다.
     slot_added = Signal(object)
     slot_removed = Signal(object)
+    #: captions()/use_coords()가 바뀔 수 있는 모든 변화 — 연속 생성 중 다음 이미지에
+    #: 반영하기 위해 메인 윈도우가 구독한다.
+    prompts_changed = Signal()
 
     def __init__(self, i18n: I18nManager, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -190,9 +194,11 @@ class CharacterPromptsWidget(QGroupBox):
         self.ai_position_check = QCheckBox()
         self.ai_position_check.setChecked(False)
         self.ai_position_check.toggled.connect(self._refresh_position_enabled)
+        self.ai_position_check.toggled.connect(self.prompts_changed)
         self.manual_position_check = QCheckBox()
         self.manual_position_check.setChecked(False)
         self.manual_position_check.toggled.connect(self._refresh_position_enabled)
+        self.manual_position_check.toggled.connect(self.prompts_changed)
         self.add_button = QPushButton()
         self.add_button.clicked.connect(self.add_character)
         self.clear_button = QPushButton()
@@ -235,13 +241,16 @@ class CharacterPromptsWidget(QGroupBox):
             guard_wheel(slot, self._wheel_guard)
         slot.remove_requested.connect(self.remove_character)
         slot.enabled_check.toggled.connect(self._refresh_position_enabled)
+        slot.enabled_check.toggled.connect(self.prompts_changed)
         slot.changed.connect(self._refresh_position_enabled)
+        slot.changed.connect(self.prompts_changed)
         slot.height_changed.connect(self._sync_slot_heights)
         self._slots.append(slot)
         self._slots_layout.addWidget(slot)
         slot.retranslate()
         self._renumber()
         self.slot_added.emit(slot)
+        self.prompts_changed.emit()
         return slot
 
     def remove_character(self, slot: CharacterSlot) -> None:
@@ -253,6 +262,7 @@ class CharacterPromptsWidget(QGroupBox):
         slot.setParent(None)
         slot.deleteLater()
         self._renumber()
+        self.prompts_changed.emit()
 
     def clear_all(self) -> None:
         for slot in list(self._slots):
