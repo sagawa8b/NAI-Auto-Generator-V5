@@ -6,6 +6,7 @@ NovelAI Diffusion **V5** 이미지 생성을 자동화하는 데스크톱 앱입
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Qt](https://img.shields.io/badge/GUI-PySide6-41cd52.svg)](https://doc.qt.io/qtforpython/)
 [![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-orange.svg)](LICENSE)
+[![Downloads](https://img.shields.io/github/downloads/sagawa8b/NAI-Auto-Generator-V5/total.svg)](https://github.com/sagawa8b/NAI-Auto-Generator-V5/releases)
 
 [한국어](#한국어) · [English](#english)
 
