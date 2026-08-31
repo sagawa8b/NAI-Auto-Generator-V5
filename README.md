@@ -33,6 +33,8 @@ NovelAI Diffusion **V5** 이미지 생성을 자동화하는 데스크톱 앱입
 - **🏷 태그 자동완성** — Danbooru 태그 DB가 **내장**되어 설정 없이 바로 동작합니다.
   가중치 접두사(`1.5::`)를 보존하고 캐릭터 슬롯 입력창에서도 뜹니다
 - **🎲 와일드카드** — `__파일__` 랜덤 · `__=파일__` 공유 랜덤 · `##파일##` 순차 · `##파일*3##` 반복
+- **📐 프롬프트 화면 비율** — 프롬프트·와일드카드의 `<res:portrait>`, `<res:square>`,
+  `<res:wide>`로 현재 등급의 세로형·정방형·가로형 해상도 선택
 - **🖌 아티스트 조합** — `{artist:그룹}` 랜덤 / `{artist_loop:그룹}` 순차 치환
 - **🖼 i2i · 인페인팅** — 브러시 마스크 편집기 내장, 강도·노이즈 조절
 - **🗂 결과 관리** — 갤러리 뷰, 프리셋, 파일명 템플릿,
@@ -134,6 +136,9 @@ wildcards and prompt tooling that the web interface does not provide.
 - **Tag autocomplete** — Danbooru tag database **bundled**, works out of the box, preserves weight
   prefixes (`1.5::`), also attached to character slots
 - **Wildcards** — `__file__` random · `__=file__` shared random · `##file##` sequential · `##file*3##` repeat
+- **Prompt-controlled aspect ratio** — use `<res:portrait>`, `<res:square>`, or `<res:wide>` in a
+  prompt or wildcard entry to select that aspect from the current resolution group; the directive is
+  removed before sending the prompt to NovelAI and takes priority over random resolution
 - **Artist combos** — `{artist:group}` random / `{artist_loop:group}` sequential
 - **img2img & inpainting** with a built-in brush mask editor
 - **Result tools** — gallery view, presets, filename templates, drag a PNG onto the window to

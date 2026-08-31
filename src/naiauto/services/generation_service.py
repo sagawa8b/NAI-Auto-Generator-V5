@@ -17,6 +17,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 import random
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -30,6 +31,7 @@ from ..core.artist_combos import ArtistComboEngine
 from ..core.credit_estimator import CreditObservation
 from ..core.metadata.save import save_raw_png
 from ..core.prompt_choices import resolve_prompt_choices
+from ..core.resolution_catalog import Aspect, classify_aspect
 from ..core.wildcards.applier import WildcardApplier
 from .events import (
     GenerationEvent,
@@ -47,6 +49,31 @@ MAX_RATE_LIMIT_RETRIES = 5
 MAX_TRANSIENT_RETRIES = 3
 DEFAULT_RATE_LIMIT_WAIT = 30.0
 TRANSIENT_BACKOFF = (5.0, 10.0, 20.0)
+_RESOLUTION_DIRECTIVE_RE = re.compile(r"<res:(wide|square|portrait)>", re.IGNORECASE)
+
+
+def extract_resolution_directive(prompt: str) -> tuple[str, Aspect | None]:
+    """Remove valid resolution directives and return the last requested aspect."""
+    matches = list(_RESOLUTION_DIRECTIVE_RE.finditer(prompt))
+    if not matches:
+        return prompt, None
+
+    aspect = Aspect(matches[-1].group(1).capitalize())
+    cleaned = _RESOLUTION_DIRECTIVE_RE.sub("", prompt)
+    # Removing a comma-delimited directive can leave empty prompt segments.
+    cleaned = re.sub(r",(?:\s*,)+", ",", cleaned)
+    cleaned = cleaned.strip().strip(",").strip()
+    cleaned = re.sub(r"[^\S\r\n]{2,}", " ", cleaned)
+    return cleaned, aspect
+
+
+def _resolution_for_aspect(
+    choices: tuple[tuple[int, int], ...], aspect: Aspect
+) -> tuple[int, int] | None:
+    for width, height in choices:
+        if classify_aspect(width, height) is aspect:
+            return (width, height)
+    return None
 
 
 class _StopRequested(Exception):
@@ -392,11 +419,27 @@ class GenerationService:
         )
         req = dataclasses.replace(req, prompt=prompt, negative_prompt=negative, characters=characters)
 
+        # Parse generation metadata only after every prompt expansion/choice has resolved.
+        # Valid directives are always removed, but source-image sizing remains authoritative.
+        prompt, requested_aspect = extract_resolution_directive(req.prompt)
+        req = dataclasses.replace(req, prompt=prompt)
+
         with self._live_resolution_lock:
             live_size = self._live_resolution
             live_choices = self._live_resolution_choices
         choices = live_choices or job.resolution_choices
-        if job.randomize_resolution and len(choices) >= 2:
+        selected_resolution = (
+            _resolution_for_aspect(choices, requested_aspect)
+            if req.action == "generate" and requested_aspect is not None
+            else None
+        )
+        if selected_resolution is not None:
+            req = dataclasses.replace(req, width=selected_resolution[0], height=selected_resolution[1])
+        elif requested_aspect is not None and req.action == "generate":
+            # A valid directive suppresses randomization even if the selected group lacks that aspect.
+            if live_size is not None:
+                req = dataclasses.replace(req, width=live_size[0], height=live_size[1])
+        elif job.randomize_resolution and len(choices) >= 2:
             width, height = self._rng.choice(choices)
             req = dataclasses.replace(req, width=width, height=height)
         elif live_size is not None:
