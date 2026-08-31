@@ -29,6 +29,7 @@ def ensure_dirs(settings: AppSettings) -> None:
         settings.wildcards_dir,
         settings.presets_dir,
         settings.artist_combos_dir,
+        settings.wd14_dir,  # 사용자가 여기에 ONNX 모델을 넣어 두면 된다
     ):
         try:
             Path(path).mkdir(parents=True, exist_ok=True)

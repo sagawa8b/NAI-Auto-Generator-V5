@@ -23,7 +23,8 @@
       "gallery_view": "Gallery",
       "wd14_auto_tag": "WD14 Auto-Tag...",
       "presets": "Presets...",
-      "preset_applied": "Preset loaded."
+      "preset_applied": "Preset loaded.",
+      "accounts": "Manage API Accounts..."
     },
     "statusbar": {
       "before_login": "Login required.",
@@ -293,7 +294,9 @@
       "data_generation_error": "Error during data generation: {0}",
       "settings_load_failed": "Failed to load settings.",
       "autogenerate_error": "There was a problem generating the image.\n\n{0}",
-      "fixed_seed_batch": "Auto generation requires a random seed. Enable the seed 'Random' option or set the count to 1."
+      "fixed_seed_batch": "Auto generation requires a random seed. Enable the seed 'Random' option or set the count to 1.",
+      "wd14_model_missing": "WD14 model not found (no {}).\n\n{}\n\nSet the model folder under Options → Tags and press \"Download model\".",
+      "wd14_runtime_missing": "WD14 auto-tagging is unavailable.\n\nonnxruntime could not be imported:\n{}\n\nRunning from source? Install it with `pip install -e .` (or `pip install onnxruntime numpy`).\nUsing the packaged build? v0.6.7 and newer ship it."
     },
     "connection": {
       "server": "Server:",
@@ -394,7 +397,19 @@
       "batch_count": "Default image count",
       "batch_delay": "Default interval (sec)",
       "quick_counts_title": "Quick generation counts",
-      "quick_count_button": "Button {}:"
+      "quick_count_button": "Button {}:",
+      "folder_wd14_dir": "Model folder",
+      "wd14_title": "WD14 tagger model",
+      "wd14_model": "Tagger model",
+      "wd14_model_installed": "{} (installed)",
+      "wd14_download": "Download model",
+      "wd14_downloading": "Downloading {}...",
+      "wd14_download_progress": "Downloading {}... {}/{} MB",
+      "wd14_download_done": "Downloaded {}. Tools → WD14 Auto-Tag can use it now.",
+      "wd14_download_failed": "Could not download the model.",
+      "wd14_installed": "{} — installed. Tools → WD14 Auto-Tag uses this model.",
+      "wd14_not_installed": "This model is not in the folder yet. Press \"Download model\", or point the folder above at one you already have (v3 models are about 400 MB).",
+      "wd14_runtime_missing": "⚠ Tagging cannot run — onnxruntime is unusable ({}). From source, run `pip install -e .`; for the packaged build, get v0.6.7 or newer. Downloading a model still works."
     },
     "resolution": {
       "title": "Resolution",
@@ -543,7 +558,9 @@
       "count": "Count (0=infinite):",
       "delay": "Delay (sec):",
       "random_resolution": "Random resolution per image (Wide/Square/Portrait)",
-      "random_resolution_tooltip": "Picks a random Wide/Square/Portrait resolution for each generated image. Ignored while i2i/inpainting locks the size to the source image."
+      "random_resolution_tooltip": "Picks a random Wide/Square/Portrait resolution for each generated image. Ignored while i2i/inpainting locks the size to the source image.",
+      "random_settings_order": "Pick settings files in random order (per-settings batch)",
+      "random_settings_order_hint": "Off: cycle through the files in the order you picked them. On: pick one at random for each image (never the same file twice in a row)."
     },
     "image_info": {
       "title": "Image Info",
@@ -621,6 +638,50 @@
       "available": "Update available: {}",
       "available_body": "Version {} is available (you have v{}).\nOpen the download page?",
       "check_on_start": "Check for updates on start"
+    },
+    "accounts": {
+      "title": "NovelAI API accounts",
+      "intro": "You can register up to {} persistent (pst-) API tokens. Press \"Save & switch\" on an account and every following request uses it.",
+      "column_account": "Account",
+      "column_token": "API token",
+      "column_status": "Status",
+      "slot": "Account {}",
+      "save_and_switch": "Save & switch",
+      "in_use": "In use",
+      "delete": "Delete",
+      "status_active": "In use",
+      "status_saved": "Saved",
+      "status_empty": "Empty",
+      "show_tokens": "Show tokens",
+      "keyring_note": "Tokens are never written to the settings file — they are stored in the OS credential manager.",
+      "keyring_missing": "No credential store is available here, so tokens cannot be saved. Switching applies to this run only.",
+      "invalid_token": "An API token must start with \"pst-\".",
+      "switch_failed": "Could not log in with this token. Keeping the account you were using.",
+      "delete_confirm_title": "Delete account",
+      "delete_confirm": "Delete the saved token for account {}?"
+    },
+    "wd14": {
+      "title": "WD14 Auto-Tagger",
+      "drop_here": "Drop an image here\nor click 'Browse' to select",
+      "browse": "Browse...",
+      "select_all": "Select All",
+      "deselect_all": "Deselect All",
+      "apply": "Apply Tags",
+      "choose_image": "Select Image",
+      "image_filter": "Images (*.png *.jpg *.jpeg *.webp *.bmp);;All Files (*)",
+      "open_failed": "Could not open the image.",
+      "running": "Running inference...",
+      "no_tags": "No tags predicted above threshold.",
+      "tags_predicted": "{} tags predicted",
+      "error": "Error: {}",
+      "no_model": "No model file here.\n{}",
+      "no_model_hint": "Pick a model under Options → Tags → \"WD14 tagger model\" and press \"Download model\", or point the folder at one you already have.",
+      "no_runtime": "onnxruntime is not usable, so tagging cannot run.\nThe model itself is in place.",
+      "no_runtime_hint": "This app could not import onnxruntime ({}). Running from source? Install it with `pip install -e .` (or `pip install onnxruntime numpy`). Using the packaged build? Download v0.6.7 or newer.",
+      "copy": "📋 Copy to clipboard",
+      "copy_tooltip": "Copies the checked tags to the clipboard, comma-separated — the same text that goes into the prompt. The window stays open.",
+      "copied": "Copied {} tags to the clipboard.",
+      "copy_nothing": "Nothing to copy — tick the tags you want first."
     }
   }
 }

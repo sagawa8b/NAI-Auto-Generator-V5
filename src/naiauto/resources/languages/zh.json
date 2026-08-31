@@ -23,7 +23,8 @@
       "gallery_view": "画廊",
       "wd14_auto_tag": "WD14 自动标签...",
       "presets": "预设...",
-      "preset_applied": "已应用预设。"
+      "preset_applied": "已应用预设。",
+      "accounts": "API 账户管理(Accounts)..."
     },
     "statusbar": {
       "before_login": "需要登录。",
@@ -293,7 +294,9 @@
       "data_generation_error": "数据生成过程中发生错误：{0}",
       "settings_load_failed": "设置加载失败。",
       "autogenerate_error": "生成图片时出现问题。\n\n{0}",
-      "fixed_seed_batch": "连续生成需要随机种子。请启用种子“随机”选项，或将生成张数设为 1。"
+      "fixed_seed_batch": "连续生成需要随机种子。请启用种子“随机”选项，或将生成张数设为 1。",
+      "wd14_model_missing": "未找到 WD14 模型（缺少 {}）。\n\n{}\n\n请在 选项 → 标签 中指定模型文件夹，并点击“下载模型”。",
+      "wd14_runtime_missing": "无法使用 WD14 自动标签。\n\n无法导入 onnxruntime：\n{}\n\n若从源码运行，请执行 `pip install -e .`（或 `pip install onnxruntime numpy`）。\n若使用发行版（exe），v0.6.7 及以上版本已内置。"
     },
     "connection": {
       "server": "服务器:",
@@ -403,7 +406,19 @@
       "batch_count": "默认生成张数",
       "batch_delay": "默认生成间隔(秒)",
       "quick_counts_title": "Quick Generation 数量",
-      "quick_count_button": "{}号按钮:"
+      "quick_count_button": "{}号按钮:",
+      "folder_wd14_dir": "模型文件夹",
+      "wd14_title": "WD14 标签模型",
+      "wd14_model": "标签模型",
+      "wd14_model_installed": "{}（已安装）",
+      "wd14_download": "下载模型",
+      "wd14_downloading": "正在下载 {}...",
+      "wd14_download_progress": "正在下载 {}... {}/{} MB",
+      "wd14_download_done": "已下载 {}。现在可以在 工具 → WD14 自动标签 中使用。",
+      "wd14_download_failed": "无法下载模型。",
+      "wd14_installed": "{} — 已安装。工具 → WD14 自动标签 会使用该模型。",
+      "wd14_not_installed": "该模型尚未放入文件夹。请点击“下载模型”，或在上方指定已下载模型的文件夹（v3 模型约 400MB）。",
+      "wd14_runtime_missing": "⚠ 无法使用 onnxruntime，标签推理无法运行（{}）。源码运行请执行 `pip install -e .`；发行版请下载 v0.6.7 或更高版本。下载模型仍然可用。"
     },
     "resolution": {
       "title": "分辨率",
@@ -543,7 +558,9 @@
       "count": "生成数量 (0=无限):",
       "delay": "间隔(秒):",
       "random_resolution": "每张随机分辨率 (横/竖/正方形)",
-      "random_resolution_tooltip": "每次生成时随机选择 Wide/Square/Portrait 中的一种分辨率。i2i/局部重绘时会优先使用原图尺寸，因此不生效。"
+      "random_resolution_tooltip": "每次生成时随机选择 Wide/Square/Portrait 中的一种分辨率。i2i/局部重绘时会优先使用原图尺寸，因此不生效。",
+      "random_settings_order": "按设置连续生成时随机选择设置文件",
+      "random_settings_order_hint": "关闭时按选择顺序循环；开启后每张随机挑选一个(不会连续两次使用同一个文件)。"
     },
     "image_info": {
       "title": "图像信息",
@@ -552,7 +569,7 @@
       "apply": "载入这些设置",
       "close": "关闭",
       "no_metadata": "此PNG没有NovelAI生成信息。",
-      "drop_hint": "将PNG文件拖放到此处即可查看生成信息",
+      "drop_hint": "将图片拖放到此处",
       "applied": "已载入设置。",
       "field_prompt": "提示词",
       "field_negative": "负面",
@@ -565,7 +582,6 @@
       "field_characters": "角色",
       "field_raw": "原始元数据",
       "filter_images": "图片文件",
-      "drop_hint": "将图片拖放到此处",
       "no_file": "请选择文件",
       "open_file": "打开文件",
       "apply_selected": "应用所选",
@@ -622,6 +638,50 @@
       "available": "有新版本 {}",
       "available_body": "版本 {} 已发布 (当前 v{})。\n是否打开下载页面?",
       "check_on_start": "启动时检查新版本"
+    },
+    "accounts": {
+      "title": "NovelAI API 账户管理",
+      "intro": "最多可以登记 {} 个 pst- 永久 API 令牌。点击某个账户的“保存并切换”后，之后的生成请求会立即使用该账户。",
+      "column_account": "账户",
+      "column_token": "API 令牌",
+      "column_status": "状态",
+      "slot": "账户 {}",
+      "save_and_switch": "保存并切换",
+      "in_use": "使用中",
+      "delete": "删除",
+      "status_active": "当前使用中",
+      "status_saved": "已保存",
+      "status_empty": "空",
+      "show_tokens": "显示令牌",
+      "keyring_note": "令牌不会写入设置文件，而是安全地保存在操作系统的凭据管理器中。",
+      "keyring_missing": "当前环境无法使用凭据存储，令牌不会被保存。切换仅在本次运行中有效。",
+      "invalid_token": "API 令牌必须以 \"pst-\" 开头。",
+      "switch_failed": "无法使用该令牌登录，将继续使用原来的账户。",
+      "delete_confirm_title": "删除账户",
+      "delete_confirm": "要删除账户 {} 中保存的令牌吗？"
+    },
+    "wd14": {
+      "title": "WD14 自动标签",
+      "drop_here": "把图片拖到这里\n或点击“浏览”选择",
+      "browse": "浏览...",
+      "select_all": "全选",
+      "deselect_all": "全不选",
+      "apply": "添加标签",
+      "choose_image": "选择图片",
+      "image_filter": "图片 (*.png *.jpg *.jpeg *.webp *.bmp);;所有文件 (*)",
+      "open_failed": "无法打开图片。",
+      "running": "正在推理...",
+      "no_tags": "没有超过阈值的标签。",
+      "tags_predicted": "找到 {} 个标签",
+      "error": "错误：{}",
+      "no_model": "找不到模型文件。\n{}",
+      "no_model_hint": "请在 选项 → 标签 的“WD14 标签模型”中选择模型并点击“下载模型”，或指定已下载模型的文件夹。",
+      "no_runtime": "无法使用 onnxruntime，因此无法进行标签推理。\n模型本身已就绪。",
+      "no_runtime_hint": "无法导入 onnxruntime（{}）。若从源码运行，请执行 `pip install -e .`（或 `pip install onnxruntime numpy`）；若使用发行版，请下载 v0.6.7 或更高版本。",
+      "copy": "📋 复制到剪贴板",
+      "copy_tooltip": "把勾选的标签以逗号分隔（与写入提示词时相同的格式）复制到剪贴板。窗口不会关闭。",
+      "copied": "已复制 {} 个标签到剪贴板。",
+      "copy_nothing": "没有可复制的标签，请先勾选。"
     }
   }
 }

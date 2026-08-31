@@ -23,7 +23,8 @@
       "gallery_view": "갤러리",
       "wd14_auto_tag": "WD14 자동 태깅...",
       "presets": "프리셋...",
-      "preset_applied": "프리셋을 적용했습니다."
+      "preset_applied": "프리셋을 적용했습니다.",
+      "accounts": "API 계정 관리(Accounts)..."
     },
     "statusbar": {
       "before_login": "로그인이 필요합니다.",
@@ -293,7 +294,9 @@
       "data_generation_error": "데이터 생성 중 오류 발생: {0}",
       "settings_load_failed": "세팅을 불러오는데 실패했습니다.",
       "autogenerate_error": "이미지를 생성하는데 문제가 있습니다.\n\n{0}",
-      "fixed_seed_batch": "연속 생성에는 랜덤 시드가 필요합니다. 시드 '랜덤'을 켜거나 생성 매수를 1로 맞춰 주세요."
+      "fixed_seed_batch": "연속 생성에는 랜덤 시드가 필요합니다. 시드 '랜덤'을 켜거나 생성 매수를 1로 맞춰 주세요.",
+      "wd14_model_missing": "WD14 모델을 찾지 못했습니다 ({} 없음).\n\n{}\n\n옵션 → 태그에서 모델 폴더를 지정하고 '모델 다운로드'를 누르세요.",
+      "wd14_runtime_missing": "WD14 자동 태깅을 쓸 수 없습니다.\n\nonnxruntime을 불러오지 못했습니다:\n{}\n\n소스로 실행 중이면 `pip install -e .`(또는 `pip install onnxruntime numpy`)로 설치하세요.\n배포본(exe)이라면 v0.6.7 이상을 받으면 함께 들어 있습니다."
     },
     "connection": {
       "server": "서버:",
@@ -403,7 +406,19 @@
       "batch_count": "기본 생성 매수",
       "batch_delay": "기본 생성 간격(초)",
       "quick_counts_title": "Quick Generation 매수",
-      "quick_count_button": "{}번 버튼:"
+      "quick_count_button": "{}번 버튼:",
+      "folder_wd14_dir": "모델 폴더",
+      "wd14_title": "WD14 태거 모델",
+      "wd14_model": "태거 모델",
+      "wd14_model_installed": "{} (설치됨)",
+      "wd14_download": "모델 다운로드",
+      "wd14_downloading": "{} 내려받는 중...",
+      "wd14_download_progress": "{} 내려받는 중... {}/{} MB",
+      "wd14_download_done": "{} 모델을 내려받았습니다. 이제 도구 → WD14 자동 태깅에서 쓸 수 있습니다.",
+      "wd14_download_failed": "모델을 내려받지 못했습니다.",
+      "wd14_installed": "{} — 설치됨. 도구 → WD14 자동 태깅에서 이 모델을 씁니다.",
+      "wd14_not_installed": "이 모델은 아직 폴더에 없습니다. '모델 다운로드'를 누르거나, 이미 받아 둔 폴더를 위에서 지정하세요 (v3 모델은 약 400MB).",
+      "wd14_runtime_missing": "⚠ onnxruntime을 쓸 수 없어 태깅이 동작하지 않습니다 ({}). 소스 실행이면 `pip install -e .`, 배포본이면 v0.6.7 이상을 받아 주세요. 모델 내려받기는 지금도 됩니다."
     },
     "resolution": {
       "title": "해상도",
@@ -543,7 +558,9 @@
       "count": "생성 매수 (0=무한):",
       "delay": "간격(초):",
       "random_resolution": "매 장마다 해상도 랜덤 (세로/가로/정방형)",
-      "random_resolution_tooltip": "생성할 때마다 Wide/Square/Portrait 중 하나를 무작위로 골라 해상도를 바꿉니다. i2i/인페인팅 중에는 원본 이미지 크기가 우선이라 적용되지 않습니다."
+      "random_resolution_tooltip": "생성할 때마다 Wide/Square/Portrait 중 하나를 무작위로 골라 해상도를 바꿉니다. i2i/인페인팅 중에는 원본 이미지 크기가 우선이라 적용되지 않습니다.",
+      "random_settings_order": "세팅별 연속 생성에서 세팅 파일을 무작위 순서로",
+      "random_settings_order_hint": "끄면 고른 순서대로 순환합니다. 켜면 매 장마다 무작위로 고릅니다 (같은 파일이 연달아 나오지는 않습니다)."
     },
     "image_info": {
       "title": "이미지 정보",
@@ -621,6 +638,50 @@
       "available": "새 버전 {} 이(가) 있습니다",
       "available_body": "새 버전 {} 이(가) 나왔습니다 (현재 v{}).\n다운로드 페이지를 열까요?",
       "check_on_start": "시작할 때 새 버전 확인"
+    },
+    "accounts": {
+      "title": "NovelAI API 계정 관리",
+      "intro": "최대 {}개의 pst- 영구 API 토큰을 등록할 수 있습니다. 사용할 계정의 '저장 및 전환'을 누르면 이후 생성 요청이 즉시 해당 계정으로 전환됩니다.",
+      "column_account": "계정",
+      "column_token": "API 토큰",
+      "column_status": "상태",
+      "slot": "계정 {}",
+      "save_and_switch": "저장 및 전환",
+      "in_use": "사용 중",
+      "delete": "삭제",
+      "status_active": "현재 사용 중",
+      "status_saved": "저장됨",
+      "status_empty": "비어 있음",
+      "show_tokens": "토큰 표시",
+      "keyring_note": "토큰은 설정 파일에 기록되지 않으며 OS 자격 증명 관리자에 안전하게 저장됩니다.",
+      "keyring_missing": "이 환경에서는 자격 증명 저장소를 쓸 수 없어 토큰이 저장되지 않습니다. 전환은 이번 실행에만 적용됩니다.",
+      "invalid_token": "API 토큰은 \"pst-\"로 시작해야 합니다.",
+      "switch_failed": "이 토큰으로 로그인하지 못했습니다. 쓰던 계정을 그대로 유지합니다.",
+      "delete_confirm_title": "계정 삭제",
+      "delete_confirm": "계정 {}의 저장된 토큰을 지울까요?"
+    },
+    "wd14": {
+      "title": "WD14 자동 태깅",
+      "drop_here": "이미지를 여기에 끌어다 놓거나\n'찾아보기'로 고르세요",
+      "browse": "찾아보기...",
+      "select_all": "전체 선택",
+      "deselect_all": "전체 해제",
+      "apply": "태그 넣기",
+      "choose_image": "이미지 선택",
+      "image_filter": "이미지 (*.png *.jpg *.jpeg *.webp *.bmp);;모든 파일 (*)",
+      "open_failed": "이미지를 열지 못했습니다.",
+      "running": "태그를 뽑는 중...",
+      "no_tags": "기준치를 넘는 태그가 없습니다.",
+      "tags_predicted": "태그 {}개를 찾았습니다",
+      "error": "오류: {}",
+      "no_model": "모델 파일이 없습니다.\n{}",
+      "no_model_hint": "옵션 → 태그의 'WD14 태거 모델'에서 모델을 고르고 '모델 다운로드'를 누르거나, 이미 받아 둔 폴더를 지정하세요.",
+      "no_runtime": "onnxruntime을 쓸 수 없어 태깅을 할 수 없습니다.\n모델은 준비돼 있습니다.",
+      "no_runtime_hint": "이 앱에서 onnxruntime을 불러오지 못했습니다 ({}). 소스로 실행 중이면 `pip install -e .`(또는 `pip install onnxruntime numpy`)로 설치하고, 배포본이라면 v0.6.7 이상을 받아 주세요.",
+      "copy": "📋 클립보드에 복사",
+      "copy_tooltip": "체크한 태그를 프롬프트에 넣을 때와 같은 형태(쉼표 구분)로 클립보드에 복사합니다. 창은 닫히지 않습니다.",
+      "copied": "태그 {}개를 클립보드에 복사했습니다.",
+      "copy_nothing": "복사할 태그가 없습니다. 넣을 태그를 체크해 주세요."
     }
   }
 }

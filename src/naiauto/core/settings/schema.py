@@ -45,6 +45,11 @@ def default_artist_combos_dir() -> Path:
     return default_data_dir() / "artist_combos"
 
 
+def default_wd14_dir() -> Path:
+    """WD14 태거가 모델(.onnx)과 태그 CSV를 찾는 기본 폴더."""
+    return default_data_dir() / "wd14"
+
+
 class GenerationDefaults(BaseModel):
     model: str = "naid5f"
     width: int = 832
@@ -87,6 +92,9 @@ class BatchSettings(BaseModel):
     quick_counts: list[int] = Field(default_factory=lambda: list(DEFAULT_QUICK_COUNTS))
     #: True면 매 장마다 Wide/Square/Portrait 중 하나를 무작위로 골라 생성한다 (i2i/인페인팅 잠금 중엔 무시).
     random_resolution: bool = False
+    #: True면 "세팅별 연속 생성"이 고른 세팅 파일을 순서대로 돌지 않고 매번 무작위로 고른다
+    #: (같은 파일이 연달아 두 번 나오지는 않는다).
+    random_settings_order: bool = False
 
 
 class CustomResolution(BaseModel):
@@ -135,6 +143,10 @@ class AppSettings(BaseModel):
     wildcards_dir: str = Field(default_factory=lambda: str(default_wildcards_dir()))
     presets_dir: str = Field(default_factory=lambda: str(default_presets_dir()))
     artist_combos_dir: str = Field(default_factory=lambda: str(default_artist_combos_dir()))
+    #: WD14 자동 태깅이 쓸 ONNX 모델·태그 CSV가 든 폴더 (옵션 → 태그에서 바꾼다).
+    wd14_dir: str = Field(default_factory=lambda: str(default_wd14_dir()))
+    #: 쓸 WD14 모델 이름 (`<이름>.onnx`). 빈 문자열이면 폴더에서 찾아 쓴다.
+    wd14_model: str = ""
     #: 갤러리가 훑을 폴더. 빈 문자열이면 결과 폴더를 본다 — 보통은 그게 맞고,
     #: V4 시절 모아 둔 이미지를 볼 때만 따로 지정한다.
     gallery_dir: str = ""
@@ -162,6 +174,10 @@ class AppSettings(BaseModel):
     def log_dir_path(self) -> Path:
         """설정된 로그 디렉터리. 빈 문자열이면 OS 표준 위치."""
         return Path(self.log_dir) if self.log_dir.strip() else default_log_dir()
+
+    def wd14_dir_path(self) -> Path:
+        """WD14 모델 폴더. 빈 문자열이면 기본 위치."""
+        return Path(self.wd14_dir) if self.wd14_dir.strip() else default_wd14_dir()
 
     def gallery_dir_path(self) -> Path:
         """갤러리가 훑을 폴더. 빈 문자열이면 결과 폴더."""

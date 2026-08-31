@@ -119,6 +119,14 @@ def selftest() -> int:
     if not credentials.is_available():
         failures.append("keyring 백엔드를 쓸 수 없다 (토큰이 저장되지 않는다)")
 
+    # WD14 자동 태깅은 onnxruntime + numpy가 번들에 들어가야 돌아간다. 빠져도 앱은
+    # 뜨지만 "모델을 쓸 수 없음"으로만 보여서, 배포 뒤에야 드러났다 (v0.6.5).
+    try:
+        import numpy  # noqa: F401
+        import onnxruntime  # noqa: F401
+    except ImportError as e:
+        failures.append(f"WD14 태깅을 쓸 수 없다: {e}")
+
     pages = registered_pages()
     missing_pages = [key for key in NAV_ORDER if key not in pages]
     if missing_pages:
@@ -130,7 +138,7 @@ def selftest() -> int:
         return 1
     _emit(
         f"selftest OK — v{__version__}, 언어 {len(languages)}종, "
-        f"태그 {completer.tag_count:,}개, 옵션 페이지 {len(NAV_ORDER)}종"
+        f"태그 {completer.tag_count:,}개, 옵션 페이지 {len(NAV_ORDER)}종, WD14 준비됨"
     )
     return 0
 

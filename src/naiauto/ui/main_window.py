@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import random
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -54,7 +55,7 @@ from ..core.logging_setup import configure_logging, crash_log_path, log_path
 from ..core.metadata.reuse import ReusableSettings
 from ..core.presets import CharacterPromptPreset, GenerationPreset, PresetError, PresetStore
 from ..core.resolution_catalog import ResolutionCatalog
-from ..core.settings import credentials
+from ..core.settings import accounts, credentials
 from ..core.settings.schema import APP_NAME, QUICK_COUNT_SLOTS, AppSettings, CharacterPromptState
 from ..core.settings.store import ensure_dirs
 from ..core.tag_completer import TagCompleter, resolve_database_path
@@ -69,6 +70,7 @@ from ..services.events import (
     WaitingNext,
 )
 from ..services.generation_service import GenerationJob, GenerationService
+from .accounts_dialog import AccountsDialog
 from .gallery_view import GalleryView
 from .image_info_dialog import ImageInfoDialog
 from .log_dialog import LogDialog
@@ -339,6 +341,10 @@ class MainWindow(QMainWindow):
         self.login_action = self.file_menu.addAction("")
         self.login_action.setShortcut("Ctrl+I")  # V4와 같은 단축키
         self.login_action.triggered.connect(self._on_open_login)
+        # 계정을 여러 개 쓰는 사용자를 위한 토큰 전환 창 (최대 4개)
+        self.accounts_action = self.file_menu.addAction("")
+        self.accounts_action.setShortcut("Ctrl+Shift+I")
+        self.accounts_action.triggered.connect(self._on_open_accounts)
         self.file_menu.addSeparator()
         self.image_info_action = self.file_menu.addAction("")
         self.image_info_action.triggered.connect(self._on_open_image_info)
@@ -594,13 +600,41 @@ class MainWindow(QMainWindow):
     # ── M3: WD14 Auto-Tag ────────────────────────────────
 
     def _on_open_wd14(self) -> None:
-        """WD14 Auto-Tag 다이얼로그를 연다."""
+        """WD14 Auto-Tag 다이얼로그를 연다.
+
+        모델과 태그 CSV는 옵션 → 태그에서 지정한 폴더(`wd14_dir`)에서, 거기서 고른
+        모델(`wd14_model`)을 우선해 찾는다 (기본 폴더는 데이터 폴더의 `wd14/`).
+        파일 이름은 받은 곳마다 다르므로 폴더 안을 훑는다 —
+        `core.wd14_tagger.resolve_model_files` 참고.
+        """
+        from ..core.wd14_tagger import resolve_model_files, runtime_error
+
+        tr = self._i18n.get_text
+
+        # onnxruntime을 쓸 수 없으면 창을 열어 봐야 아무것도 못 한다 — 이유를 그대로 알린다.
+        # (모델이 없는 것과 원인이 전혀 다르므로 안내도 따로 한다.)
+        failure = runtime_error()
+        if failure:
+            logger.warning("WD14 runtime unavailable: %s", failure)
+            QMessageBox.information(
+                self, tr("menu.wd14_auto_tag"), tr("errors.wd14_runtime_missing", failure)
+            )
+            return
+
         from .wd14_dialog import WD14Dialog
 
-        # WD14 모델/태그 경로는 데이터 디렉토리의 관습적 위치를 사용
-        data_dir = Path(platformdirs.user_data_dir(APP_NAME))
-        model_path = data_dir / "wd14" / "model.onnx"
-        tags_path = data_dir / "wd14" / "selected_tags.csv"
+        directory = self._settings.wd14_dir_path()
+        model_path, tags_path = resolve_model_files(directory, self._settings.wd14_model)
+
+        if model_path is None or tags_path is None:
+            missing = "*.onnx" if model_path is None else "*.csv"
+            logger.warning("WD14 model files not found in %s (missing %s)", directory, missing)
+            QMessageBox.information(
+                self,
+                tr("menu.wd14_auto_tag"),
+                tr("errors.wd14_model_missing", missing, str(directory)),
+            )
+            return
 
         try:
             from ..core.wd14_tagger import WD14Tagger
@@ -610,8 +644,8 @@ class MainWindow(QMainWindow):
             logger.warning("WD14 tagger could not be initialized")
             QMessageBox.information(
                 self,
-                self._i18n.get_text("menu.tools"),
-                f"WD14 model is not available. Place the ONNX model at:\n{model_path}",
+                tr("menu.wd14_auto_tag"),
+                tr("errors.wd14_model_missing", "*.onnx", str(directory)),
             )
             return
 
@@ -1237,6 +1271,36 @@ class MainWindow(QMainWindow):
         self.set_logged_in(False)
         QMessageBox.information(self, tr("dialogs.logout_complete_title"), tr("dialogs.logout_complete"))
 
+    # ── API 계정 전환 (여러 계정을 번갈아 쓰는 사용자용) ──────
+
+    def _on_open_accounts(self) -> None:
+        """파일 → API 계정 관리. 저장해 둔 토큰 중 하나로 즉시 갈아탄다."""
+        dialog = AccountsDialog(
+            self._i18n,
+            self._switch_account,
+            current_token=self._client.session.access_token or "",
+            parent=self,
+        )
+        dialog.exec()
+        if dialog.switched:
+            self.set_logged_in(self._client.session.is_logged_in)
+
+    def _switch_account(self, token: str) -> None:
+        """새 토큰으로 로그인해 본다. 실패하면 쓰던 계정을 그대로 되돌린다.
+
+        `_validate_token`은 실패할 때 세션을 비우므로, 되돌리지 않으면 멀쩡히 쓰던
+        계정까지 로그아웃된 것처럼 보인다. 진행 중인 연속 생성은 건드리지 않는다 —
+        다음 요청부터 새 토큰이 쓰인다.
+        """
+        previous = self._client.session.access_token
+        try:
+            self._validate_token(token)
+        except Exception:
+            if previous and accounts.is_valid_token(previous):
+                self._client.session.login_with_token(previous)
+            raise
+        logger.info("switched to another API account")
+
     def set_logged_in(self, logged_in: bool) -> None:
         """로그인 상태를 반영한다 — 생성 버튼, 상태바, 잔액 표시.
 
@@ -1461,6 +1525,18 @@ class MainWindow(QMainWindow):
         if not self._advance_settings_batch():
             self._settings_batch_paths = []
 
+    def _next_settings_batch_index(self) -> int:
+        """다음에 쓸 세팅 파일의 자리. 기본은 고른 순서대로, 옵션을 켜면 무작위.
+
+        무작위일 때 같은 파일이 연달아 두 번 나오지는 않게 한다 — 세팅을 여러 개
+        고른 이유가 번갈아 쓰려는 것이기 때문이다 (파일이 2개면 결국 번갈아 돈다).
+        """
+        total = len(self._settings_batch_paths)
+        if not self._settings.batch.random_settings_order or total < 2:
+            return (self._settings_batch_index + 1) % total
+        choices = [i for i in range(total) if i != self._settings_batch_index]
+        return random.choice(choices)
+
     def _advance_settings_batch(self) -> bool:
         """다음 세팅 파일을 불러와 적용하고 그 파일로 이미지 1장을 생성한다.
 
@@ -1468,7 +1544,7 @@ class MainWindow(QMainWindow):
         만들어 시작한다. 성공하면 True, 파일을 읽지 못하거나 이미 실행 중이면 False.
         """
         tr = self._i18n.get_text
-        self._settings_batch_index = (self._settings_batch_index + 1) % len(self._settings_batch_paths)
+        self._settings_batch_index = self._next_settings_batch_index()
         path = self._settings_batch_paths[self._settings_batch_index]
 
         defaults = self._get_current_preset_config().model_dump()
@@ -1784,6 +1860,7 @@ class MainWindow(QMainWindow):
         self.image_source.retranslate()
         self.file_menu.setTitle(tr("menu.file"))
         self.login_action.setText(tr("menu.login"))
+        self.accounts_action.setText(tr("menu.accounts"))
         self.login_label.setText(
             tr("statusbar.logged_in") if self._logged_in else tr("statusbar.before_login")
         )

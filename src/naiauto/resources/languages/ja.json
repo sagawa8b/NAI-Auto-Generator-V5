@@ -23,7 +23,8 @@
       "gallery_view": "ギャラリー",
       "wd14_auto_tag": "WD14 自動タグ付け...",
       "presets": "プリセット...",
-      "preset_applied": "プリセットを適用しました。"
+      "preset_applied": "プリセットを適用しました。",
+      "accounts": "APIアカウント管理(Accounts)..."
     },
     "statusbar": {
       "before_login": "ログインが必要です。",
@@ -293,7 +294,9 @@
       "data_generation_error": "データ生成中にエラーが発生しました: {0}",
       "settings_load_failed": "設定の読み込みに失敗しました。",
       "autogenerate_error": "画像の生成に問題がありました。\n\n{0}",
-      "fixed_seed_batch": "連続生成にはランダムシードが必要です。シードの「ランダム」を有効にするか、生成枚数を1にしてください。"
+      "fixed_seed_batch": "連続生成にはランダムシードが必要です。シードの「ランダム」を有効にするか、生成枚数を1にしてください。",
+      "wd14_model_missing": "WD14 モデルが見つかりません({} がありません)。\n\n{}\n\nオプション → タグでモデルフォルダを指定し、「モデルをダウンロード」を押してください。",
+      "wd14_runtime_missing": "WD14 自動タグ付けを利用できません。\n\nonnxruntime を読み込めませんでした:\n{}\n\nソースから実行している場合は `pip install -e .`（または `pip install onnxruntime numpy`）を実行してください。\n配布版（exe）なら v0.6.7 以降に同梱されています。"
     },
     "connection": {
       "server": "サーバー:",
@@ -403,7 +406,19 @@
       "batch_count": "既定の生成枚数",
       "batch_delay": "既定の生成間隔(秒)",
       "quick_counts_title": "Quick Generation 枚数",
-      "quick_count_button": "{}番ボタン:"
+      "quick_count_button": "{}番ボタン:",
+      "folder_wd14_dir": "モデルフォルダ",
+      "wd14_title": "WD14 タガーモデル",
+      "wd14_model": "タガーモデル",
+      "wd14_model_installed": "{}(インストール済み)",
+      "wd14_download": "モデルをダウンロード",
+      "wd14_downloading": "{} をダウンロード中...",
+      "wd14_download_progress": "{} をダウンロード中... {}/{} MB",
+      "wd14_download_done": "{} をダウンロードしました。ツール → WD14 自動タグ付けで使えます。",
+      "wd14_download_failed": "モデルをダウンロードできませんでした。",
+      "wd14_installed": "{} — インストール済み。ツール → WD14 自動タグ付けでこのモデルを使います。",
+      "wd14_not_installed": "このモデルはまだフォルダにありません。「モデルをダウンロード」を押すか、すでに持っているフォルダを上で指定してください(v3 モデルは約 400MB)。",
+      "wd14_runtime_missing": "⚠ onnxruntime を利用できないためタグ付けが動きません（{}）。ソース実行なら `pip install -e .`、配布版なら v0.6.7 以降を入手してください。モデルのダウンロードは可能です。"
     },
     "resolution": {
       "title": "解像度",
@@ -543,7 +558,9 @@
       "count": "生成枚数 (0=無限):",
       "delay": "間隔(秒):",
       "random_resolution": "1枚ごとに解像度をランダム化 (縦/横/正方形)",
-      "random_resolution_tooltip": "生成ごとにWide/Square/Portraitのいずれかをランダムに選んで解像度を変更します。i2i/インペイント中は元画像サイズが優先されるため適用されません。"
+      "random_resolution_tooltip": "生成ごとにWide/Square/Portraitのいずれかをランダムに選んで解像度を変更します。i2i/インペイント中は元画像サイズが優先されるため適用されません。",
+      "random_settings_order": "セット別連続生成で設定ファイルをランダム順に",
+      "random_settings_order_hint": "オフなら選んだ順に巡回します。オンにすると毎回ランダムに選びます(同じファイルが連続することはありません)。"
     },
     "image_info": {
       "title": "画像情報",
@@ -552,7 +569,7 @@
       "apply": "この設定を読み込む",
       "close": "閉じる",
       "no_metadata": "このPNGにはNovelAIの生成情報がありません。",
-      "drop_hint": "PNGファイルをここにドロップすると生成情報を確認できます",
+      "drop_hint": "ここに画像をドロップ",
       "applied": "設定を読み込みました。",
       "field_prompt": "プロンプト",
       "field_negative": "ネガティブ",
@@ -565,7 +582,6 @@
       "field_characters": "キャラクター",
       "field_raw": "元のメタデータ",
       "filter_images": "画像ファイル",
-      "drop_hint": "ここに画像をドロップ",
       "no_file": "ファイルを選択してください",
       "open_file": "ファイルを開く",
       "apply_selected": "選択項目を適用",
@@ -622,6 +638,50 @@
       "available": "新しいバージョン {} があります",
       "available_body": "バージョン {} が公開されています (現在 v{})。\nダウンロードページを開きますか?",
       "check_on_start": "起動時に新しいバージョンを確認"
+    },
+    "accounts": {
+      "title": "NovelAI API アカウント管理",
+      "intro": "pst- 形式の永続 API トークンを最大 {} 個登録できます。使いたいアカウントの「保存して切替」を押すと、以降の生成リクエストがそのアカウントに切り替わります。",
+      "column_account": "アカウント",
+      "column_token": "API トークン",
+      "column_status": "状態",
+      "slot": "アカウント {}",
+      "save_and_switch": "保存して切替",
+      "in_use": "使用中",
+      "delete": "削除",
+      "status_active": "現在使用中",
+      "status_saved": "保存済み",
+      "status_empty": "空き",
+      "show_tokens": "トークンを表示",
+      "keyring_note": "トークンは設定ファイルには書き込まれず、OS の資格情報マネージャーに安全に保存されます。",
+      "keyring_missing": "この環境では資格情報ストアを利用できないため、トークンは保存されません。切り替えは今回の実行のみ有効です。",
+      "invalid_token": "API トークンは \"pst-\" で始まる必要があります。",
+      "switch_failed": "このトークンでログインできませんでした。使用中のアカウントをそのまま維持します。",
+      "delete_confirm_title": "アカウント削除",
+      "delete_confirm": "アカウント {} の保存済みトークンを削除しますか?"
+    },
+    "wd14": {
+      "title": "WD14 自動タグ付け",
+      "drop_here": "画像をここにドロップするか\n「参照」で選んでください",
+      "browse": "参照...",
+      "select_all": "すべて選択",
+      "deselect_all": "すべて解除",
+      "apply": "タグを追加",
+      "choose_image": "画像を選択",
+      "image_filter": "画像 (*.png *.jpg *.jpeg *.webp *.bmp);;すべてのファイル (*)",
+      "open_failed": "画像を開けませんでした。",
+      "running": "タグを推定中...",
+      "no_tags": "しきい値を超えるタグがありません。",
+      "tags_predicted": "タグを {} 個見つけました",
+      "error": "エラー: {}",
+      "no_model": "モデルファイルがありません。\n{}",
+      "no_model_hint": "オプション → タグ の「WD14 タガーモデル」でモデルを選び「モデルをダウンロード」を押すか、すでに持っているフォルダを指定してください。",
+      "no_runtime": "onnxruntime を利用できないためタグ付けを実行できません。\nモデル自体は用意されています。",
+      "no_runtime_hint": "onnxruntime を読み込めませんでした（{}）。ソースから実行している場合は `pip install -e .`（または `pip install onnxruntime numpy`）を実行してください。配布版なら v0.6.7 以降を入手してください。",
+      "copy": "📋 クリップボードにコピー",
+      "copy_tooltip": "チェックしたタグを、プロンプトに入れるときと同じ形式(カンマ区切り)でクリップボードにコピーします。ウィンドウは閉じません。",
+      "copied": "タグ {} 個をクリップボードにコピーしました。",
+      "copy_nothing": "コピーするタグがありません。入れたいタグにチェックしてください。"
     }
   }
 }

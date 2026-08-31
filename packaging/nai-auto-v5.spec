@@ -27,19 +27,23 @@ PACKAGE_DIR = PROJECT_DIR / "src" / "naiauto"
 APP_NAME = "NAI-Auto-V5"
 
 keyring_datas, keyring_binaries, keyring_hiddenimports = collect_all("keyring")
+# onnxruntime은 순수 파이썬이 아니다 — capi의 DLL이 함께 들어가야 import가 된다.
+# 빠지면 WD14 자동 태깅만 조용히 "모델을 쓸 수 없음"으로 보인다.
+onnx_datas, onnx_binaries, onnx_hiddenimports = collect_all("onnxruntime")
 
 datas = [
     # (원본, 번들 안 위치) — 앱이 naiauto/resources/... 로 찾는다
     (str(PACKAGE_DIR / "resources"), "naiauto/resources"),
     *keyring_datas,
+    *onnx_datas,
 ]
 
 analysis = Analysis(
     [str(SPEC_DIR / "entry.py")],  # app.py를 직접 쓰면 상대 import가 깨진다 (entry.py 주석 참고)
     pathex=[str(PROJECT_DIR / "src")],
-    binaries=keyring_binaries,
+    binaries=[*keyring_binaries, *onnx_binaries],
     datas=datas,
-    hiddenimports=["naiauto", *keyring_hiddenimports],
+    hiddenimports=["naiauto", *keyring_hiddenimports, *onnx_hiddenimports],
     hookspath=[],
     runtime_hooks=[],
     excludes=["tkinter", "pytest", "hypothesis"],

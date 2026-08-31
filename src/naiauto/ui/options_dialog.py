@@ -89,6 +89,8 @@ OWNED_FIELDS: tuple[str, ...] = (
     "presets_dir",
     "artist_combos_dir",
     "gallery_dir",
+    "wd14_dir",
+    "wd14_model",
     "log_dir",
     "tag_database_path",
     "tag_autocomplete_enabled",
@@ -105,6 +107,7 @@ OWNED_FIELDS: tuple[str, ...] = (
     "batch.count",
     "batch.delay_seconds",
     "batch.quick_counts",
+    "batch.random_settings_order",
     "resolution",
     "ui",
 )
