@@ -20,10 +20,12 @@ from .schema import AppSettings
 __all__ = [
     "BATCH_COUNT_RANGE",
     "BATCH_DELAY_RANGE",
+    "LLM_TIMEOUT_RANGE",
     "QUICK_COUNT_RANGE",
     "OptionIssue",
     "PAGE_FILENAME",
     "PAGE_GENERATION",
+    "PAGE_LLM",
     "PAGE_RESOLUTION",
     "WORD_LIMIT_RANGE",
     "has_known_token",
@@ -34,12 +36,15 @@ __all__ = [
 PAGE_FILENAME = "filename"
 PAGE_GENERATION = "generation"
 PAGE_RESOLUTION = "resolution"
+PAGE_LLM = "llm"
 
 WORD_LIMIT_RANGE: tuple[int, int] = (1, 100)
 BATCH_COUNT_RANGE: tuple[int, int] = (0, 99999)
 BATCH_DELAY_RANGE: tuple[float, float] = (0.0, 3600.0)
 #: 퀵 매수 버튼 값. 0(무한)은 버튼으로 의미가 없어 1부터 받는다.
 QUICK_COUNT_RANGE: tuple[int, int] = (1, 99999)
+#: LM Studio 응답 타임아웃(초). 0은 "무제한"이라 허용한다 (상한은 넉넉히).
+LLM_TIMEOUT_RANGE: tuple[float, float] = (0.0, 3600.0)
 
 # 알려진 토큰 판정은 `core.metadata.save.has_known_token`이 유일한 구현이다 (TOKEN_NAMES와 같은
 # 목록을 두 번 적지 않기 위해 그대로 재수출한다). save.py는 stdlib만 쓰므로 Qt-free가 유지된다.
@@ -68,7 +73,16 @@ def validate_options(settings: AppSettings) -> tuple[OptionIssue, ...]:
     issues += _validate_filename(settings)
     issues += _validate_generation(settings)
     issues += _validate_resolution(settings)
+    issues += _validate_llm(settings)
     return tuple(issues)
+
+
+def _validate_llm(settings: AppSettings) -> list[OptionIssue]:
+    """LM Studio 응답 타임아웃 범위만 검사한다 (host/model은 실행 시점에 연결로 확인)."""
+    low, high = LLM_TIMEOUT_RANGE
+    if not low <= settings.lmstudio.timeout_seconds <= high:
+        return [OptionIssue(PAGE_LLM, "options.llm_timeout", "options.err_range", (low, high))]
+    return []
 
 
 def _validate_filename(settings: AppSettings) -> list[OptionIssue]:

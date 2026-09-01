@@ -126,6 +126,7 @@ from . import (  # noqa: E402
     filename_page,  # noqa: F401
     folders_page,  # noqa: F401
     interface_page,  # noqa: F401
+    llm_page,  # noqa: F401
     logging_page,  # noqa: F401
     resolution_page,  # noqa: F401
     tags_page,  # noqa: F401

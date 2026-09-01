@@ -73,6 +73,7 @@ NAV_ORDER: tuple[str, ...] = (
     PAGE_RESOLUTION,
     "interface",
     "tags",
+    "llm",
     "log",
 )
 
@@ -105,6 +106,7 @@ OWNED_FIELDS: tuple[str, ...] = (
     "show_enhance",
     "check_updates_on_start",
     "measure_credit",
+    "lmstudio",
     "batch.count",
     "batch.delay_seconds",
     "batch.quick_counts",

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nai-auto-v5"
-version = "0.6.8"
+version = "0.7.0"
 description = "NovelAI Diffusion V5 image generation automation app (PySide6)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -21,6 +21,10 @@ dependencies = [
     # (v0.6.5까지 선택 의존성이라 exe로 받은 사용자는 쓸 수 없었다).
     "numpy>=1.24",
     "onnxruntime>=1.17",
+    # 자연어 프롬프트 생성 — LM Studio 로컬 LLM 연동. 연결 확인 API와 동기 타임아웃이
+    # 1.5.0부터라 그 이상을 요구한다. WD14와 같은 이유로 필수 의존성이다
+    # (선택 의존성이면 exe 사용자가 쓸 수 없다).
+    "lmstudio>=1.5.0",
 ]
 
 [project.optional-dependencies]

@@ -31,11 +31,13 @@ APP_NAME = "NAI-Auto-V5"
 # 그러면 WD14가 빠진 배포본이 조용히 만들어져, 릴리스 검증(--selftest)에서야 드러난다.
 # 실제로 v0.6.7 릴리스에서 공개 저장소의 pyproject.toml에 onnxruntime이 없어 이 일이
 # 벌어졌다 — 빌드하는 자리에서 바로 멈추게 한다.
-_MISSING = [name for name in ("onnxruntime", "numpy") if importlib.util.find_spec(name) is None]
+_MISSING = [
+    name for name in ("onnxruntime", "numpy", "lmstudio") if importlib.util.find_spec(name) is None
+]
 if _MISSING:
     raise SystemExit(
-        f"빌드 환경에 {', '.join(_MISSING)} 가 없습니다. WD14 자동 태깅이 빠진 배포본이 "
-        "만들어지므로 여기서 멈춥니다 — `pip install .` 로 런타임 의존성을 먼저 설치하세요."
+        f"빌드 환경에 {', '.join(_MISSING)} 가 없습니다. WD14 자동 태깅 또는 자연어 프롬프트 생성이 "
+        "빠진 배포본이 만들어지므로 여기서 멈춥니다 — `pip install .` 로 런타임 의존성을 먼저 설치하세요."
     )
 
 keyring_datas, keyring_binaries, keyring_hiddenimports = collect_all("keyring")
@@ -45,19 +47,25 @@ onnx_datas, onnx_binaries, onnx_hiddenimports = collect_all("onnxruntime")
 if not onnx_binaries:
     raise SystemExit("onnxruntime의 라이브러리를 수집하지 못했습니다 — 번들이 WD14를 쓸 수 없습니다.")
 
+# lmstudio(자연어 프롬프트 생성)는 순수 파이썬이지만 웹소켓 등 하위 의존성을 지연 import한다.
+# collect_all로 데이터·하이든임포트를 통째로 넣지 않으면 프로즌 빌드에서 `import lmstudio`가
+# 조용히 실패해 이 기능만 "SDK를 쓸 수 없음"으로 보인다. --selftest가 import를 실제로 확인한다.
+lms_datas, lms_binaries, lms_hiddenimports = collect_all("lmstudio")
+
 datas = [
     # (원본, 번들 안 위치) — 앱이 naiauto/resources/... 로 찾는다
     (str(PACKAGE_DIR / "resources"), "naiauto/resources"),
     *keyring_datas,
     *onnx_datas,
+    *lms_datas,
 ]
 
 analysis = Analysis(
     [str(SPEC_DIR / "entry.py")],  # app.py를 직접 쓰면 상대 import가 깨진다 (entry.py 주석 참고)
     pathex=[str(PROJECT_DIR / "src")],
-    binaries=[*keyring_binaries, *onnx_binaries],
+    binaries=[*keyring_binaries, *onnx_binaries, *lms_binaries],
     datas=datas,
-    hiddenimports=["naiauto", *keyring_hiddenimports, *onnx_hiddenimports],
+    hiddenimports=["naiauto", *keyring_hiddenimports, *onnx_hiddenimports, *lms_hiddenimports],
     hookspath=[],
     runtime_hooks=[],
     excludes=["tkinter", "pytest", "hypothesis"],

@@ -426,6 +426,11 @@ class MainWindow(QMainWindow):
         self.wd14_action.setShortcut("Ctrl+T")
         self.wd14_action.triggered.connect(self._on_open_wd14)
 
+        # 자연어 프롬프트 생성 (LM Studio 로컬 LLM 연동)
+        self.prompt_gen_action = self.tools_menu.addAction("")
+        self.prompt_gen_action.setShortcut("Ctrl+G")
+        self.prompt_gen_action.triggered.connect(self._on_open_lmstudio)
+
         # M3: Presets action
         self.presets_action = self.tools_menu.addAction("")
         self.presets_action.setShortcut("Ctrl+P")
@@ -683,6 +688,58 @@ class MainWindow(QMainWindow):
 
         current = target.toPlainText()
         target.setPlainText(append_tags_to_prompt(current, tags))
+
+    # ── 자연어 프롬프트 생성 (LM Studio) ────────────────────
+
+    def _on_open_lmstudio(self) -> None:
+        """LM Studio 연동 프롬프트 생성 다이얼로그를 연다.
+
+        `lmstudio`를 쓸 수 없으면(소스 실행 시 미설치) 창을 여는 대신 이유를 알린다 —
+        WD14의 `runtime_error()` 경로와 같다.
+        """
+        from ..core.llm.lmstudio_client import LMStudioConfig, runtime_error
+
+        tr = self._i18n.get_text
+
+        failure = runtime_error()
+        if failure:
+            logger.warning("LM Studio runtime unavailable: %s", failure)
+            QMessageBox.information(self, tr("menu.prompt_gen"), tr("lmstudio.err_not_installed", failure))
+            return
+
+        from .lmstudio_dialog import LMStudioDialog
+
+        cfg = self._settings.lmstudio
+        config = LMStudioConfig(
+            host=cfg.host,
+            model=cfg.model,
+            timeout=cfg.timeout_seconds,
+            style=cfg.default_style,
+            system_prompt=cfg.system_prompt,
+        )
+        dialog = LMStudioDialog(
+            config=config,
+            i18n=self._i18n,
+            default_apply_mode=cfg.default_apply_mode,
+            default_style=cfg.default_style,
+            parent=self,
+        )
+        dialog.prompt_ready.connect(self._on_lmstudio_prompt_ready)
+        dialog.exec()
+
+    def _on_lmstudio_prompt_ready(self, prompt: str, negative: str, mode: str) -> None:
+        """생성된 프롬프트를 프롬프트/네거티브 칸에 반영한다 (mode: append|replace)."""
+        from ..core.llm.prompt_apply import apply_generated_prompt
+
+        if prompt:
+            self.prompt_edit.setPlainText(
+                apply_generated_prompt(self.prompt_edit.toPlainText(), prompt, mode)
+            )
+        if negative:
+            self.negative_edit.setPlainText(
+                apply_generated_prompt(self.negative_edit.toPlainText(), negative, mode)
+            )
+            self.prompt_tabs.show_negative()
 
     # ── 설정 파일 저장 / 불러오기 (V4 방식) ────────────────
 
@@ -2016,6 +2073,7 @@ class MainWindow(QMainWindow):
         self.measure_credit_action.setToolTip(tr("logs.measure_credit_hint"))
         # M3: WD14 / Presets / Gallery actions
         self.wd14_action.setText(tr("menu.wd14_auto_tag"))
+        self.prompt_gen_action.setText(tr("menu.prompt_gen"))
         self.presets_action.setText(tr("menu.presets"))
         self.gallery_action.setText(tr("menu.gallery_view"))
         self.folders_menu.setTitle(tr("folders.title"))

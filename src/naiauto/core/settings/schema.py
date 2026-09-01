@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 APP_NAME = "NAI-Auto-V5"
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 DEFAULT_WORD_LIMIT = 20
 CUSTOM_RESOLUTION_SLOTS = 6
 QUICK_COUNT_SLOTS = 4
@@ -136,6 +136,23 @@ class PromptFontSettings(BaseModel):
     deemphasis_color: str = ""  # "" = 기본 고정색 (가중치 < 1.0, 예: "-2::text::")
 
 
+class LMStudioSettings(BaseModel):
+    """자연어 프롬프트 생성용 로컬 LLM(LM Studio) 연결 설정.
+
+    LM Studio 앱이 서빙하는 로컬 LLM에 공식 파이썬 SDK로 붙어, 입력한 단어/문장/이미지를
+    NovelAI V5 프롬프트로 바꿔 준다. `core/llm/lmstudio_client.py` 참고.
+    """
+
+    host: str = "localhost:1234"  # LM Studio 서버 host:port
+    model: str = ""  # 마지막으로 고른 모델 식별자 ("" = 로드된 첫 모델 자동 사용)
+    timeout_seconds: float = 120.0  # 동기 응답 타임아웃 (0 이하 = 무제한)
+    system_prompt: str = ""  # "" = 스타일 기본 프롬프트. 값이 있으면 그 뒤에 덧붙는 추가 지시
+    default_apply_mode: str = "append"  # "append" | "replace" — 결과를 프롬프트에 넣는 방식
+    #: 출력 스타일 기본값. "natural"(서술형 자연어) | "danbooru"(쉼표 구분 태그).
+    #: 모델이 두 형태를 오가는 편차를 없애기 위해 스타일마다 시스템 프롬프트를 다르게 쓴다.
+    default_style: str = "natural"
+
+
 class AppSettings(BaseModel):
     schema_version: int = CURRENT_SCHEMA_VERSION
     language: str = "ko"
@@ -171,6 +188,7 @@ class AppSettings(BaseModel):
     resolution: ResolutionOptions = Field(default_factory=ResolutionOptions)
     ui: UiState = Field(default_factory=UiState)
     prompt_font: PromptFontSettings = Field(default_factory=PromptFontSettings)
+    lmstudio: LMStudioSettings = Field(default_factory=LMStudioSettings)
 
     def log_dir_path(self) -> Path:
         """설정된 로그 디렉터리. 빈 문자열이면 OS 표준 위치."""

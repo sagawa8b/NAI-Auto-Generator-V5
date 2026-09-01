@@ -30,6 +30,8 @@ from ..core.artist_combos import ArtistComboEngine
 from ..core.credit_estimator import CreditObservation
 from ..core.metadata.save import save_raw_png
 from ..core.prompt_choices import resolve_prompt_choices
+from ..core.resolution_catalog import Aspect, classify_aspect
+from ..core.resolution_directive import extract_resolution_directive
 from ..core.wildcards.applier import WildcardApplier
 from .events import (
     GenerationEvent,
@@ -47,6 +49,14 @@ MAX_RATE_LIMIT_RETRIES = 5
 MAX_TRANSIENT_RETRIES = 3
 DEFAULT_RATE_LIMIT_WAIT = 30.0
 TRANSIENT_BACKOFF = (5.0, 10.0, 20.0)
+
+
+def _resolution_for_aspect(choices: tuple[tuple[int, int], ...], aspect: Aspect) -> tuple[int, int] | None:
+    """그 등급의 해상도 중 요청한 비율의 첫 번째 것 (없으면 None)."""
+    for width, height in choices:
+        if classify_aspect(width, height) is aspect:
+            return (width, height)
+    return None
 
 
 class _StopRequested(Exception):
@@ -401,13 +411,24 @@ class GenerationService:
         )
         req = dataclasses.replace(req, prompt=prompt, negative_prompt=negative, characters=characters)
 
+        # 확장이 모두 끝난 뒤에 화면 비율 지시어를 읽는다 — 와일드카드가 만들어 낸 것도 잡힌다.
+        # 쓸 수 없는 자리(i2i·폴더 강화)에서도 지우기는 한다. 서버로 새어 나가면 안 된다.
+        prompt, requested_aspect = extract_resolution_directive(req.prompt)
+        req = dataclasses.replace(req, prompt=prompt)
+
         with self._live_resolution_lock:
             live_size = self._live_resolution
             live_choices = self._live_resolution_choices
         if per_image:
             live_size, live_choices = None, ()  # 크기는 원본 이미지가 정한다
         choices = live_choices or job.resolution_choices
-        if not per_image and job.randomize_resolution and len(choices) >= 2:
+        if requested_aspect is not None and not per_image and req.action == "generate":
+            # 명시 지시어는 해상도 랜덤보다 우선한다. 지금 등급에 그 비율이 없으면
+            # 랜덤으로 되돌리지 않고 화면에 잡힌 해상도를 그대로 쓴다.
+            size = _resolution_for_aspect(choices, requested_aspect) or live_size
+            if size is not None:
+                req = dataclasses.replace(req, width=size[0], height=size[1])
+        elif not per_image and job.randomize_resolution and len(choices) >= 2:
             width, height = self._rng.choice(choices)
             req = dataclasses.replace(req, width=width, height=height)
         elif live_size is not None:
