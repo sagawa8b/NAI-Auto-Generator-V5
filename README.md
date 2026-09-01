@@ -35,6 +35,10 @@ NovelAI Diffusion **V5** 이미지 생성을 자동화하는 데스크톱 앱입
 - **🎲 와일드카드** — `__파일__` 랜덤 · `__=파일__` 공유 랜덤 · `##파일##` 순차 · `##파일*3##` 반복
 - **🖌 아티스트 조합** — `{artist:그룹}` 랜덤 / `{artist_loop:그룹}` 순차 치환
 - **🖼 i2i · 인페인팅** — 브러시 마스크 편집기 내장, 강도·노이즈 조절
+- **🔍 강화 업스케일(Enhance)** — 이미 만든 그림을 다시 그려 크게 만듭니다.
+  웹 UI와 같은 `1x / 1.5x / Max` 세 배율이고, Max는 서버가 상한(약 3.1MP)까지 키웁니다
+  (1024×1024 → 1773×1773). 원본 PNG에 남은 프롬프트·설정을 그대로 가져오고,
+  폴더를 통째로 골라 한 장씩 강화할 수도 있습니다
 - **🗂 결과 관리** — 갤러리 뷰, 프리셋, 파일명 템플릿,
   PNG를 창에 끌어다 놓으면 생성 정보를 읽어 설정 복원
 - **🤖 WD14 자동 태깅** — 이미지에서 태그 추출 (ONNX 모델은 직접 준비)
@@ -80,8 +84,9 @@ NovelAI 웹에서 발급한 **`pst-` 영구 API 토큰**을 입력합니다.
 |---|---|---|---|
 | `Ctrl+,` | 옵션 | `F2` | i2i 패널 |
 | `Ctrl+P` | 프리셋 | `F3` | 갤러리 |
-| `Ctrl+T` | WD14 자동 태깅 | `F11` | 결과 패널 접기 |
-| `Ctrl+L` | 로그 보기 | `Ctrl+R` | 레이아웃 초기화 |
+| `Ctrl+T` | WD14 자동 태깅 | `F4` | 강화 업스케일 패널 |
+| `Ctrl+L` | 로그 보기 | `F11` | 결과 패널 접기 |
+| `Ctrl+R` | 레이아웃 초기화 | | |
 
 ### 📁 파일 위치
 
@@ -102,7 +107,6 @@ Linux `~/.local/share/NAI-Auto-V5` · macOS `~/Library/Application Support/NAI-A
 ### ⚠️ 아직 안 되는 것
 
 - **Precise Reference / Curated Inpainting / Vibe Transfer** — NovelAI가 V5로 아직 출시하지 않았습니다
-- **Image Enhance(업스케일)** — V4.5에 있던 기능, 아직 이식 전
 
 ### 🙏 크레딧
 
@@ -136,6 +140,9 @@ wildcards and prompt tooling that the web interface does not provide.
 - **Wildcards** — `__file__` random · `__=file__` shared random · `##file##` sequential · `##file*3##` repeat
 - **Artist combos** — `{artist:group}` random / `{artist_loop:group}` sequential
 - **img2img & inpainting** with a built-in brush mask editor
+- **Enhance (upscaling)** — redraw a finished image larger, with the same `1x / 1.5x / Max` amounts
+  as the web UI. Max lets the server upscale to the cap (~3.1 MP, e.g. 1024×1024 → 1773×1773).
+  Settings are taken from the source PNG, and a whole folder can be enhanced one image at a time
 - **Result tools** — gallery view, presets, filename templates, drag a PNG onto the window to
   restore its generation settings
 - **WD14 auto-tagging** (bring your own ONNX model)
@@ -168,8 +175,7 @@ the OS keyring — never written to the settings file in plain text.
 
 ### Not available yet
 
-Precise Reference / Curated Inpainting / Vibe Transfer (not shipped by NovelAI for V5 yet) and
-Image Enhance (upscaling, not ported from V4.5 yet).
+Precise Reference / Curated Inpainting / Vibe Transfer (not shipped by NovelAI for V5 yet).
 
 ### Credits & license
 
