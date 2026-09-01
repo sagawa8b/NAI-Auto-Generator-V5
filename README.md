@@ -13,6 +13,10 @@ NovelAI Diffusion **V5** 이미지 생성을 자동화하는 데스크톱 앱입
 > [NAI-Auto-Generator-V4](https://github.com/sagawa8b/NAI-Auto-Generator-V4)(V4.5용)의 후속작으로,
 > V5 전용으로 기초부터 새로 만들었습니다. V4.5를 쓰신다면 V4 저장소를 이용해 주세요.
 
+> **이 저장소는 비공개 개발 저장소의 배포용 스냅숏입니다.** 코드는 릴리스마다 한 방향으로만
+> 복사됩니다 — 이슈와 풀 리퀘스트는 환영하지만 반영 방식이 조금 다릅니다.
+> [기여](#-기여) · [Contributing](#contributing) 절을 먼저 봐 주세요.
+
 <!-- 스크린샷 자리 — 이미지를 저장소에 올린 뒤 아래 주석을 풀어 주세요
 <img width="960" alt="main window" src="docs/screenshot_main.png">
 -->
@@ -33,6 +37,9 @@ NovelAI Diffusion **V5** 이미지 생성을 자동화하는 데스크톱 앱입
 - **🏷 태그 자동완성** — Danbooru 태그 DB가 **내장**되어 설정 없이 바로 동작합니다.
   가중치 접두사(`1.5::`)를 보존하고 캐릭터 슬롯 입력창에서도 뜹니다
 - **🎲 와일드카드** — `__파일__` 랜덤 · `__=파일__` 공유 랜덤 · `##파일##` 순차 · `##파일*3##` 반복
+- **📐 프롬프트 화면 비율** — 프롬프트나 와일드카드에 `<res:portrait>` · `<res:square>` ·
+  `<res:wide>`를 쓰면 그 장만 현재 등급의 해당 비율로 뽑습니다. 지시어는 서버로 보내기 전에
+  지워지고, `매 장마다 해상도 랜덤`보다 우선합니다
 - **🖌 아티스트 조합** — `{artist:그룹}` 랜덤 / `{artist_loop:그룹}` 순차 치환
 - **🖼 i2i · 인페인팅** — 브러시 마스크 편집기 내장, 강도·노이즈 조절
 - **🔍 강화 업스케일(Enhance)** — 이미 만든 그림을 다시 그려 크게 만듭니다.
@@ -109,6 +116,33 @@ Linux `~/.local/share/NAI-Auto-V5` · macOS `~/Library/Application Support/NAI-A
 
 - **Precise Reference / Curated Inpainting / Vibe Transfer** — NovelAI가 V5로 아직 출시하지 않았습니다
 
+### 🤝 기여
+
+**이 저장소는 비공개 개발 저장소의 배포용 스냅숏입니다.** 릴리스마다 `src/`, `MANUAL_KR.md`,
+`PATCHNOTES.md`를 비공개본에서 복사해 덮어씁니다 — 한 방향으로만 흐르고, 여기서 고친 내용을
+비공개본이 다시 읽어 가지는 않습니다. `README.md`, `LICENSE` 같은 몇몇 파일만 공개본이 원본을
+들고 있습니다.
+
+그래서 **코드를 고치는 풀 리퀘스트를 여기서 머지하면 다음 릴리스에 사라집니다.** 보내지 말라는
+뜻은 전혀 아닙니다 — 보내 주시면 이렇게 처리합니다.
+
+1. 제가 비공개본으로 옮기고, 커밋에 `Co-Authored-By`로 크레딧을 남깁니다
+2. 패치 노트에 기여자로 적습니다
+3. 다음 릴리스에 실린 뒤 원 PR에 링크와 함께 닫습니다 — **머지가 아니라 "닫힘 + 크레딧"으로
+   끝나므로 거절이 아닙니다**
+
+실제 사례: [#1 프롬프트 화면 비율 지시어](https://github.com/sagawa8b/NAI-Auto-Generator-V5/pull/1)
+(v0.6.9에 들어갑니다).
+
+| 하고 싶은 것 | 어디로 |
+|---|---|
+| 버그 신고 · 기능 제안 | [이슈](https://github.com/sagawa8b/NAI-Auto-Generator-V5/issues) — 가장 반가운 형태입니다 |
+| 코드 | 풀 리퀘스트. 위 방식으로 반영됩니다 |
+| README 고침 | 풀 리퀘스트. 이 파일은 공개본이 원본이라 여기서 바로 머지됩니다 |
+
+공개본에는 테스트가 없어 풀 리퀘스트에 CI가 돌지 않습니다. 대신 무엇을 어떻게 확인했는지
+설명에 적어 주시면 제가 비공개본에서 같은 것을 돌려 보겠습니다.
+
 ### 🙏 크레딧
 
 - 원작: [DCP-arca/NAI-Auto-Generator](https://github.com/DCP-arca/NAI-Auto-Generator)
@@ -139,6 +173,9 @@ wildcards and prompt tooling that the web interface does not provide.
 - **Tag autocomplete** — Danbooru tag database **bundled**, works out of the box, preserves weight
   prefixes (`1.5::`), also attached to character slots
 - **Wildcards** — `__file__` random · `__=file__` shared random · `##file##` sequential · `##file*3##` repeat
+- **Prompt-controlled aspect ratio** — `<res:portrait>` · `<res:square>` · `<res:wide>` in a prompt
+  or wildcard entry picks that aspect from the current resolution group for that image alone. The
+  directive is stripped before the prompt is sent, and it takes priority over random resolution
 - **Artist combos** — `{artist:group}` random / `{artist_loop:group}` sequential
 - **img2img & inpainting** with a built-in brush mask editor
 - **Enhance (upscaling)** — redraw a finished image larger, with the same `1x / 1.5x / Max` amounts
@@ -178,6 +215,33 @@ the OS keyring — never written to the settings file in plain text.
 ### Not available yet
 
 Precise Reference / Curated Inpainting / Vibe Transfer (not shipped by NovelAI for V5 yet).
+
+### Contributing
+
+**This repository is a published snapshot of a private development repository.** Each release copies
+`src/`, `MANUAL_KR.md` and `PATCHNOTES.md` from the private tree over whatever is here — one
+direction only, and nothing is ever read back. Only a few files (`README.md`, `LICENSE`) are owned by
+this repository.
+
+So **a pull request that changes code would disappear at the next release if it were merged here.**
+That is not a reason to hold one back — here is what happens instead:
+
+1. I port it into the private tree, keeping you as `Co-Authored-By` on the commit
+2. You are credited in the patch notes
+3. Once it ships, I close the original PR with a link — **it ends as "closed + credited" rather than
+   merged, which is not a rejection**
+
+For a worked example, see [#1, the prompt aspect-ratio directives](https://github.com/sagawa8b/NAI-Auto-Generator-V5/pull/1),
+shipping in v0.6.9.
+
+| What you have | Where it goes |
+|---|---|
+| A bug report or an idea | [Issues](https://github.com/sagawa8b/NAI-Auto-Generator-V5/issues) — always the most welcome form |
+| Code | A pull request, handled as above |
+| A README fix | A pull request; this file is owned here, so it merges normally |
+
+There are no tests in the published snapshot, so pull requests get no CI here. Describe what you
+checked and how, and I will run the equivalent against the private test suite.
 
 ### Credits & license
 
