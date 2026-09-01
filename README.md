@@ -35,9 +35,14 @@ NovelAI Diffusion **V5** 이미지 생성을 자동화하는 데스크톱 앱입
 - **🎲 와일드카드** — `__파일__` 랜덤 · `__=파일__` 공유 랜덤 · `##파일##` 순차 · `##파일*3##` 반복
 - **🖌 아티스트 조합** — `{artist:그룹}` 랜덤 / `{artist_loop:그룹}` 순차 치환
 - **🖼 i2i · 인페인팅** — 브러시 마스크 편집기 내장, 강도·노이즈 조절
+- **🔍 강화 업스케일(Enhance)** — 이미 만든 그림을 다시 그려 크게 만듭니다.
+  웹 UI와 같은 `1x / 1.5x / Max` 세 배율이고, Max는 서버가 상한(약 3.1MP)까지 키웁니다
+  (1024×1024 → 1773×1773). 원본 PNG에 남은 프롬프트·설정을 그대로 가져오고,
+  폴더를 통째로 골라 한 장씩 강화할 수도 있습니다
 - **🗂 결과 관리** — 갤러리 뷰, 프리셋, 파일명 템플릿,
   PNG를 창에 끌어다 놓으면 생성 정보를 읽어 설정 복원
-- **🤖 WD14 자동 태깅** — 이미지에서 태그 추출 (ONNX 모델은 직접 준비)
+- **🤖 WD14 자동 태깅** — 이미지에서 태그를 뽑아 프롬프트에 넣거나 클립보드로 복사합니다.
+  모델은 옵션 → 태그에서 고르고 **앱 안에서 바로 내려받습니다** (진행률 표시·취소 가능)
 - **📊 상태 표시** — V5 생성 크레딧 게이지 + Anlas 잔액
 - **🌏 4개 언어** — 한국어 / English / 日本語 / 中文, 재시작 없이 전환
 - **🔔 새 버전 확인** — 릴리스가 올라오면 앱이 알려 줍니다 (자동 확인은 끌 수 있음)
@@ -80,8 +85,9 @@ NovelAI 웹에서 발급한 **`pst-` 영구 API 토큰**을 입력합니다.
 |---|---|---|---|
 | `Ctrl+,` | 옵션 | `F2` | i2i 패널 |
 | `Ctrl+P` | 프리셋 | `F3` | 갤러리 |
-| `Ctrl+T` | WD14 자동 태깅 | `F11` | 결과 패널 접기 |
-| `Ctrl+L` | 로그 보기 | `Ctrl+R` | 레이아웃 초기화 |
+| `Ctrl+T` | WD14 자동 태깅 | `F4` | 강화 업스케일 패널 |
+| `Ctrl+L` | 로그 보기 | `F11` | 결과 패널 접기 |
+| `Ctrl+R` | 레이아웃 초기화 | | |
 
 ### 📁 파일 위치
 
@@ -96,13 +102,12 @@ Linux `~/.local/share/NAI-Auto-V5` · macOS `~/Library/Application Support/NAI-A
 | 와일드카드 | 데이터 폴더의 `wildcards/` (`.txt`, 한 줄에 하나) |
 | 프리셋 | 데이터 폴더의 `presets/` |
 | 아티스트 조합 | 데이터 폴더의 `artist_combos/` (`{"그룹": ["artist:aaa", ...]}` JSON) |
-| WD14 모델 | 데이터 폴더의 `wd14/` (`model.onnx`, `selected_tags.csv` — 직접 준비) |
+| WD14 모델 | 데이터 폴더의 `wd14/` (옵션 → 태그에서 폴더를 바꾸거나 모델을 내려받습니다) |
 | 로그 | OS 표준 로그 폴더 (도구 → 로그 보기에서 `폴더 열기`) |
 
 ### ⚠️ 아직 안 되는 것
 
 - **Precise Reference / Curated Inpainting / Vibe Transfer** — NovelAI가 V5로 아직 출시하지 않았습니다
-- **Image Enhance(업스케일)** — V4.5에 있던 기능, 아직 이식 전
 
 ### 🙏 크레딧
 
@@ -136,9 +141,13 @@ wildcards and prompt tooling that the web interface does not provide.
 - **Wildcards** — `__file__` random · `__=file__` shared random · `##file##` sequential · `##file*3##` repeat
 - **Artist combos** — `{artist:group}` random / `{artist_loop:group}` sequential
 - **img2img & inpainting** with a built-in brush mask editor
+- **Enhance (upscaling)** — redraw a finished image larger, with the same `1x / 1.5x / Max` amounts
+  as the web UI. Max lets the server upscale to the cap (~3.1 MP, e.g. 1024×1024 → 1773×1773).
+  Settings are taken from the source PNG, and a whole folder can be enhanced one image at a time
 - **Result tools** — gallery view, presets, filename templates, drag a PNG onto the window to
   restore its generation settings
-- **WD14 auto-tagging** (bring your own ONNX model)
+- **WD14 auto-tagging** — pull tags out of an image into the prompt or the clipboard; models are
+  chosen and **downloaded from inside the app** (Options → Tags), with progress and cancel
 - **Status bar** — V5 generation credit gauge and Anlas balance
 - **4 languages** — Korean / English / Japanese / Chinese, switchable at runtime
 - **Update check** — the app tells you when a new release is out (can be turned off)
@@ -168,8 +177,7 @@ the OS keyring — never written to the settings file in plain text.
 
 ### Not available yet
 
-Precise Reference / Curated Inpainting / Vibe Transfer (not shipped by NovelAI for V5 yet) and
-Image Enhance (upscaling, not ported from V4.5 yet).
+Precise Reference / Curated Inpainting / Vibe Transfer (not shipped by NovelAI for V5 yet).
 
 ### Credits & license
 
