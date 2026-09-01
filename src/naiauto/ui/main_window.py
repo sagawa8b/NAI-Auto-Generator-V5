@@ -50,6 +50,7 @@ from ..core.api.model_specs import MODEL_REGISTRY, ModelSpec, get_spec
 from ..core.api.models import CharacterCaption, GenerationRequest
 from ..core.api.subscription import OpusUsage
 from ..core.credit_estimator import CreditEstimator
+from ..core.enhance import apply_enhance, build_enhance_provider, unusable_sources
 from ..core.i18n.manager import I18nManager
 from ..core.logging_setup import configure_logging, crash_log_path, log_path
 from ..core.metadata.reuse import ReusableSettings
@@ -82,6 +83,7 @@ from .qt_bridge import QtEventBridge
 from .tag_completer_dropdown import TagCompleterDropdown
 from .widgets.character_prompts import CharacterPromptsWidget, CharacterSlot
 from .widgets.collapsible_section import CollapsibleSection, compose_ai_summary
+from .widgets.enhance_panel import EnhancePanel
 from .widgets.image_source import ImageSourceWidget
 from .widgets.prompt_tabs import PromptTabs
 from .widgets.resize_handle import ResizeHandle
@@ -287,6 +289,16 @@ class MainWindow(QMainWindow):
         self.image_source.setVisible(False)  # 보기 메뉴(F2)로 켠다
         left_layout.addWidget(self.image_source)
 
+        # Enhance(강화 업스케일) — i2i와 같은 img2img 경로를 쓰지만 크기·프롬프트를
+        # 배율에서 계산한다 (core/enhance.py). 둘 다 켜면 어느 쪽이 요청을 만드는지
+        # 알 수 없으므로 보기 메뉴에서 서로 배타로 묶는다.
+        self.enhance_panel = EnhancePanel(self._i18n)
+        self.enhance_panel.changed.connect(self._on_enhance_changed)
+        self.enhance_panel.source_loaded.connect(self._on_enhance_source_loaded)
+        self.enhance_panel.folder_requested.connect(self._on_enhance_folder)
+        self.enhance_panel.setVisible(False)  # 보기 메뉴(F4)로 켠다
+        left_layout.addWidget(self.enhance_panel)
+
         self._wire_sections()
 
         # 스크롤하다 커서가 지나가는 것만으로 값이 바뀌지 않게 한다
@@ -383,6 +395,13 @@ class MainWindow(QMainWindow):
         self.image_source_action.setCheckable(True)
         self.image_source_action.setShortcut("F2")
         self.image_source_action.toggled.connect(self.image_source.set_active)
+        self.image_source_action.toggled.connect(self._on_image_source_toggled)
+
+        self.enhance_action = self.view_menu.addAction("")
+        self.enhance_action.setCheckable(True)
+        self.enhance_action.setShortcut("F4")
+        self.enhance_action.toggled.connect(self.enhance_panel.set_active)
+        self.enhance_action.toggled.connect(self._on_enhance_toggled)
 
         # M3: Gallery View action
         self.view_menu.addSeparator()
@@ -864,10 +883,20 @@ class MainWindow(QMainWindow):
         self.ai_section.set_expanded(False)
 
     def target_size(self) -> tuple[int, int]:
-        """실제로 생성될 크기 — i2i/인페인팅이면 원본 이미지 크기를 따른다."""
-        if self.image_source.size is not None:
-            return self.image_source.size
-        return self.resolution_panel.size()
+        """실제로 생성될 크기 — i2i/인페인팅/강화면 원본 이미지가 정한다."""
+        locked = self.locked_size()
+        return locked if locked is not None else self.resolution_panel.size()
+
+    def locked_size(self) -> tuple[int, int] | None:
+        """해상도 입력을 잠그는 크기 — 원본 이미지가 크기를 정하는 경우에만 값이 있다.
+
+        강화는 배율에 따라 원본보다 큰 해상도에서 확산이 돌 수 있으므로(1.5x),
+        원본 크기가 아니라 계획의 확산 크기를 쓴다.
+        """
+        enhance_size = self.enhance_panel.diffusion_size()
+        if enhance_size is not None:
+            return enhance_size
+        return self.image_source.size
 
     def _sync_position_aspect(self) -> None:
         """캐릭터 위치 캔버스를 생성 해상도 비율로 맞춘다."""
@@ -918,10 +947,38 @@ class MainWindow(QMainWindow):
         생성 크기는 원본 이미지 크기를 따르므로(`target_size`), 패널이 그 사실을 문구로
         알리고 입력란을 비활성화한다.
         """
-        size = self.image_source.size
+        self._refresh_resolution_lock()
+
+    def _refresh_resolution_lock(self) -> None:
+        """원본 이미지가 크기를 정하고 있으면 해상도 입력을 잠근다 (Req 10.13)."""
+        size = self.locked_size()
         self.resolution_panel.set_source_locked(size is not None, size)
         self._sync_position_aspect()
         self._push_live_resolution()
+
+    def _on_enhance_changed(self) -> None:
+        """강화 원본·배율이 바뀌면 잠긴 해상도 표시를 다시 맞춘다."""
+        self._refresh_resolution_lock()
+
+    def _on_image_source_toggled(self, on: bool) -> None:
+        """i2i와 강화는 둘 다 img2img 요청을 만든다 — 한 번에 하나만 켠다."""
+        if on and self.enhance_action.isChecked():
+            self.enhance_action.setChecked(False)
+
+    def _on_enhance_toggled(self, on: bool) -> None:
+        if on and self.image_source_action.isChecked():
+            self.image_source_action.setChecked(False)
+
+    def _on_enhance_source_loaded(self) -> None:
+        """강화 원본을 불러왔다 — 그 그림의 생성 설정을 위젯에 그대로 얹는다.
+
+        시드는 빼고 적용한다: 웹 UI도 강화할 때마다 새 시드를 쓰고(원본/1.5x/Max
+        캡처의 시드가 전부 다르다), 고정 시드로 남으면 연속 생성이 막힌다.
+        """
+        settings = self.enhance_panel.metadata_settings
+        if not self.enhance_panel.use_metadata or settings is None:
+            return
+        self.apply_reusable(dataclasses.replace(settings, seed=None))
 
     def _push_live_resolution(self) -> None:
         """배치 진행 중이면 해상도 변경을 다음 이미지부터 반영한다 (진행 중인 이미지는 그대로).
@@ -931,7 +988,7 @@ class MainWindow(QMainWindow):
         if not self._service.is_running:
             return
         size = self.target_size()
-        choices = () if self.image_source.size is not None else self.resolution_panel.aspect_random_choices()
+        choices = () if self.locked_size() is not None else self.resolution_panel.aspect_random_choices()
         self._service.set_live_resolution(size[0], size[1], choices)
 
     def _push_live_prompt(self) -> None:
@@ -949,6 +1006,9 @@ class MainWindow(QMainWindow):
         preset_uc = spec.uc_presets.get(uc_key, "")
         user_uc = self.negative_edit.toPlainText().strip()
         negative = ", ".join(part for part in (preset_uc, user_uc) if part)
+        plan = self.enhance_panel.plan()
+        if plan is not None and self.enhance_panel.image_bytes is not None:
+            prompt += plan.prompt_suffix  # build_job과 같은 조합 규칙을 유지한다
         self._service.set_live_prompt(
             prompt, negative, self.character_prompts.captions(), self.character_prompts.use_coords()
         )
@@ -978,6 +1038,10 @@ class MainWindow(QMainWindow):
         self.image_source.draw_mask_button.setEnabled(
             "inpaint" in spec.supports and self.image_source.image_bytes is not None
         )
+        self.enhance_panel.setEnabled(supports_i2i)
+        self.enhance_action.setEnabled(supports_i2i)
+        if not supports_i2i:
+            self.enhance_action.setChecked(False)
         defaults = spec.defaults
         self.sampler_combo.setCurrentText(str(defaults.get("sampler", "")))
         self.scheduler_combo.setCurrentText(str(defaults.get("scheduler", "")))
@@ -1014,6 +1078,7 @@ class MainWindow(QMainWindow):
         self.image_source_action.setChecked(
             self._settings.show_image_source and self.image_source_action.isEnabled()
         )
+        self.enhance_action.setChecked(self._settings.show_enhance and self.enhance_action.isEnabled())
         self.measure_credit_action.setChecked(self._settings.measure_credit)
         self._apply_prompts()
         self._apply_prompt_font()
@@ -1082,6 +1147,7 @@ class MainWindow(QMainWindow):
         s.batch.delay_seconds = self.delay_spin.value()
         s.batch.random_resolution = self.random_resolution_check.isChecked()
         s.show_image_source = self.image_source_action.isChecked()
+        s.show_enhance = self.enhance_action.isChecked()
         s.measure_credit = self.measure_credit_action.isChecked()
         p = s.prompts
         p.prompt = self.prompt_edit.toPlainText()
@@ -1142,6 +1208,7 @@ class MainWindow(QMainWindow):
         self.image_source_action.setChecked(  # Req 6.3 (토글이 패널 표시까지 맞춘다)
             s.show_image_source and self.image_source_action.isEnabled()
         )
+        self.enhance_action.setChecked(s.show_enhance and self.enhance_action.isEnabled())
         self.measure_credit_action.setChecked(s.measure_credit)  # Req 8.8
         self._refresh_tag_completer()  # Req 7.3
         self._apply_prompt_font()
@@ -1398,8 +1465,13 @@ class MainWindow(QMainWindow):
 
     # ── 잡 빌드/실행 ─────────────────────────────────────
 
-    def build_job(self, count: int) -> GenerationJob:
-        """위젯 상태를 불변 잡으로 스냅숏. 여기 이후 워커는 위젯을 안 본다."""
+    def build_job(self, count: int, *, enhance: bool = True) -> GenerationJob:
+        """위젯 상태를 불변 잡으로 스냅숏. 여기 이후 워커는 위젯을 안 본다.
+
+        `enhance=False`는 폴더 강화용이다 — 거기서는 패널이 들고 있는 한 장이 아니라
+        대기열의 각 이미지로 요청을 만들므로, 기본 요청에 강화를 미리 얹으면 안 된다
+        (프롬프트 꼬리가 두 번 붙는다).
+        """
         spec = self.current_spec()
         prompt = self.prompt_edit.toPlainText().strip()
         if self.quality_check.isChecked():
@@ -1414,7 +1486,7 @@ class MainWindow(QMainWindow):
         randomize = self.seed_random_check.isChecked()
         # i2i/인페인팅으로 해상도가 잠겨 있으면 랜덤 해상도는 원본 크기를 덮어쓰면 안 되므로 끈다.
         resolution_choices = (
-            self.resolution_panel.aspect_random_choices() if self.image_source.size is None else ()
+            self.resolution_panel.aspect_random_choices() if self.locked_size() is None else ()
         )
         randomize_resolution = self.random_resolution_check.isChecked() and len(resolution_choices) >= 2
         request = GenerationRequest(
@@ -1431,6 +1503,9 @@ class MainWindow(QMainWindow):
             scheduler=self.scheduler_combo.currentText(),
             model=spec.key,
             uc_preset_id=uc_key,
+            # 품질 태그를 프롬프트에 붙이지 않으면 프리셋 식별자도 none이다 (웹 UI와 동일:
+            # 강화 요청 캡처는 qualityPresetId="none" / tag_hint_qt=0 이었다).
+            quality_preset_id="standard" if self.quality_check.isChecked() else "none",
             characters=self.character_prompts.captions(),
             use_coords=self.character_prompts.use_coords(),
             image=self.image_source.image_bytes,
@@ -1439,6 +1514,8 @@ class MainWindow(QMainWindow):
             noise=self.image_source.noise,
             add_original_image=self.image_source.add_original_image,
         )
+        if enhance:
+            request = self._with_enhance(request)
         return GenerationJob(
             request=request,
             count=count,
@@ -1453,6 +1530,63 @@ class MainWindow(QMainWindow):
             randomize_resolution=randomize_resolution,
             resolution_choices=resolution_choices,
         )
+
+    def _with_enhance(self, request: GenerationRequest) -> GenerationRequest:
+        """강화 패널이 원본을 들고 있으면 t2i 요청을 강화(i2i) 요청으로 바꾼다.
+
+        크기·프롬프트 꼬리·서버 업스케일 요청은 전부 `core/enhance.py`가 정한다.
+        """
+        plan = self.enhance_panel.plan()
+        image = self.enhance_panel.image_bytes
+        if plan is None or image is None:
+            return request
+        return apply_enhance(
+            request,
+            image=image,
+            plan=plan,
+            strength=self.enhance_panel.strength,
+            noise=self.enhance_panel.noise,
+        )
+
+    def _on_enhance_folder(self) -> None:
+        """폴더 대기열의 이미지를 한 장씩 강화한다 (V4.5의 벌크 강화).
+
+        이미지마다 크기도 프롬프트도 다르므로 하나의 요청을 반복할 수 없다 —
+        `GenerationJob.request_provider`로 장마다 요청을 새로 만든다.
+        """
+        tr = self._i18n.get_text
+        sources = self.enhance_panel.sources
+        if not sources:
+            QMessageBox.information(self, tr("errors.warning"), tr("enhance.folder_none"))
+            return
+
+        # 시작 전에 거른다 — 배율을 못 쓰는 크기가 섞여 있으면 Anlas를 쓰다 중간에 멈춘다.
+        amount = self.enhance_panel.amount
+        blocked = unusable_sources(sources, amount)
+        if blocked:
+            QMessageBox.warning(
+                self,
+                tr("errors.warning"),
+                tr("enhance.folder_blocked", len(blocked), len(sources), amount),
+            )
+            return
+
+        job = self.build_job(count=len(sources), enhance=False)
+        provider = build_enhance_provider(
+            job.request,  # 패널이 들고 있는 한 장이 아니라 대기열의 각 이미지로 강화한다
+            sources,
+            amount=self.enhance_panel.amount,
+            strength=self.enhance_panel.strength,
+            noise=self.enhance_panel.noise,
+            use_metadata=self.enhance_panel.use_metadata,
+        )
+        job = dataclasses.replace(
+            job,
+            request_provider=provider,
+            randomize_resolution=False,
+            resolution_choices=(),
+        )
+        self._start_job(job)
 
     def _on_generate_once(self) -> None:
         self._start_job(self.build_job(count=1))
@@ -1592,6 +1726,7 @@ class MainWindow(QMainWindow):
         self.once_button.setEnabled(can_start)
         self.auto_button.setEnabled(can_start)
         self.by_settings_button.setEnabled(can_start)
+        self.enhance_panel.set_busy(not can_start)
         self.stop_button.setEnabled(self._is_running)
         self._refresh_quick_buttons()
 
@@ -1617,6 +1752,7 @@ class MainWindow(QMainWindow):
             # 저장 위치를 바로 확인할 수 있게 파일명 표시 + 전체 경로 툴팁
             self.status_label.setToolTip(event.path)
             self.preview_label.setToolTip(event.path)
+            self.enhance_panel.set_last_result(event.path)  # "최근 결과" 버튼이 쓴다
             # M3: Gallery — 새 이미지 자동 추가
             if self._gallery_view is not None:
                 self._gallery_view.append_image(event.path)
@@ -1858,6 +1994,7 @@ class MainWindow(QMainWindow):
         self.stop_button.setText(tr("generate.stop"))
         self.character_prompts.retranslate()
         self.image_source.retranslate()
+        self.enhance_panel.retranslate()
         self.file_menu.setTitle(tr("menu.file"))
         self.login_action.setText(tr("menu.login"))
         self.accounts_action.setText(tr("menu.accounts"))
@@ -1872,6 +2009,7 @@ class MainWindow(QMainWindow):
         self.result_panel_action.setText(tr("menu.toggle_panel"))
         self.reset_layout_action.setText(tr("menu.reset_layout"))
         self.image_source_action.setText(tr("image_source.menu"))
+        self.enhance_action.setText(tr("enhance.menu"))
         self.tools_menu.setTitle(tr("menu.tools"))
         self.log_action.setText(tr("logs.menu"))
         self.measure_credit_action.setText(tr("logs.measure_credit"))

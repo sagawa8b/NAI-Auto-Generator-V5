@@ -9,6 +9,7 @@
     python -m naiauto.smoke --dry-run        # 네트워크 없이 payload만 출력
     python -m naiauto.smoke --image in.png                    # i2i
     python -m naiauto.smoke --image in.png --mask mask.png    # 인페인팅
+    python -m naiauto.smoke --image in.png --enhance max      # 강화 (1x / 1.5x / max)
 
 i2i/인페인팅은 이미지를 multipart 파트로 보낸다 (2026-08-21 실서버 확인):
 parameters.image/mask에는 파트 "이름"이 들어가고 바이트는 별도 파트로
@@ -22,11 +23,15 @@ NovelAI 웹 → User Settings → Account → "Get Persistent API Token" (pst-..
   2. V5 multipart 생성 요청이 recaptcha_token 없이 수락되는지
   3. 저장된 PNG에 NAI tEXt 메타데이터가 보존되는지 (verbatim 저장 검증)
   4. --verbose 시 응답 헤더 전체 로그 (신규 rate-limit 헤더 관찰)
+  5. --enhance: 강화 요청이 수락되는지 + 결과 크기가 우리 예측과 맞는지
+     (Max는 서버가 크기를 정하므로, 결과 PNG의 upscaled_width/height를
+      `core/enhance.py`의 예측값과 대조해 출력한다)
 """
 
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import getpass
 import io
 import json
@@ -51,7 +56,16 @@ from .core.api.model_specs import MODEL_REGISTRY, get_spec
 from .core.api.models import GenerationRequest
 from .core.api.session import NAISession
 from .core.api.subscription import parse_anlas, redact, unknown_keys
+from .core.enhance import (
+    DEFAULT_NOISE,
+    DEFAULT_STRENGTH,
+    UPSCALE_AMOUNTS,
+    apply_enhance,
+    available_amounts,
+    plan_enhance,
+)
 from .core.metadata.naiinfo import read_metadata
+from .core.metadata.reuse import apply_to_request, extract_reusable
 from .core.metadata.save import save_raw_png
 
 DEFAULT_PROMPT = "1girl, solo, looking at viewer, outdoors, rating:general"
@@ -77,7 +91,11 @@ def build_request(args: argparse.Namespace) -> GenerationRequest:
         with Image.open(io.BytesIO(image)) as img:
             width, height = img.size
 
-    return GenerationRequest(
+    strength = args.strength
+    if strength is None:
+        strength = DEFAULT_STRENGTH if args.enhance else 0.7
+
+    request = GenerationRequest(
         action=action,
         prompt=args.prompt + spec.quality_tags,
         negative_prompt=spec.uc_presets.get("heavy", ""),
@@ -92,8 +110,73 @@ def build_request(args: argparse.Namespace) -> GenerationRequest:
         scheduler=defaults.get("scheduler", "native"),
         image=image,
         mask=mask,
-        strength=args.strength,
+        strength=strength,
     )
+
+    if not args.enhance:
+        return request
+
+    if image is None:
+        raise SystemExit("--enhance 는 --image 가 필요합니다 (강화할 원본).")
+
+    # 앱과 같은 경로: 원본 PNG에 생성 설정이 남아 있으면 그대로 쓰되 시드는 새로 뽑는다.
+    metadata = read_metadata(Path(args.image))
+    reusable = extract_reusable(metadata)
+    if not reusable.is_empty:
+        request = apply_to_request(request, dataclasses.replace(reusable, seed=None))
+        print(f"  원본 메타데이터 적용: prompt={request.prompt[:40]!r}... steps={request.steps}")
+
+    return apply_enhance(
+        request,
+        image=image,
+        plan=plan_enhance((width, height), args.enhance),
+        strength=strength,
+        noise=args.noise,
+    )
+
+
+def _source_size(path: str) -> tuple[int, int]:
+    with Image.open(path) as img:
+        return img.size
+
+
+def _print_enhance_plan(args: argparse.Namespace) -> None:
+    """보내기 전에 계획을 보여 준다 — 웹 UI와 눈으로 대조할 수 있게."""
+    source = _source_size(args.image)
+    allowed = available_amounts(source)
+    if args.enhance not in allowed:
+        print(f"⚠ {args.enhance}는 {source[0]}x{source[1]}에서 쓸 수 없습니다 (가능: {', '.join(allowed)})")
+    plan = plan_enhance(source, args.enhance)
+    line = f"  강화 계획: {plan.amount} — 확산 {plan.diffusion_size[0]}x{plan.diffusion_size[1]}"
+    if plan.server_upscale:
+        predicted = plan.predicted_upscaled_size
+        line += f", 서버 업스케일 요청 (예측 {predicted[0]}x{predicted[1]})"
+    print(line)
+
+
+def _report_enhance_result(args: argparse.Namespace, path: Path) -> None:
+    """결과 크기가 예측과 맞는지 대조한다 — Max는 서버가 크기를 정하므로 이게 검증이다."""
+    plan = plan_enhance(_source_size(args.image), args.enhance)
+    with Image.open(path) as img:
+        actual = img.size
+    print(f"  결과 PNG 크기: {actual[0]}x{actual[1]}")
+
+    comment = (read_metadata(path) or {}).get("comment") or {}
+    reported = (comment.get("upscaled_width"), comment.get("upscaled_height"))
+    if not plan.server_upscale:
+        if comment.get("upscaled_enhance"):
+            print("⚠ 서버 업스케일을 요청하지 않았는데 메타데이터에 upscaled_enhance가 있습니다")
+        return
+    if None in reported:
+        print("⚠ Max로 보냈는데 결과 메타데이터에 upscaled_width/height가 없습니다 — 스펙 변화 가능성")
+        return
+    predicted = plan.predicted_upscaled_size
+    verdict = (
+        "✔ 예측과 일치" if tuple(reported) == predicted else f"✘ 예측 {predicted[0]}x{predicted[1]}과 불일치"
+    )
+    print(f"  메타데이터의 upscaled 크기: {reported[0]}x{reported[1]} — {verdict}")
+    if tuple(reported) != predicted:
+        print("    이 두 값을 알려 주시면 core/enhance.py의 상한 계산을 고칩니다.")
 
 
 def resolve_token(args: argparse.Namespace) -> str:
@@ -120,7 +203,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--mask", default=None, help="인페인팅 마스크 PNG (지정 시 action=infill, --image 필수)"
     )
-    parser.add_argument("--strength", type=float, default=0.7, help="i2i/인페인팅 디노이즈 강도")
+    parser.add_argument(
+        "--strength",
+        type=float,
+        default=None,
+        help="디노이즈 강도 (기본: i2i/인페인팅 0.7, --enhance 0.5)",
+    )
+    parser.add_argument("--noise", type=float, default=DEFAULT_NOISE, help="--enhance 의 노이즈")
+    parser.add_argument(
+        "--enhance",
+        choices=UPSCALE_AMOUNTS,
+        default=None,
+        help="강화 업스케일 배율 (--image 필요). 크기·프롬프트는 core/enhance.py가 정한다",
+    )
     parser.add_argument("--out", type=Path, default=Path("./smoke_out"), help="저장 폴더")
     parser.add_argument("--anlas-only", action="store_true", help="로그인+Anlas 조회만")
     parser.add_argument(
@@ -177,6 +272,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     req = build_request(args)
+    if args.enhance:
+        _print_enhance_plan(args)
     print(f"→ {spec.api_name} 생성 요청 중... (seed={req.seed}, {req.width}x{req.height}, steps={req.steps})")
 
     try:
@@ -205,6 +302,9 @@ def main(argv: list[str] | None = None) -> int:
 
     path = save_raw_png(result.raw_bytes, args.out, context={"seed": req.seed, "model": spec.key})
     print(f"✔ 생성 성공 — 저장: {path} ({len(result.raw_bytes):,} bytes)")
+
+    if args.enhance:
+        _report_enhance_result(args, path)
 
     meta = read_metadata(path)
     if meta and meta.get("origin") == "text_chunk":

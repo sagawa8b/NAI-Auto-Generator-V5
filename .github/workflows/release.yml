@@ -62,12 +62,22 @@ jobs:
       # sys.stdout이 없어 print가 사라지고 셸이 종료를 기다리지 못해, 출력도 종료
       # 코드도 얻지 못한 채 멈췄다 (러너에서 3분 타임아웃으로 확인). spec이 같은
       # 번들을 가리키는 콘솔 exe를 함께 만들고, 검증 후 압축 전에 지운다.
-      - name: 셀프테스트 (리소스 · keyring 백엔드)
+      - name: 셀프테스트 (리소스 · keyring 백엔드 · WD14)
         shell: bash
         timeout-minutes: 3
         run: |
-          output=$(./dist/NAI-Auto-V5/NAI-Auto-V5-selftest.exe --selftest)
+          # 실패해도 출력을 반드시 남긴다. `set -e` 아래에서 `output=$(...)`가 실패하면
+          # 그 자리에서 셸이 끝나 뒤따르는 echo가 실행되지 않았고, 로그에는 "exit code 1"만
+          # 남아 무엇이 빠졌는지 알 수 없었다 (v0.6.7 릴리스 시도에서 겪음).
+          set +e
+          output=$(./dist/NAI-Auto-V5/NAI-Auto-V5-selftest.exe --selftest 2>&1)
+          status=$?
+          set -e
           echo "$output"
+          if [ $status -ne 0 ]; then
+            echo "::error::셀프테스트 실패 (종료 코드 $status) — 위 selftest FAIL 줄이 원인이다"
+            exit 1
+          fi
           grep -q "selftest OK" <<<"$output"
 
       # 창을 실제로 세워 본다. --selftest는 리소스만 보므로, 시작하다 죽는 실수를
@@ -76,8 +86,15 @@ jobs:
         shell: bash
         timeout-minutes: 3
         run: |
-          output=$(./dist/NAI-Auto-V5/NAI-Auto-V5-selftest.exe --smoketest)
+          set +e
+          output=$(./dist/NAI-Auto-V5/NAI-Auto-V5-selftest.exe --smoketest 2>&1)
+          status=$?
+          set -e
           echo "$output"
+          if [ $status -ne 0 ]; then
+            echo "::error::스모크테스트 실패 (종료 코드 $status) — 위 smoketest FAIL 줄이 원인이다"
+            exit 1
+          fi
           grep -q "smoketest OK" <<<"$output"
 
       - name: 셀프테스트 실행 파일 제거 (배포본에는 넣지 않는다)

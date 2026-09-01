@@ -3,6 +3,7 @@
 근거 캡처 (spec/v5/captures/):
   - v5_t2i_single_character.sanitized.json — t2i
   - v5_infill.sanitized.json               — 인페인팅(action=infill)
+  - v5_enhance_max_webui.sanitized.json    — 강화 Max (action=img2img, 2026-08-31)
 
 V4 대비 확인된 변화:
   - 전송 형식: application/json → **multipart/form-data** ("request"라는 이름의
@@ -12,9 +13,16 @@ V4 대비 확인된 변화:
     (enabled 포함, API payload에 직접 등장), straight_alpha, tag_hint_qt,
     tag_hint_uc_preset, image_format
   - autoSmea가 false로 (V4는 true), use_coords가 true로
-  - t2i에서는 extra_noise_seed가 빠졌다 (i2i/infill에는 있음)
+  - t2i에서는 extra_noise_seed가 빠졌다. i2i/infill에는 있고 값은 **seed - 1**이다
+    (캡처 3건 전부 일치)
   - v4_prompt / v4_negative_prompt 구조는 이름 그대로 유지
   - 인페인팅 모델명: "nai-diffusion-5-full-inpainting" (V4와 같은 접미사 규칙)
+  - Enhance(강화)에 서버 업스케일이 생겼다: i2i에 `upscaled_enhance: true` (웹 UI의
+    "Max" 배율). **크기는 보내지 않는다** — 서버가 정해 결과 메타데이터에만 남긴다.
+    크기 규칙과 근거는 core/enhance.py 참고.
+  - img2img에만 있는 키: color_correct(false), inpaintImg2ImgStrength(0.01 —
+    인페인팅 캡처 2건은 1이었다).
+  - qualityPresetId를 따라 tag_hint_qt가 1(standard) / 0(none)으로 움직인다
   - 웹 UI wrapper에는 use_new_shared_trial / recaptcha_token이 있으나
     (무료 티어 웹 세션용) 여기서는 보내지 않는다 — 2026-08-21 실토큰
     스모크로 pst- 경로에서는 불필요함이 확인되었다.
@@ -122,10 +130,22 @@ def build_payload_v5(req: GenerationRequest, spec: ModelSpec) -> dict:
         # base64가 아니라 multipart 파트 "이름" — 모듈 docstring 참조
         params["image"] = IMAGE_PART
         params["strength"] = req.strength
-        params["extra_noise_seed"] = req.seed
+        # 캡처 3건(인페인팅 2 + 강화 1)이 모두 seed - 1이다. 규칙이 확정되기 전에는
+        # V4처럼 seed를 그대로 보냈지만, 이제 요청 캡처로 확인되어 웹 UI를 따른다.
+        params["extra_noise_seed"] = req.seed - 1
 
     if req.action == "img2img":
         params["noise"] = req.noise
+        params["color_correct"] = False
+        # 웹 UI의 img2img 요청은 이 값을 0.01로 보낸다 (인페인팅 캡처 2건은 1이었다).
+        # 이름대로라면 인페인팅용 값이라 img2img에서는 무시될 것 같지만, 캡처가 있는
+        # 액션은 그 캡처를 따른다.
+        params["inpaintImg2ImgStrength"] = 0.01
+        if req.upscaled_enhance:
+            # Enhance "Max" — 확산은 width×height에서 돌고, 서버가 결과를 최대 크기까지
+            # 키운다. **크기는 보내지 않는다**: 요청 캡처에 이 불리언 하나뿐이고,
+            # upscaled_width/height는 서버가 정해 결과 메타데이터에만 남긴다.
+            params["upscaled_enhance"] = True
     elif req.action == "infill":
         if req.mask is None:
             raise ValueError("infill requires 'mask'")
@@ -206,7 +226,7 @@ def _build_base_parameters(req: GenerationRequest, spec: ModelSpec) -> dict:
         "seed": req.seed,
         "characterPrompts": char_prompts,
         "straight_alpha": True,
-        "tag_hint_qt": 1,
+        "tag_hint_qt": 1 if req.quality_preset_id == "standard" else 0,
         "tag_hint_uc_preset": _UC_PRESET_TAG_HINT.get(req.uc_preset_id, 2),
         "v4_prompt": {
             "caption": {"base_caption": req.prompt, "char_captions": char_captions},

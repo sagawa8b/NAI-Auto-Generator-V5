@@ -7,10 +7,10 @@ naiinfo.read_metadata()의 관대한 dict를 UI가 그대로 적용할 수 있�
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
-from ..api.models import CharacterCaption
+from ..api.models import CharacterCaption, GenerationRequest
 
 
 @dataclass(frozen=True)
@@ -165,3 +165,43 @@ def extract_reusable(metadata: dict | None) -> ReusableSettings:
         height=_as_int(comment.get("height")),
         characters=_characters(comment),
     )
+
+
+def apply_to_request(request: GenerationRequest, settings: ReusableSettings) -> GenerationRequest:
+    """복원한 설정을 요청에 얹는다 — None인 필드는 요청의 현재 값을 그대로 둔다.
+
+    `apply_reusable()`(메인 윈도우)의 Qt-free 짝. 위젯을 거치지 않고 요청을 만들어야
+    하는 곳(폴더 강화처럼 이미지마다 설정이 다른 배치)이 쓴다.
+
+    부정 프롬프트는 **원문 그대로** 덮어쓴다. 메타데이터의 uc에는 UC 프리셋 텍스트가
+    이미 합성되어 있어서, 앞에 프리셋을 또 붙이면 같은 문장이 두 번 들어간다.
+
+    같은 이유로 프리셋 **식별자**도 "none"으로 내린다. 프리셋 텍스트가 이미 프롬프트
+    안에 있는데 `ucPresetId`/`qualityPresetId`로 또 알리면 서버에 두 번 말하는 셈이고,
+    웹 UI도 강화 요청에서 둘 다 "none"으로 보낸다
+    (`spec/v5/captures/v5_enhance_*_webui.sanitized.json`). 위젯 경로의
+    `apply_reusable()`도 UC 콤보를 none으로, 품질 태그 체크를 해제한다.
+    """
+    changes: dict[str, object] = {}
+    for field_name, value in (
+        ("prompt", settings.prompt),
+        ("negative_prompt", settings.negative_prompt),
+        ("seed", settings.seed),
+        ("steps", settings.steps),
+        ("cfg_scale", settings.cfg_scale),
+        ("cfg_rescale", settings.cfg_rescale),
+        ("sampler", settings.sampler),
+        ("scheduler", settings.scheduler),
+    ):
+        if value is not None:
+            changes[field_name] = value
+    if settings.width and settings.height:
+        changes["width"] = settings.width
+        changes["height"] = settings.height
+    if settings.negative_prompt is not None:
+        changes["uc_preset_id"] = "none"
+    if settings.prompt is not None:
+        changes["quality_preset_id"] = "none"
+    if settings.characters:
+        changes["characters"] = settings.characters
+    return replace(request, **changes)

@@ -17,6 +17,7 @@ onefile은 만들지 않는다 — 실행할 때마다 100MB대를 임시 폴더
 백신 오탐도 잦다.
 """
 
+import importlib.util
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all
@@ -26,10 +27,23 @@ PROJECT_DIR = SPEC_DIR.parent
 PACKAGE_DIR = PROJECT_DIR / "src" / "naiauto"
 APP_NAME = "NAI-Auto-V5"
 
+# 런타임 의존성이 빌드 환경에 없으면 PyInstaller는 경고만 남기고 그대로 빌드한다.
+# 그러면 WD14가 빠진 배포본이 조용히 만들어져, 릴리스 검증(--selftest)에서야 드러난다.
+# 실제로 v0.6.7 릴리스에서 공개 저장소의 pyproject.toml에 onnxruntime이 없어 이 일이
+# 벌어졌다 — 빌드하는 자리에서 바로 멈추게 한다.
+_MISSING = [name for name in ("onnxruntime", "numpy") if importlib.util.find_spec(name) is None]
+if _MISSING:
+    raise SystemExit(
+        f"빌드 환경에 {', '.join(_MISSING)} 가 없습니다. WD14 자동 태깅이 빠진 배포본이 "
+        "만들어지므로 여기서 멈춥니다 — `pip install .` 로 런타임 의존성을 먼저 설치하세요."
+    )
+
 keyring_datas, keyring_binaries, keyring_hiddenimports = collect_all("keyring")
 # onnxruntime은 순수 파이썬이 아니다 — capi의 DLL이 함께 들어가야 import가 된다.
 # 빠지면 WD14 자동 태깅만 조용히 "모델을 쓸 수 없음"으로 보인다.
 onnx_datas, onnx_binaries, onnx_hiddenimports = collect_all("onnxruntime")
+if not onnx_binaries:
+    raise SystemExit("onnxruntime의 라이브러리를 수집하지 못했습니다 — 번들이 WD14를 쓸 수 없습니다.")
 
 datas = [
     # (원본, 번들 안 위치) — 앱이 naiauto/resources/... 로 찾는다

@@ -102,6 +102,7 @@ OWNED_FIELDS: tuple[str, ...] = (
     "debug_headers",
     "debug_logging",
     "show_image_source",
+    "show_enhance",
     "check_updates_on_start",
     "measure_credit",
     "batch.count",

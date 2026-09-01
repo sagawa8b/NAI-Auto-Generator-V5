@@ -82,6 +82,12 @@ class GenerationRequest:
     strength: float = 0.5
     noise: float = 0.05
     mask: bytes | None = None
+    #: V5 Enhance의 "Max" 배율 — 확산은 width×height에서 돌고, 그 결과를 **서버가** 최대
+    #: 크기까지 키운다 (payload의 `upscaled_enhance`). 크기는 보내지 않는다: 웹 UI 요청
+    #: 캡처에도 이 불리언 하나뿐이고, 결과 크기는 서버가 정해 메타데이터에만 남긴다
+    #: (`spec/v5/captures/v5_enhance_max_webui.sanitized.json`).
+    #: i2i에서만 의미가 있다. 크기 규칙과 근거는 core/enhance.py 참고.
+    upscaled_enhance: bool = False
     #: 인페인팅에서 마스크 **밖**을 원본 픽셀로 덮어쓸지 (NAI 웹UI의 "Overlay Original Image").
     #: 기본 False — 캡처 2건 모두 웹UI가 false로 보냈다 (`spec/v5/captures/`). true로 켜면
     #: 마스크 밖이 완전히 보존되는 대신, 생성된 안쪽과 만나는 경계가 이음선으로 드러난다.

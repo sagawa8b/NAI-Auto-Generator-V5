@@ -74,6 +74,11 @@ class GenerationJob:
     measure_credit: bool = False  # 매 장 후 V5 크레딧/Anlas를 로그에 기록 (요청 1회 추가)
     randomize_resolution: bool = False  # True: 매 장 resolution_choices 중 하나로 해상도 변경
     resolution_choices: tuple[tuple[int, int], ...] = ()  # Aspect별 대표 해상도 (2개 미만이면 무시)
+    #: 장마다 요청 자체가 다른 배치(폴더 강화)용 — index(1부터)를 받아 그 장의 요청을 돌려준다.
+    #: 있으면 `request`는 쓰이지 않고, 크기·프롬프트 라이브 오버라이드와 랜덤 해상도도 꺼진다
+    #: (이미지마다 크기와 프롬프트가 다르므로 하나의 값으로 덮으면 안 된다).
+    #: 워커 스레드에서 불리므로 위젯을 만지지 않는 순수 함수여야 한다.
+    request_provider: Callable[[int], GenerationRequest] | None = None
 
 
 class GenerationService:
@@ -229,14 +234,15 @@ class GenerationService:
         index = 0
         try:
             # 고정 시드 + 연속 생성 = 같은 이미지 반복. 시작 전에 막는다.
-            if not job.randomize_seed and job.count != 1:
+            # (장마다 원본이 다른 폴더 강화는 시드가 같아도 같은 그림이 나오지 않는다.)
+            if not job.randomize_seed and job.count != 1 and job.request_provider is None:
                 raise FixedSeedBatchError("batch generation requires a random seed")
             while job.count == 0 or index < job.count:
                 if self._stop.is_set():
                     raise _StopRequested
                 index += 1
 
-                req = self._prepare_request(job)
+                req = self._prepare_request(job, index)
                 self._emit(ImageStarted(index=index, seed=req.seed, prompt=req.prompt))
 
                 result = self._generate_with_policy(req, index)
@@ -341,11 +347,14 @@ class GenerationService:
             deltas,
         )
 
-    def _prepare_request(self, job: GenerationJob) -> GenerationRequest:
+    def _prepare_request(self, job: GenerationJob, index: int = 1) -> GenerationRequest:
         """이미지 1장분 불변 요청 파생: 와일드카드 1사이클 + 아티스트 콤보 1사이클 + 시드 결정."""
-        req = job.request
+        per_image = job.request_provider is not None
+        req = job.request_provider(index) if per_image else job.request
         with self._live_prompt_lock:
             live_prompt = self._live_prompt
+        if per_image:
+            live_prompt = None  # 장마다 프롬프트가 다르다 — 하나의 값으로 덮으면 안 된다
         if live_prompt is not None:
             prompt, negative, characters, use_coords = live_prompt
             req = dataclasses.replace(
@@ -395,8 +404,10 @@ class GenerationService:
         with self._live_resolution_lock:
             live_size = self._live_resolution
             live_choices = self._live_resolution_choices
+        if per_image:
+            live_size, live_choices = None, ()  # 크기는 원본 이미지가 정한다
         choices = live_choices or job.resolution_choices
-        if job.randomize_resolution and len(choices) >= 2:
+        if not per_image and job.randomize_resolution and len(choices) >= 2:
             width, height = self._rng.choice(choices)
             req = dataclasses.replace(req, width=width, height=height)
         elif live_size is not None:

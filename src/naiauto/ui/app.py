@@ -90,6 +90,29 @@ def _emit(text: str) -> None:
     stream.flush()
 
 
+def _bundle_diagnosis() -> list[str]:
+    """번들에 무엇이 들어 있는지 한눈에 — 실패한 릴리스를 한 번에 진단하기 위한 정보.
+
+    프로즌 빌드에서 import가 깨졌을 때, 패키지 자체가 빠진 것인지(수집 실패) 들어는
+    있는데 적재가 안 되는 것인지(DLL 문제)를 로그만 보고 가를 수 있어야 한다.
+    """
+    lines = [f"python {sys.version.split()[0]} · frozen={getattr(sys, 'frozen', False)}"]
+    root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    lines.append(f"bundle root: {root}")
+    for name in ("onnxruntime", "numpy"):
+        package_dir = root / name
+        if not package_dir.is_dir():
+            lines.append(f"{name}: 번들에 폴더가 없다 ({package_dir})")
+            continue
+        entries = sorted(p.name for p in package_dir.iterdir())
+        lines.append(f"{name}: {len(entries)}개 항목 — {', '.join(entries[:8])}")
+        capi = package_dir / "capi"
+        if capi.is_dir():
+            libs = sorted(p.name for p in capi.iterdir() if p.suffix in (".dll", ".so", ".pyd"))
+            lines.append(f"{name}/capi 라이브러리 {len(libs)}개 — {', '.join(libs[:6])}")
+    return lines
+
+
 def selftest() -> int:
     """프로즌 빌드가 실제로 쓸 수 있는 상태인지 확인한다 (릴리스 워크플로가 호출).
 
@@ -121,11 +144,14 @@ def selftest() -> int:
 
     # WD14 자동 태깅은 onnxruntime + numpy가 번들에 들어가야 돌아간다. 빠져도 앱은
     # 뜨지만 "모델을 쓸 수 없음"으로만 보여서, 배포 뒤에야 드러났다 (v0.6.5).
+    # ImportError만 잡으면 안 된다 — Windows에서는 DLL 적재 실패가 OSError로 온다.
     try:
         import numpy  # noqa: F401
         import onnxruntime  # noqa: F401
-    except ImportError as e:
-        failures.append(f"WD14 태깅을 쓸 수 없다: {e}")
+    except Exception as e:
+        failures.append(f"WD14 태깅을 쓸 수 없다: {type(e).__name__}: {e}")
+        for line in _bundle_diagnosis():
+            _emit(f"selftest INFO: {line}")
 
     pages = registered_pages()
     missing_pages = [key for key in NAV_ORDER if key not in pages]

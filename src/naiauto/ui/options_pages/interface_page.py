@@ -78,6 +78,11 @@ class InterfacePage(OptionsPage):
         self.image_source_check.setEnabled(supports_i2i)
         root.addWidget(self.image_source_check)
 
+        # 강화 패널도 img2img 경로를 쓰므로 i2i를 지원하는 모델에서만 켤 수 있다.
+        self.enhance_check = QCheckBox(self)
+        self.enhance_check.setEnabled(supports_i2i)
+        root.addWidget(self.enhance_check)
+
         self.update_check_check = QCheckBox(self)
         root.addWidget(self.update_check_check)
 
@@ -126,6 +131,7 @@ class InterfacePage(OptionsPage):
         if index >= 0:
             self.language_combo.setCurrentIndex(index)
         self.image_source_check.setChecked(draft.show_image_source)
+        self.enhance_check.setChecked(draft.show_enhance)
         self.font_size_spin.setValue(draft.prompt_font.size)
         for field, _label_key in COLOR_FIELDS:
             self._colors[field] = getattr(draft.prompt_font, field)
@@ -139,6 +145,7 @@ class InterfacePage(OptionsPage):
         if isinstance(code, str) and code:
             draft.language = code
         draft.show_image_source = self.image_source_check.isChecked()
+        draft.show_enhance = self.enhance_check.isChecked()
         draft.check_updates_on_start = self.update_check_check.isChecked()
         draft.prompt_font.size = self.font_size_spin.value()
         for field, _label_key in COLOR_FIELDS:
@@ -158,6 +165,8 @@ class InterfacePage(OptionsPage):
                 self.language_combo.setItemText(row, names[code])
         self.image_source_check.setText(tr("image_source.menu"))
         self.image_source_check.setToolTip("" if self._supports_i2i else tr("image_source.unsupported"))
+        self.enhance_check.setText(tr("enhance.menu"))
+        self.enhance_check.setToolTip("" if self._supports_i2i else tr("image_source.unsupported"))
         self.update_check_check.setText(tr("updates.check_on_start"))
         self.font_size_label.setText(tr("options.prompt_font_size"))
         self.font_size_spin.setSpecialValueText(tr("options.prompt_font_size_default"))

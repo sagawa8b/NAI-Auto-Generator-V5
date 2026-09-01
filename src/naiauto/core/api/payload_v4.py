@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from PIL import Image
 
+from .errors import ModelSpecIncompleteError
 from .models import CharacterReference, GenerationRequest, VibeTransfer
 
 if TYPE_CHECKING:
@@ -29,6 +30,13 @@ def build_payload_v4(req: GenerationRequest, spec: ModelSpec) -> dict:
     if req.action == "img2img":
         if req.image is None:
             raise ValueError("img2img requires 'image'")
+        if req.upscaled_enhance:
+            # 서버 업스케일(Enhance "Max")은 V5에만 있다. V4에서 조용히 무시하면 사용자가
+            # 고른 배율보다 작은 그림이 나오므로 이유를 밝히고 거부한다.
+            raise ModelSpecIncompleteError(
+                "Server-side Max upscale (upscaled_enhance) exists only in V5; "
+                f"model '{spec.key}' cannot honor it."
+            )
         params["image"] = base64.b64encode(req.image).decode()
         params["strength"] = req.strength
         params["noise"] = req.noise

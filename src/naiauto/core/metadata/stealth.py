@@ -74,6 +74,13 @@ def read_info_from_image_stealth(image: Image.Image) -> str | None:
                             compressed = True
                         buffer_rgb = ""
                         index_rgb = 0
+                    elif not has_alpha:
+                        # 알파 채널이 없으면 서명을 확인할 곳은 RGB뿐이다. 여기서 어긋났으면
+                        # 숨겨진 데이터가 없는 것이므로 남은 픽셀을 훑을 이유가 없다.
+                        # (원본 이식본에는 이 탈출구가 없어서, 평범한 RGB PNG 한 장을 읽는 데
+                        #  전 픽셀을 도는 파이썬 루프가 돌았다 — 1024×1536이면 수십 초다.)
+                        read_end = True
+                        break
             elif reading_param_len:
                 if mode == "alpha":
                     if index_a == 32:
