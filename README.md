@@ -41,7 +41,8 @@ NovelAI Diffusion **V5** 이미지 생성을 자동화하는 데스크톱 앱입
   폴더를 통째로 골라 한 장씩 강화할 수도 있습니다
 - **🗂 결과 관리** — 갤러리 뷰, 프리셋, 파일명 템플릿,
   PNG를 창에 끌어다 놓으면 생성 정보를 읽어 설정 복원
-- **🤖 WD14 자동 태깅** — 이미지에서 태그 추출 (ONNX 모델은 직접 준비)
+- **🤖 WD14 자동 태깅** — 이미지에서 태그를 뽑아 프롬프트에 넣거나 클립보드로 복사합니다.
+  모델은 옵션 → 태그에서 고르고 **앱 안에서 바로 내려받습니다** (진행률 표시·취소 가능)
 - **📊 상태 표시** — V5 생성 크레딧 게이지 + Anlas 잔액
 - **🌏 4개 언어** — 한국어 / English / 日本語 / 中文, 재시작 없이 전환
 - **🔔 새 버전 확인** — 릴리스가 올라오면 앱이 알려 줍니다 (자동 확인은 끌 수 있음)
@@ -101,7 +102,7 @@ Linux `~/.local/share/NAI-Auto-V5` · macOS `~/Library/Application Support/NAI-A
 | 와일드카드 | 데이터 폴더의 `wildcards/` (`.txt`, 한 줄에 하나) |
 | 프리셋 | 데이터 폴더의 `presets/` |
 | 아티스트 조합 | 데이터 폴더의 `artist_combos/` (`{"그룹": ["artist:aaa", ...]}` JSON) |
-| WD14 모델 | 데이터 폴더의 `wd14/` (`model.onnx`, `selected_tags.csv` — 직접 준비) |
+| WD14 모델 | 데이터 폴더의 `wd14/` (옵션 → 태그에서 폴더를 바꾸거나 모델을 내려받습니다) |
 | 로그 | OS 표준 로그 폴더 (도구 → 로그 보기에서 `폴더 열기`) |
 
 ### ⚠️ 아직 안 되는 것
@@ -145,7 +146,8 @@ wildcards and prompt tooling that the web interface does not provide.
   Settings are taken from the source PNG, and a whole folder can be enhanced one image at a time
 - **Result tools** — gallery view, presets, filename templates, drag a PNG onto the window to
   restore its generation settings
-- **WD14 auto-tagging** (bring your own ONNX model)
+- **WD14 auto-tagging** — pull tags out of an image into the prompt or the clipboard; models are
+  chosen and **downloaded from inside the app** (Options → Tags), with progress and cancel
 - **Status bar** — V5 generation credit gauge and Anlas balance
 - **4 languages** — Korean / English / Japanese / Chinese, switchable at runtime
 - **Update check** — the app tells you when a new release is out (can be turned off)
