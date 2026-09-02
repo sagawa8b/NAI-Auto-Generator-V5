@@ -12,6 +12,10 @@ import platformdirs
 from pydantic import BaseModel, Field
 
 APP_NAME = "NAI-Auto-V5"
+#: QSettings(창 크기·스플리터 폭 등 UI 상태)의 조직 이름.
+#: 비워 두면 Windows 레지스트리 백엔드가 AccessError 상태가 되어 읽기도 쓰기도
+#: 조용히 무시된다 — 반드시 QCoreApplication.setOrganizationName()으로 지정해야 한다.
+ORG_NAME = "sagawa8b"
 
 CURRENT_SCHEMA_VERSION = 3
 DEFAULT_WORD_LIMIT = 20
@@ -19,6 +23,19 @@ CUSTOM_RESOLUTION_SLOTS = 6
 QUICK_COUNT_SLOTS = 4
 #: 생성 바의 퀵 매수 버튼 기본값 (V4.5의 Quick Generation 프리셋과 같은 자리)
 DEFAULT_QUICK_COUNTS = (5, 10, 30, 200)
+
+
+#: 동일 조건으로 다시 생성할 때의 동작.
+#: "generate"    — 그대로 생성한다 (같은 이미지가 한 장 더 나온다)
+#: "random_seed" — 시드만 새로 뽑아 생성한다 (기본)
+#: "block"       — 경고만 하고 생성하지 않는다
+DUPLICATE_ACTIONS = ("generate", "random_seed", "block")
+DEFAULT_DUPLICATE_ACTION = "random_seed"
+
+
+def duplicate_action(value: str) -> str:
+    """알 수 없는 값(손으로 고친 settings.json)은 기본값으로 떨어뜨린다."""
+    return value if value in DUPLICATE_ACTIONS else DEFAULT_DUPLICATE_ACTION
 
 
 def default_data_dir() -> Path:
@@ -95,6 +112,11 @@ class BatchSettings(BaseModel):
     #: True면 "세팅별 연속 생성"이 고른 세팅 파일을 순서대로 돌지 않고 매번 무작위로 고른다
     #: (같은 파일이 연달아 두 번 나오지는 않는다).
     random_settings_order: bool = False
+    #: 직전에 만든 이미지와 요청이 완전히 같을 때(메타데이터를 불러온 뒤 그대로 다시
+    #: 누른 경우) 어떻게 할지. DUPLICATE_ACTIONS 참고. 알 수 없는 값은 읽을 때
+    #: duplicate_action()이 기본값으로 떨어뜨린다 — 여기서 막으면 손으로 고친
+    #: settings.json 하나가 설정 전체를 날린다 (store.load_settings의 복구 규칙).
+    duplicate_action: str = DEFAULT_DUPLICATE_ACTION
 
 
 class CustomResolution(BaseModel):

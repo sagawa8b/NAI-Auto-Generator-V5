@@ -44,7 +44,8 @@
       "job_stopped": "停止 ({}枚生成)",
       "job_error": "エラーで中断: {}",
       "by_settings_progress": "設定別連続生成中 ({}/{}) - {}",
-      "by_settings_progress_inf": "設定別連続生成中 ({}枚) - {}"
+      "by_settings_progress_inf": "設定別連続生成中 ({}枚) - {}",
+      "duplicate_seed_changed": "直前の生成と条件が同じため、シードを {} に変更しました。"
     },
     "status": {
       "tags_reloaded": "タグ自動補完が再読み込みされました。"
@@ -293,7 +294,8 @@
       "autogenerate_error": "画像の生成に問題がありました。\n\n{0}",
       "fixed_seed_batch": "連続生成にはランダムシードが必要です。シードの「ランダム」を有効にするか、生成枚数を1にしてください。",
       "wd14_model_missing": "WD14 モデルが見つかりません({} がありません)。\n\n{}\n\nオプション → タグでモデルフォルダを指定し、「モデルをダウンロード」を押してください。",
-      "wd14_runtime_missing": "WD14 自動タグ付けを利用できません。\n\nonnxruntime を読み込めませんでした:\n{}\n\nソースから実行している場合は `pip install -e .`（または `pip install onnxruntime numpy`）を実行してください。\n配布版（exe）なら v0.6.7 以降に同梱されています。"
+      "wd14_runtime_missing": "WD14 自動タグ付けを利用できません。\n\nonnxruntime を読み込めませんでした:\n{}\n\nソースから実行している場合は `pip install -e .`（または `pip install onnxruntime numpy`）を実行してください。\n配布版（exe）なら v0.6.7 以降に同梱されています。",
+      "duplicate_generation": "直前の生成とプロンプト・シード・解像度が完全に同じです。シードを変えるか、シードの「ランダム」をオンにしてから生成してください。"
     },
     "connection": {
       "server": "サーバー:",
@@ -576,7 +578,12 @@
       "random_resolution": "1枚ごとに解像度をランダム化 (縦/横/正方形)",
       "random_resolution_tooltip": "生成ごとにWide/Square/Portraitのいずれかをランダムに選んで解像度を変更します。i2i/インペイント中は元画像サイズが優先されるため適用されません。",
       "random_settings_order": "セット別連続生成で設定ファイルをランダム順に",
-      "random_settings_order_hint": "オフなら選んだ順に巡回します。オンにすると毎回ランダムに選びます(同じファイルが連続することはありません)。"
+      "random_settings_order_hint": "オフなら選んだ順に巡回します。オンにすると毎回ランダムに選びます(同じファイルが連続することはありません)。",
+      "duplicate_action": "同じ条件で再生成するとき",
+      "duplicate_action_generate": "そのまま生成（同じ画像がもう1枚）",
+      "duplicate_action_random_seed": "シードを自動でランダムに変更",
+      "duplicate_action_block": "警告して生成しない",
+      "duplicate_action_hint": "直前に生成した画像とプロンプト・シード・解像度などがすべて同じときの動作です。メタデータを読み込むとシードも復元されるため、生成を2回押すと同じ画像にクレジットを2回使うことになります。シードが「ランダム」の場合やプロンプトにワイルドカード・ランダム構文がある場合は毎回結果が変わるため適用されません。"
     },
     "image_info": {
       "title": "画像情報",

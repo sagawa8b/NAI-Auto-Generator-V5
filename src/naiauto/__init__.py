@@ -1,3 +1,3 @@
 """NAI-Auto-V5 — NovelAI Diffusion V5 자동화 앱."""
 
-__version__ = "0.7.2"
+__version__ = "0.7.3"

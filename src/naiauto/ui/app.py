@@ -24,7 +24,7 @@ from ..core.artist_combos import ArtistComboEngine
 from ..core.i18n.manager import I18nManager
 from ..core.logging_setup import configure_logging, enable_crash_log, install_excepthook
 from ..core.settings import credentials
-from ..core.settings.schema import APP_NAME, AppSettings
+from ..core.settings.schema import APP_NAME, ORG_NAME, AppSettings
 from ..core.settings.store import ensure_dirs, load_settings, save_settings
 from ..core.wildcards.applier import WildcardApplier
 from ..services.generation_service import GenerationService
@@ -48,6 +48,17 @@ def log_dir() -> Path:
 def app_icon_path() -> Path:
     """번들 앱 아이콘 경로 — 언어 파일·태그 DB와 같은 규칙(`naiauto/resources/`)을 따른다."""
     return Path(__file__).resolve().parent.parent / "resources" / "icons" / "app_icon.ico"
+
+
+def apply_app_identity(app: QApplication) -> None:
+    """QSettings가 실제로 저장되도록 조직/앱 이름을 지정한다.
+
+    조직 이름이 비어 있으면 Windows 레지스트리 백엔드(QWinSettingsPrivate)는 레지스트리
+    키를 하나도 만들지 않고 AccessError 상태가 된다 — 읽기도 쓰기도 조용히 무시되어
+    창 크기·스플리터 폭·프롬프트 높이 같은 UI 상태가 매번 초기화됐다.
+    """
+    app.setOrganizationName(ORG_NAME)
+    app.setApplicationName(APP_NAME)
 
 
 def build_service(client: NAIClient, settings: AppSettings, bridge: QtEventBridge) -> GenerationService:
@@ -186,6 +197,7 @@ def smoketest() -> int:
     settings.check_updates_on_start = False  # 네트워크 없이도 끝나야 한다
 
     qt_app = QApplication.instance() or QApplication([])
+    apply_app_identity(qt_app)
     session = NAISession()
     client = NAIClient(session)
     bridge = QtEventBridge()
@@ -280,7 +292,7 @@ def main() -> int:
             logging.getLogger(__name__).warning("failed to set AppUserModelID", exc_info=True)
 
     app = QApplication(sys.argv)
-    app.setApplicationName(APP_NAME)
+    apply_app_identity(app)
     app.setWindowIcon(QIcon(str(app_icon_path())))
 
     session = NAISession()

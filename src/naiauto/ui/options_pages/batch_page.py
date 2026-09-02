@@ -1,7 +1,8 @@
 """연속 생성 옵션 페이지 (KEY="generation", Req 4.1).
 
 `batch.count` / `batch.delay_seconds` / `batch.quick_counts`(생성 바의 퀵 매수 버튼 4개) /
-`batch.random_settings_order`(세팅별 연속 생성의 파일 순서)를 다룬다. 스핀박스 범위가 이미 값을 막지만
+`batch.random_settings_order`(세팅별 연속 생성의 파일 순서) /
+`batch.duplicate_action`(동일 조건으로 다시 생성할 때의 동작)을 다룬다. 스핀박스 범위가 이미 값을 막지만
 손으로 편집한 `settings.json`도 걸러야 하므로 검증은 `core.settings.validation`이 한 번 더
 한다 (Req 4.3, 4.4). `stop_on_anlas_error`는 이 스펙의 범위 밖이라 노출하지 않는다 — 드래프트의
 값을 그대로 남겨 둔다.
@@ -9,10 +10,18 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QCheckBox, QDoubleSpinBox, QFormLayout, QLabel, QSpinBox, QWidget
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDoubleSpinBox,
+    QFormLayout,
+    QLabel,
+    QSpinBox,
+    QWidget,
+)
 
 from ...core.i18n.manager import I18nManager
-from ...core.settings.schema import QUICK_COUNT_SLOTS, AppSettings
+from ...core.settings.schema import DUPLICATE_ACTIONS, QUICK_COUNT_SLOTS, AppSettings, duplicate_action
 from ...core.settings.validation import BATCH_COUNT_RANGE, BATCH_DELAY_RANGE, QUICK_COUNT_RANGE
 from ..widgets.wheel_guard import guard_wheel
 from . import OptionsPage, register_page
@@ -45,6 +54,17 @@ class BatchPage(OptionsPage):
         self.delay_spin.setSingleStep(DELAY_STEP)
         # 소수 자릿수는 Qt 기본값(2)을 그대로 쓴다 — 메인 윈도우의 간격 스핀박스와 같다.
         layout.addRow(self.delay_label, self.delay_spin)
+
+        # 같은 값으로 생성을 다시 눌렀을 때 (메타데이터를 불러오면 시드까지 복원된다)
+        self.duplicate_label = QLabel()
+        self.duplicate_combo = QComboBox()
+        for action in DUPLICATE_ACTIONS:
+            self.duplicate_combo.addItem("", action)  # 표시 문자열은 retranslate()가 채운다
+        layout.addRow(self.duplicate_label, self.duplicate_combo)
+        self.duplicate_hint = QLabel()
+        self.duplicate_hint.setWordWrap(True)
+        self.duplicate_hint.setStyleSheet("color: gray;")
+        layout.addRow(self.duplicate_hint)
 
         # 세팅별 연속 생성의 파일 순서 — 끄면 고른 순서대로 순환한다 (기본)
         self.random_settings_check = QCheckBox()
@@ -79,6 +99,8 @@ class BatchPage(OptionsPage):
         self.count_spin.setValue(draft.batch.count)
         self.delay_spin.setValue(draft.batch.delay_seconds)
         self.random_settings_check.setChecked(draft.batch.random_settings_order)
+        index = self.duplicate_combo.findData(duplicate_action(draft.batch.duplicate_action))
+        self.duplicate_combo.setCurrentIndex(max(0, index))
         # 손으로 고친 settings.json이 4칸을 다 채우지 않았을 수 있다 — 모자란 칸은 기본값으로.
         low, _high = QUICK_COUNT_RANGE
         for index, spin in enumerate(self.quick_spins):
@@ -89,12 +111,19 @@ class BatchPage(OptionsPage):
         draft.batch.count = self.count_spin.value()
         draft.batch.delay_seconds = self.delay_spin.value()
         draft.batch.random_settings_order = self.random_settings_check.isChecked()
+        draft.batch.duplicate_action = self.duplicate_combo.currentData()
         draft.batch.quick_counts = [spin.value() for spin in self.quick_spins]
 
     def retranslate(self) -> None:
         tr = self._i18n.get_text
         self.count_label.setText(tr("batch.count"))
         self.delay_label.setText(tr("batch.delay"))
+        self.duplicate_label.setText(tr("batch.duplicate_action"))
+        for index in range(self.duplicate_combo.count()):
+            self.duplicate_combo.setItemText(
+                index, tr(f"batch.duplicate_action_{self.duplicate_combo.itemData(index)}")
+            )
+        self.duplicate_hint.setText(tr("batch.duplicate_action_hint"))
         self.random_settings_check.setText(tr("batch.random_settings_order"))
         self.random_settings_hint.setText(tr("batch.random_settings_order_hint"))
         self.quick_title.setText(tr("options.quick_counts_title"))

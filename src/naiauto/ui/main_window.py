@@ -55,9 +55,16 @@ from ..core.i18n.manager import I18nManager
 from ..core.logging_setup import configure_logging, crash_log_path, log_path
 from ..core.metadata.reuse import ReusableSettings
 from ..core.presets import CharacterPromptPreset, GenerationPreset, PresetError, PresetStore
+from ..core.prompt_dynamics import has_dynamic_syntax
 from ..core.resolution_catalog import ResolutionCatalog
 from ..core.settings import accounts, credentials
-from ..core.settings.schema import APP_NAME, QUICK_COUNT_SLOTS, AppSettings, CharacterPromptState
+from ..core.settings.schema import (
+    APP_NAME,
+    QUICK_COUNT_SLOTS,
+    AppSettings,
+    CharacterPromptState,
+    duplicate_action,
+)
 from ..core.settings.store import ensure_dirs
 from ..core.tag_completer import TagCompleter, resolve_database_path
 from ..core.updates import RELEASES_PAGE, ReleaseInfo, check_for_update
@@ -124,6 +131,14 @@ def _format_duration(seconds: int) -> str:
     return f"{minutes}m" if minutes else f"{seconds}s"
 
 
+def _has_dynamic_prompt(request: GenerationRequest) -> bool:
+    """요청의 프롬프트에 생성마다 다르게 전개되는 문법이 있는가 (와일드카드·랜덤 선택 등)."""
+    texts = [request.prompt, request.negative_prompt]
+    for caption in request.characters:
+        texts += [caption.prompt, caption.uc]
+    return any(has_dynamic_syntax(text) for text in texts)
+
+
 class MainWindow(QMainWindow):
     _anlas_fetched = Signal(object)  # dict | Exception — 워커 스레드에서 emit
     _update_checked = Signal(object, bool)  # ReleaseInfo | None, 사용자가 직접 눌렀는가
@@ -165,6 +180,10 @@ class MainWindow(QMainWindow):
         self._qsettings = QSettings()
         #: 세팅별 연속 생성이 순환할 파일 목록 — 비어 있으면 진행 중이 아니다.
         self._settings_batch_paths: list[str] = []
+        #: 실행 중인 잡의 요청 / 마지막으로 이미지가 나온 요청. 동일 조건 재생성 감지가 쓴다.
+        #: 완성된 것만 기억한다 — 실패한 생성을 같은 값으로 다시 시도하는 길을 막으면 안 된다.
+        self._running_request: GenerationRequest | None = None
+        self._last_completed_request: GenerationRequest | None = None
 
         self._build_ui()
         self._resize_handle.restore_height()
@@ -1146,6 +1165,9 @@ class MainWindow(QMainWindow):
         """현재 위젯 상태를 설정 객체로 (종료 시 영속화용)."""
         self._save_splitters()
         self._save_window_geometry()
+        # 이 메서드는 이벤트 루프가 끝난 뒤에 불린다 — Qt가 주기적으로 돌려 주는
+        # 자동 flush를 더는 기대할 수 없으므로 여기서 직접 내려쓴다.
+        self._qsettings.sync()
         s = self._settings
         g = s.generation
         g.model = self.model_combo.currentData()
@@ -1604,7 +1626,9 @@ class MainWindow(QMainWindow):
         self._start_job(job)
 
     def _on_generate_once(self) -> None:
-        self._start_job(self.build_job(count=1))
+        job = self._resolve_duplicate(self.build_job(count=1))
+        if job is not None:
+            self._start_job(job)
 
     def _on_generate_auto(self) -> None:
         self._start_auto(self.count_spin.value())
@@ -1630,13 +1654,47 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, tr("errors.title"), tr("errors.fixed_seed_batch"))
             self.status_label.setText(tr("errors.fixed_seed_batch"))
             return
-        self._start_job(self.build_job(count=count))
+        job = self._resolve_duplicate(self.build_job(count=count))
+        if job is not None:
+            self._start_job(job)
+
+    def _resolve_duplicate(self, job: GenerationJob) -> GenerationJob | None:
+        """직전에 완성한 이미지와 요청이 완전히 같으면 옵션대로 처리한다.
+
+        메타데이터를 끌어다 놓으면 시드까지 그대로 복원되므로, 그 상태에서 생성을 두 번
+        누르면 같은 이미지에 크레딧을 두 번 쓴다. `batch.duplicate_action`이
+        "그대로 생성 / 시드 자동 랜덤(기본) / 경고 후 중단" 중 무엇을 할지 정한다.
+
+        같은 요청이라도 결과가 달라지는 경우는 건드리지 않는다 — 시드 랜덤이 켜져 있거나
+        (`job.randomize_seed`), 프롬프트에 와일드카드·랜덤 문법이 들어 있을 때.
+
+        반환값은 시작할 잡 — None이면 생성하지 않는다.
+        """
+        action = duplicate_action(self._settings.batch.duplicate_action)
+        if action == "generate" or job.randomize_seed:
+            return job
+        if job.request != self._last_completed_request:
+            return job
+        if _has_dynamic_prompt(job.request):
+            return job
+
+        tr = self._i18n.get_text
+        if action == "block":
+            QMessageBox.warning(self, tr("errors.title"), tr("errors.duplicate_generation"))
+            self.status_label.setText(tr("errors.duplicate_generation"))
+            return None
+        # 시드는 서비스의 랜덤 시드와 같은 범위에서 뽑는다 (generation_service._next_request).
+        seed = random.randint(1, 2**32 - 1)
+        self.seed_edit.setText(str(seed))  # 화면에도 실제로 쓰인 시드가 남아야 한다
+        self.status_label.setText(tr("statusbar.duplicate_seed_changed", seed))
+        return dataclasses.replace(job, request=job.request.with_seed(seed))
 
     def _start_job(self, job: GenerationJob) -> None:
         try:
             self._service.start(job)
         except RuntimeError:
             return  # 이미 실행 중 — 버튼 비활성화가 정상이면 도달하지 않음
+        self._running_request = job.request
         self._set_running(True)
         # 첫 ImageStarted가 오기 전에도 즉시 반응을 보여준다
         self.status_label.setText(self._i18n.get_text("statusbar.generating"))
@@ -1763,6 +1821,7 @@ class MainWindow(QMainWindow):
         elif isinstance(event, ImageRetrying):
             self.status_label.setText(tr("statusbar.auto_error_wait", int(event.wait_seconds)))
         elif isinstance(event, ImageCompleted):
+            self._last_completed_request = self._running_request
             self._show_image(event.path)
             # 저장 위치를 바로 확인할 수 있게 파일명 표시 + 전체 경로 툴팁
             self.status_label.setToolTip(event.path)

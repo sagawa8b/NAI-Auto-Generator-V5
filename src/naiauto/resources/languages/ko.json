@@ -44,7 +44,8 @@
       "job_stopped": "중지됨 ({}장 생성)",
       "job_error": "오류로 중단: {}",
       "by_settings_progress": "세팅별 연속 생성 중 ({}/{}) - {}",
-      "by_settings_progress_inf": "세팅별 연속 생성 중 ({}장) - {}"
+      "by_settings_progress_inf": "세팅별 연속 생성 중 ({}장) - {}",
+      "duplicate_seed_changed": "직전 생성과 조건이 같아 시드를 {}(으)로 바꿨습니다."
     },
     "status": {
       "tags_reloaded": "태그 자동완성이 새로고침되었습니다."
@@ -293,7 +294,8 @@
       "autogenerate_error": "이미지를 생성하는데 문제가 있습니다.\n\n{0}",
       "fixed_seed_batch": "연속 생성에는 랜덤 시드가 필요합니다. 시드 '랜덤'을 켜거나 생성 매수를 1로 맞춰 주세요.",
       "wd14_model_missing": "WD14 모델을 찾지 못했습니다 ({} 없음).\n\n{}\n\n옵션 → 태그에서 모델 폴더를 지정하고 '모델 다운로드'를 누르세요.",
-      "wd14_runtime_missing": "WD14 자동 태깅을 쓸 수 없습니다.\n\nonnxruntime을 불러오지 못했습니다:\n{}\n\n소스로 실행 중이면 `pip install -e .`(또는 `pip install onnxruntime numpy`)로 설치하세요.\n배포본(exe)이라면 v0.6.7 이상을 받으면 함께 들어 있습니다."
+      "wd14_runtime_missing": "WD14 자동 태깅을 쓸 수 없습니다.\n\nonnxruntime을 불러오지 못했습니다:\n{}\n\n소스로 실행 중이면 `pip install -e .`(또는 `pip install onnxruntime numpy`)로 설치하세요.\n배포본(exe)이라면 v0.6.7 이상을 받으면 함께 들어 있습니다.",
+      "duplicate_generation": "직전 생성과 프롬프트·시드·해상도가 완전히 같습니다. 시드를 바꾸거나 시드 “랜덤”을 켠 뒤 다시 생성해 주세요."
     },
     "connection": {
       "server": "서버:",
@@ -576,7 +578,12 @@
       "random_resolution": "매 장마다 해상도 랜덤 (세로/가로/정방형)",
       "random_resolution_tooltip": "생성할 때마다 Wide/Square/Portrait 중 하나를 무작위로 골라 해상도를 바꿉니다. i2i/인페인팅 중에는 원본 이미지 크기가 우선이라 적용되지 않습니다.",
       "random_settings_order": "세팅별 연속 생성에서 세팅 파일을 무작위 순서로",
-      "random_settings_order_hint": "끄면 고른 순서대로 순환합니다. 켜면 매 장마다 무작위로 고릅니다 (같은 파일이 연달아 나오지는 않습니다)."
+      "random_settings_order_hint": "끄면 고른 순서대로 순환합니다. 켜면 매 장마다 무작위로 고릅니다 (같은 파일이 연달아 나오지는 않습니다).",
+      "duplicate_action": "동일 조건으로 다시 생성할 때",
+      "duplicate_action_generate": "그대로 생성 (같은 이미지가 한 장 더)",
+      "duplicate_action_random_seed": "시드를 자동으로 랜덤 변경",
+      "duplicate_action_block": "경고하고 생성하지 않음",
+      "duplicate_action_hint": "직전에 만든 이미지와 프롬프트·시드·해상도 등 모든 값이 같을 때의 동작입니다. 메타데이터를 불러오면 시드까지 복원되므로 생성을 두 번 누르면 같은 이미지에 크레딧이 두 번 나갑니다. 시드 “랜덤”이 켜져 있거나 프롬프트에 와일드카드·랜덤 문법이 있으면 결과가 매번 달라지므로 적용되지 않습니다."
     },
     "image_info": {
       "title": "이미지 정보",

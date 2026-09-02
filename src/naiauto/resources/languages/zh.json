@@ -44,7 +44,8 @@
       "job_stopped": "已停止 (生成{}张)",
       "job_error": "因错误中止: {}",
       "by_settings_progress": "按设置连续生成中 ({}/{}) - {}",
-      "by_settings_progress_inf": "按设置连续生成中 ({}张) - {}"
+      "by_settings_progress_inf": "按设置连续生成中 ({}张) - {}",
+      "duplicate_seed_changed": "与上次生成条件相同，已将种子改为 {}。"
     },
     "status": {
       "tags_reloaded": "标签自动完成已重新加载。"
@@ -293,7 +294,8 @@
       "autogenerate_error": "生成图片时出现问题。\n\n{0}",
       "fixed_seed_batch": "连续生成需要随机种子。请启用种子“随机”选项，或将生成张数设为 1。",
       "wd14_model_missing": "未找到 WD14 模型（缺少 {}）。\n\n{}\n\n请在 选项 → 标签 中指定模型文件夹，并点击“下载模型”。",
-      "wd14_runtime_missing": "无法使用 WD14 自动标签。\n\n无法导入 onnxruntime：\n{}\n\n若从源码运行，请执行 `pip install -e .`（或 `pip install onnxruntime numpy`）。\n若使用发行版（exe），v0.6.7 及以上版本已内置。"
+      "wd14_runtime_missing": "无法使用 WD14 自动标签。\n\n无法导入 onnxruntime：\n{}\n\n若从源码运行，请执行 `pip install -e .`（或 `pip install onnxruntime numpy`）。\n若使用发行版（exe），v0.6.7 及以上版本已内置。",
+      "duplicate_generation": "提示词、种子与分辨率与上次生成完全相同。请修改种子或打开种子“随机”后再生成。"
     },
     "connection": {
       "server": "服务器:",
@@ -576,7 +578,12 @@
       "random_resolution": "每张随机分辨率 (横/竖/正方形)",
       "random_resolution_tooltip": "每次生成时随机选择 Wide/Square/Portrait 中的一种分辨率。i2i/局部重绘时会优先使用原图尺寸，因此不生效。",
       "random_settings_order": "按设置连续生成时随机选择设置文件",
-      "random_settings_order_hint": "关闭时按选择顺序循环；开启后每张随机挑选一个(不会连续两次使用同一个文件)。"
+      "random_settings_order_hint": "关闭时按选择顺序循环；开启后每张随机挑选一个(不会连续两次使用同一个文件)。",
+      "duplicate_action": "以相同条件再次生成时",
+      "duplicate_action_generate": "照常生成（会得到同一张图）",
+      "duplicate_action_random_seed": "自动随机更换种子",
+      "duplicate_action_block": "提示警告，不进行生成",
+      "duplicate_action_hint": "当提示词、种子、分辨率等所有数值都与上一张生成的图片相同时生效。载入元数据会连种子一起还原，因此连按两次生成会为同一张图重复消耗额度。种子为“随机”，或提示词中含有通配符、随机语法时不会生效，因为那些每次结果都不同。"
     },
     "image_info": {
       "title": "图像信息",

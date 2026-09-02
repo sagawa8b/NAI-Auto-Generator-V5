@@ -44,7 +44,8 @@
       "job_stopped": "Stopped ({} generated)",
       "job_error": "Aborted: {}",
       "by_settings_progress": "Generating by settings ({}/{}) - {}",
-      "by_settings_progress_inf": "Generating by settings ({}) - {}"
+      "by_settings_progress_inf": "Generating by settings ({}) - {}",
+      "duplicate_seed_changed": "Same settings as the last generation — seed changed to {}."
     },
     "status": {
       "tags_reloaded": "Tag completion reloaded successfully."
@@ -293,7 +294,8 @@
       "autogenerate_error": "There was a problem generating the image.\n\n{0}",
       "fixed_seed_batch": "Auto generation requires a random seed. Enable the seed 'Random' option or set the count to 1.",
       "wd14_model_missing": "WD14 model not found (no {}).\n\n{}\n\nSet the model folder under Options → Tags and press \"Download model\".",
-      "wd14_runtime_missing": "WD14 auto-tagging is unavailable.\n\nonnxruntime could not be imported:\n{}\n\nRunning from source? Install it with `pip install -e .` (or `pip install onnxruntime numpy`).\nUsing the packaged build? v0.6.7 and newer ship it."
+      "wd14_runtime_missing": "WD14 auto-tagging is unavailable.\n\nonnxruntime could not be imported:\n{}\n\nRunning from source? Install it with `pip install -e .` (or `pip install onnxruntime numpy`).\nUsing the packaged build? v0.6.7 and newer ship it.",
+      "duplicate_generation": "Prompt, seed and resolution are identical to the previous generation. Change the seed or turn on \"Random\" and try again."
     },
     "connection": {
       "server": "Server:",
@@ -576,7 +578,12 @@
       "random_resolution": "Random resolution per image (Wide/Square/Portrait)",
       "random_resolution_tooltip": "Picks a random Wide/Square/Portrait resolution for each generated image. Ignored while i2i/inpainting locks the size to the source image.",
       "random_settings_order": "Pick settings files in random order (per-settings batch)",
-      "random_settings_order_hint": "Off: cycle through the files in the order you picked them. On: pick one at random for each image (never the same file twice in a row)."
+      "random_settings_order_hint": "Off: cycle through the files in the order you picked them. On: pick one at random for each image (never the same file twice in a row).",
+      "duplicate_action": "When regenerating with identical settings",
+      "duplicate_action_generate": "Generate anyway (same image again)",
+      "duplicate_action_random_seed": "Randomize the seed automatically",
+      "duplicate_action_block": "Warn and do not generate",
+      "duplicate_action_hint": "Applies when every value — prompt, seed, resolution and the rest — matches the image you just generated. Loading metadata restores the seed too, so pressing Generate twice spends credit on the same image. It does not apply when the seed is set to \"Random\" or the prompt contains wildcards or random syntax, since those differ every run."
     },
     "image_info": {
       "title": "Image Info",
