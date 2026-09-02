@@ -6,6 +6,37 @@
 
 ---
 
+## v0.7.2 (2026-09-02)
+
+### 🐛 버그 수정 / 문법 변경
+
+- **맨 `|`를 NovelAI 멀티 캐릭터 문법으로 되돌렸습니다 (이슈 #4).** v0.6.0에서 "쉼표 구간의
+  `a|b|c`를 앱이 랜덤으로 하나 고른다"는 문법을 넣었는데, 이는 *NovelAI의 `|`는 Prompt
+  Mixing이다*라는 잘못된 전제 위에 만들어진 것이었습니다. Prompt Mixing은 V3 문법이고 V4
+  이후로는 없습니다 — V4/V5에서 맨 `|`는 **베이스 프롬프트와 캐릭터 프롬프트를 나누는
+  구분자**이고(`base | character 1 | character 2`), 공식 랜덤은 `||a|b|c||`입니다
+  ([멀티 캐릭터](https://docs.novelai.net/en/image/multiplecharacters/) /
+  [Prompt Randomizer](https://docs.novelai.net/en/image/promptrandomizer/) 문서).
+
+  그래서 v0.6.0~v0.7.1에서는 두 공식 문법이 모두 깨져 있었습니다.
+
+  | 입력 | v0.7.1까지 | v0.7.2 |
+  |---|---|---|
+  | `2girls, outdoors \| girl, blonde hair \| girl, black hair` | `2girls, outdoors, blonde hair, black hair` (토큰 유실) | 베이스 + 캐릭터 프롬프트 2개 |
+  | `1girl, \|\|red hair\|blue hair\|\|, rain` | 2/3 확률로 `1girl, , rain` (빈 값) | 그대로 NovelAI로 전달 |
+
+- **프롬프트에 쓴 `|`로 캐릭터 프롬프트를 만듭니다.** 캐릭터 프롬프트 칸이 **모두 비어 있을
+  때만** 메인 프롬프트를 `|`로 나눠 첫 조각을 베이스로, 나머지를 캐릭터 프롬프트로 보냅니다
+  (칸이 하나라도 채워져 있으면 파이프 문법을 쓰지 않는 NovelAI 웹UI 규칙과 같습니다).
+  이렇게 만든 캐릭터는 좌표를 넘기지 않습니다 — 배치는 AI가 정합니다. 와일드카드가 만들어 낸
+  `|`도 잡히므로, 와일드카드 한 줄로 캐릭터 구성 전체를 바꿀 수 있습니다.
+
+- **랜덤 선택 문법은 꺾쇠 `<a|b|c>`만 남습니다.** 꺾쇠는 NovelAI 문법에 없어 충돌하지 않습니다.
+  기존에 `1girl, red|blue hair`처럼 쓰던 프롬프트·와일드카드는 `1girl, <red|blue> hair`로
+  바꿔 주세요. 공식 `||red|blue||`를 그대로 써도 됩니다(NovelAI가 처리합니다).
+
+---
+
 ## v0.7.1 (2026-09-02)
 
 ### ✨ 새 기능 / 변경

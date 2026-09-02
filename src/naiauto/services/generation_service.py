@@ -29,6 +29,7 @@ from ..core.api.models import CharacterCaption, GenerationRequest
 from ..core.artist_combos import ArtistComboEngine
 from ..core.credit_estimator import CreditObservation
 from ..core.metadata.save import save_raw_png
+from ..core.pipe_characters import split_pipe_characters
 from ..core.prompt_choices import resolve_prompt_choices
 from ..core.resolution_catalog import Aspect, classify_aspect
 from ..core.resolution_directive import extract_resolution_directive
@@ -415,6 +416,18 @@ class GenerationService:
         # 쓸 수 없는 자리(i2i·폴더 강화)에서도 지우기는 한다. 서버로 새어 나가면 안 된다.
         prompt, requested_aspect = extract_resolution_directive(req.prompt)
         req = dataclasses.replace(req, prompt=prompt)
+
+        # NovelAI 멀티 캐릭터 파이프 문법 — 캐릭터 프롬프트 칸이 비어 있을 때만 쓴다
+        # (웹UI와 같은 규칙). 좌표는 넘기지 않는다 — 배치는 AI에게 맡긴다.
+        if not req.characters:
+            base, pipe_characters = split_pipe_characters(req.prompt)
+            if pipe_characters:
+                req = dataclasses.replace(
+                    req,
+                    prompt=base,
+                    characters=tuple(CharacterCaption(prompt=c) for c in pipe_characters),
+                    use_coords=False,
+                )
 
         with self._live_resolution_lock:
             live_size = self._live_resolution
