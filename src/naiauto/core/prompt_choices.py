@@ -1,14 +1,16 @@
-"""프롬프트 랜덤 선택 문법 — `<a|b|c>` 및 쉼표 구간의 bare `a|b`.
+"""프롬프트 랜덤 선택 문법 — 꺾쇠 `<a|b|c>` 전용.
 
-NovelAI 자체 `|` 문법은 "Prompt Mixing"(`promptA|promptB:weight` — 두 프롬프트를 섞음,
-docs.novelai.net/en/image/promptmixing/)이며 랜덤 선택이 아니다. 이 모듈은 V4의
-`pickedit_lessthan_str`을 계승해 클라이언트에서 먼저 하나를 뽑아 서버로는 결과만 보낸다
-— 그래서 이 처리를 거친 뒤에는 순수 NovelAI 믹싱 문법을 그대로 쓸 여지가 없다(의도된
-트레이드오프. 기능 요청 시 사용자와 확인됨).
+V4의 `pickedit_lessthan_str`을 계승해 클라이언트에서 먼저 하나를 뽑아 서버로는 결과만
+보낸다. 꺾쇠 `<>`는 NovelAI 문법에 없으므로 충돌하지 않는다.
+
+**bare `|`는 건드리지 않는다.** NovelAI V4/V5에서 맨 `|`는 멀티 캐릭터 프롬프트 구분자이고
+(docs.novelai.net/en/image/multiplecharacters/), `||a|b|c||`는 공식 Prompt Randomizer다
+(docs.novelai.net/en/image/promptrandomizer/). Prompt Mixing(`promptA|promptB:weight`)은
+V3 문법이라 V4 이후로는 존재하지 않는다 — 0.6.0의 "쉼표 구간 bare `a|b` 랜덤"은 이 잘못된
+전제 위에 만들어져 두 공식 문법을 모두 깨뜨렸으므로 0.7.2에서 제거했다 (이슈 #4).
 
 문법:
     <a|b|c>   꺾쇠 안에서 하나를 무작위로 선택 (쉼표 포함 조각도 가능, 중첩 지원)
-    a|b|c     쉼표로 나눈 한 구간 안에 그대로 있으면 그 구간에서 하나를 선택
 """
 
 from __future__ import annotations
@@ -45,29 +47,11 @@ def _resolve_bracket_choices(text: str, rng: random.Random) -> str:
     return result
 
 
-def _resolve_comma_segment_choices(text: str, rng: random.Random) -> str:
-    """쉼표로 나눈 구간에 `|`가 남아 있으면 그 구간에서 하나를 무작위 선택."""
-    segments = text.split(",")
-    resolved: list[str] = []
-    for segment in segments:
-        if "|" not in segment:
-            resolved.append(segment)
-            continue
-        leading = segment[: len(segment) - len(segment.lstrip())]
-        trailing = segment[len(segment.rstrip()) :]
-        core = segment.strip()
-        picked = rng.choice([choice.strip() for choice in core.split("|")])
-        resolved.append(f"{leading}{picked}{trailing}")
-    return ",".join(resolved)
-
-
 def resolve_prompt_choices(text: str, rng: random.Random) -> str:
-    """`<a|b|c>` 및 쉼표 구간의 `a|b`를 각각 하나씩 무작위로 선택해 치환한다."""
+    """`<a|b|c>`에서 하나씩 무작위로 선택해 치환한다. 그 밖의 `|`는 그대로 둔다."""
     if "|" not in text:
         return text
-    result = _resolve_bracket_choices(text, rng)
-    result = _resolve_comma_segment_choices(result, rng)
-    return result
+    return _resolve_bracket_choices(text, rng)
 
 
 __all__ = ["resolve_prompt_choices"]
