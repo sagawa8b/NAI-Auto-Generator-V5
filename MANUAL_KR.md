@@ -1,6 +1,6 @@
 # NAI Auto Generator V5 사용자 매뉴얼
 
-**버전:** 0.7.0
+**버전:** 0.7.1
 **최종 업데이트:** 2026년 8월
 
 > 이 매뉴얼은 [V4의 `MANUAL_KR.md`](https://github.com/sagawa8b/NAI-Auto-V4/blob/main/MANUAL_KR.md)를

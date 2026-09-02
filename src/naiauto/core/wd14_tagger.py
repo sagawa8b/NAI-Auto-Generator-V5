@@ -237,6 +237,24 @@ def _download_file(url: str, destination: Path, on_progress, should_cancel) -> N
         raise WD14Error(f"Cannot save {destination.name}: {exc}") from exc
 
 
+#: 출력 길이 → 일반 태그 임계값 (General Tags Threshold). SmilingWolf의 wd-tagger 데모처럼
+#: 임계값을 낮추면 더 많은 태그가 통과(길게), 높이면 적게 통과(짧게)한다. "중간"은 기존
+#: 기본값 0.35다 (V4·기존 동작과 같다).
+_LENGTH_THRESHOLDS = {
+    "short": 0.5,
+    "medium": 0.35,
+    "long": 0.25,
+}
+
+#: 기본 일반 태그 임계값 (길이 "중간"과 같다).
+DEFAULT_TAG_THRESHOLD = 0.35
+
+
+def threshold_for_length(length: str) -> float:
+    """출력 길이(short|medium|long)에 해당하는 일반 태그 임계값. 알 수 없으면 중간값."""
+    return _LENGTH_THRESHOLDS.get(length, DEFAULT_TAG_THRESHOLD)
+
+
 def append_tags_to_prompt(current_prompt: str, tags: list[str]) -> str:
     """선택한 태그를 프롬프트 뒤에 쉼표로 이어 붙인다.
 

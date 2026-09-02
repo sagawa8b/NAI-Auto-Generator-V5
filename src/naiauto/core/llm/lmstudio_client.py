@@ -69,6 +69,45 @@ STYLE_NATURAL = "natural"  # 서술형 자연어 문장 (V5 텍스트 인코더 
 STYLE_DANBOORU = "danbooru"  # 쉼표 구분 단부루 태그 (1girl, solo, ...) — WD14 결과와 같은 형태
 PROMPT_STYLES = (STYLE_NATURAL, STYLE_DANBOORU)
 
+#: 출력 길이 3단. 모델에 따라 자연어가 지나치게 길게 나오는 것을 조절한다.
+#: WD 태거는 태그 개수(임계값)로, LLM은 **시스템 프롬프트의 분량 지시**로 조절한다
+#: (max_tokens로 자르면 문장이 중간에 끊기고 추론 모델은 답이 안 나온다).
+LENGTH_SHORT = "short"
+LENGTH_MEDIUM = "medium"
+LENGTH_LONG = "long"
+OUTPUT_LENGTHS = (LENGTH_SHORT, LENGTH_MEDIUM, LENGTH_LONG)
+
+#: 안전 상한 토큰 수 — 길이 제어는 프롬프트 지시로 하고, 이 값은 무한 생성만 막는 넉넉한
+#: 상한이다. 이보다 작게 잘라 문장이 중간에 끊기지 않도록 크게 잡는다 (특히 추론 모델은
+#: 사고에 토큰을 많이 쓰므로 답변까지 나올 여유가 있어야 한다).
+_SAFETY_MAX_TOKENS = 2048
+
+#: 길이 → 시스템 프롬프트에 덧붙이는 **분량 지시**. 토큰으로 자르지 않고 모델이 스스로
+#: 분량을 맞추게 한다 (자르면 문장이 중간에 끊기고, 추론 모델은 사고 중에 잘려 답이 안 나온다).
+#: 대략적인 글자 수를 알려 주되 "완결된 하나"를 강조한다. "중간"도 지시를 준다.
+_LENGTH_HINT = {
+    LENGTH_SHORT: (
+        "Length: keep it short and concise — roughly 200 characters or fewer, only the most "
+        "important elements. Still finish as one complete, self-contained prompt."
+    ),
+    LENGTH_MEDIUM: (
+        "Length: keep it moderate — roughly 200 to 500 characters, covering the key elements "
+        "without going overboard. Finish as one complete prompt."
+    ),
+    LENGTH_LONG: (
+        "Length: be thorough and detailed — you may use up to roughly 1000 characters, covering "
+        "subject, appearance, action, composition, setting, lighting and mood."
+    ),
+}
+
+
+def max_tokens_for_length(length: str) -> int:
+    """LLM 안전 상한 토큰 수. 길이별로 다르지 않다 — 길이 제어는 프롬프트 지시로 한다.
+
+    `length` 인자는 하위 호환을 위해 받되 무시한다 (예전 시그니처를 쓰는 코드 보호)."""
+    return _SAFETY_MAX_TOKENS
+
+
 #: 두 스타일 공통 출력 규약 (JSON만, 설명·코드펜스 금지).
 _COMMON_RULES = (
     'Respond ONLY with a JSON object of the form {"prompt": "...", "negative_prompt": "..."} '
@@ -104,6 +143,17 @@ _STYLE_SYSTEM_PROMPTS = {
     STYLE_NATURAL: SYSTEM_PROMPT_NATURAL,
     STYLE_DANBOORU: SYSTEM_PROMPT_DANBOORU,
 }
+
+#: 어시스턴트 모드 지시 — 스타일 기본 프롬프트 뒤에 덧붙는다. 스타일(문장/태그) 규약은
+#: 그대로 유지하면서, "본 대로"가 아니라 "지시대로 변형해서" 프롬프트를 쓰게 한다.
+ASSISTANT_INSTRUCTION = (
+    "IMPORTANT — assistant/transform mode: an image is provided together with a text "
+    "instruction. Do not simply describe the image as-is. Apply the changes the instruction "
+    "asks for (for example replacing an outfit, changing the pose or camera angle, swapping the "
+    "background or time of day) and write the prompt for the RESULTING, modified image. Keep "
+    "everything the instruction does not mention faithful to the original image. Follow the "
+    "output style stated above (natural-language sentences or Danbooru tags)."
+)
 
 #: 하위 호환: 예전 코드/설정이 참조하던 이름. 기본은 자연어 스타일이다.
 DEFAULT_SYSTEM_PROMPT = SYSTEM_PROMPT_NATURAL
@@ -160,17 +210,28 @@ class LMStudioConfig:
     model: str = ""  # "" = 로드된 첫 모델을 자동 사용
     timeout: float = DEFAULT_TIMEOUT
     style: str = STYLE_NATURAL  # 출력 스타일 (STYLE_NATURAL | STYLE_DANBOORU)
+    length: str = LENGTH_MEDIUM  # 출력 길이 (LENGTH_SHORT | LENGTH_MEDIUM | LENGTH_LONG)
+    assistant: bool = False  # True = 어시스턴트(이미지+지시 변형) 모드
     system_prompt: str = ""  # "" = 스타일 기본 프롬프트. 값이 있으면 그 스타일 프롬프트 뒤에 덧붙는다
 
     def effective_system_prompt(self) -> str:
-        """스타일 기본 프롬프트 + (있으면) 사용자 추가 지시.
+        """스타일 기본 프롬프트 (+ 어시스턴트 지시 + 길이 지시) + (있으면) 사용자 추가 지시.
 
         예전 동작(오버라이드 = 전면 교체)과 달리, 스타일 규약이 항상 유지되도록
-        기본 프롬프트 **뒤에** 사용자 지시를 덧붙인다 — 오버라이드 때문에 스타일이
-        깨지지 않게 한다."""
+        기본 프롬프트 **뒤에** 붙인다. 어시스턴트 모드면 변형 지시를, 길이 지시(짧게/중간/
+        길게 각각 대략적 글자 수)를 더한다 — 길이 제어의 주된 수단이다."""
         base = system_prompt_for_style(self.style)
+        if self.assistant:
+            base = f"{base}\n\n{ASSISTANT_INSTRUCTION}"
+        length_hint = _LENGTH_HINT.get(self.length, "")
+        if length_hint:
+            base = f"{base}\n\n{length_hint}"
         extra = self.system_prompt.strip()
         return f"{base}\n\n{extra}" if extra else base
+
+    def max_tokens(self) -> int:
+        """생성 안전 상한 토큰 수 (길이 제어가 아니라 무한 생성 방지용)."""
+        return max_tokens_for_length(self.length)
 
 
 # `PromptResult`는 parsing 모듈이 소유한다 — 위에서 import해 여기서 재수출한다.
@@ -280,9 +341,9 @@ class LMStudioPromptGenerator:
             model = self._resolve_model(client, config.model)
             chat = lms.Chat(config.effective_system_prompt())
             images = self._prepare_images(lms, image)
-            message = self._user_message(text, image is not None, config.style)
+            message = self._user_message(text, image is not None, config.style, config.assistant)
             chat.add_user_message(message, images=images)
-            raw = self._stream_response(model, chat, cancelled)
+            raw = self._stream_response(lms, model, chat, cancelled, config.max_tokens())
         except LMStudioError:
             raise
         except Exception as e:  # noqa: BLE001
@@ -295,24 +356,34 @@ class LMStudioPromptGenerator:
     # ── 내부 ─────────────────────────────────────────────────
 
     @staticmethod
-    def _stream_response(model, chat, cancelled: CancelCheck) -> str:
+    def _stream_response(lms, model, chat, cancelled: CancelCheck, max_tokens: int) -> str:
         """`respond_stream`으로 조각을 받으며 취소를 감시한다. 취소되면 `LMStudioCancelled`.
 
         스트리밍을 쓰는 이유: 논블로킹으로 조각마다 취소 여부를 볼 수 있어 Stop 버튼이
-        즉시 듣는다. 완료되면 `result().content`가 전체 텍스트다.
-        """
-        stream = model.respond_stream(chat)
+        즉시 듣는다. `max_tokens`는 **안전 상한**일 뿐이다 — 출력 길이는 시스템 프롬프트의
+        분량 지시로 조절한다 (토큰으로 자르면 문장이 중간에 끊기기 때문).
+
+        **추론(reasoning) 모델 대응:** 각 조각의 `reasoning_type`이 `"none"`인 것만 모은다.
+        `"reasoning"`/`"reasoningStartTag"`/`"reasoningEndTag"` 조각은 모델의 사고 과정이라
+        프롬프트에 들어가면 안 된다. `stream.result().content`는 사고 과정까지 합쳐 주므로
+        쓰지 않고, 실제 답변 조각만 직접 이어붙인다 (짧게/중간에서 사고 텍스트가 결과에
+        섞여 나오던 문제)."""
+        stream = model.respond_stream(chat, config={"maxTokens": max_tokens})
+        parts: list[str] = []
         try:
-            for _fragment in stream:
+            for fragment in stream:
                 if cancelled():
                     stream.cancel()
                     raise LMStudioCancelled("generation cancelled by user")
+                if getattr(fragment, "reasoning_type", "none") == "none":
+                    content = getattr(fragment, "content", None)
+                    if isinstance(content, str):
+                        parts.append(content)
         except LMStudioCancelled:
             raise
-        # 스트림을 다 소진했으니 최종 결과를 받는다.
-        result = stream.result()
-        content = getattr(result, "content", None)
-        return content if isinstance(content, str) else str(result)
+        # 스트림을 끝까지 받은 뒤 답변(비-추론) 조각만 합친다.
+        stream.result()  # 스트림을 마무리한다 (통계/정리). 반환 content는 추론을 포함하므로 안 쓴다.
+        return "".join(parts).strip()
 
     @staticmethod
     def _apply_timeout(lms, timeout: float) -> None:
@@ -358,11 +429,20 @@ class LMStudioPromptGenerator:
             raise LMStudioResponseError(f"could not prepare image: {e}") from e
 
     @staticmethod
-    def _user_message(text: str, has_image: bool, style: str = STYLE_NATURAL) -> str:
+    def _user_message(text: str, has_image: bool, style: str = STYLE_NATURAL, assistant: bool = False) -> str:
         """스타일을 사용자 메시지에서도 한 번 더 못박는다 (시스템 프롬프트를 소홀히 하는
-        모델 대비). 자연어면 '문장으로', 단부루면 '태그로'를 명시한다."""
+        모델 대비). 자연어면 '문장으로', 단부루면 '태그로'를 명시한다.
+
+        어시스턴트 모드는 텍스트를 '이미지에 적용할 변형 지시'로 다룬다."""
         text = (text or "").strip()
         kind = "Danbooru tags" if style == STYLE_DANBOORU else "a natural-language description"
+        if assistant:
+            if has_image and text:
+                return f"Apply this change to the image and write {kind} for the modified image: {text}"
+            if has_image:
+                return f"Write {kind} for a NovelAI prompt based on this image."
+            # 이미지 없이 지시만 — 어시스턴트가 변형할 대상이 없으니 지시대로 새로 쓴다.
+            return f"Write {kind} for a NovelAI prompt for: {text}"
         if has_image and not text:
             return f"Write {kind} for a NovelAI prompt based on this image."
         if has_image:

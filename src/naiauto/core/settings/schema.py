@@ -151,6 +151,12 @@ class LMStudioSettings(BaseModel):
     #: 출력 스타일 기본값. "natural"(서술형 자연어) | "danbooru"(쉼표 구분 태그).
     #: 모델이 두 형태를 오가는 편차를 없애기 위해 스타일마다 시스템 프롬프트를 다르게 쓴다.
     default_style: str = "natural"
+    #: 프롬프트 어시스턴트 창이 열릴 때 기본 모드.
+    #: "wd_tagger"(WD14 로컬) | "llm_tagger"(LM Studio 태거) | "llm_assistant"(이미지+지시 변형).
+    default_mode: str = "llm_tagger"
+    #: 출력 길이 기본값. "short" | "medium" | "long".
+    #: LLM은 max_tokens+프롬프트 지시로, WD 태거는 일반 태그 임계값으로 번역된다.
+    default_length: str = "medium"
 
 
 class AppSettings(BaseModel):

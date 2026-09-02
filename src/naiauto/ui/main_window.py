@@ -421,15 +421,10 @@ class MainWindow(QMainWindow):
 
         self.tools_menu.addSeparator()
 
-        # M3: WD14 Auto-Tag action
-        self.wd14_action = self.tools_menu.addAction("")
-        self.wd14_action.setShortcut("Ctrl+T")
-        self.wd14_action.triggered.connect(self._on_open_wd14)
-
-        # 자연어 프롬프트 생성 (LM Studio 로컬 LLM 연동)
-        self.prompt_gen_action = self.tools_menu.addAction("")
-        self.prompt_gen_action.setShortcut("Ctrl+G")
-        self.prompt_gen_action.triggered.connect(self._on_open_lmstudio)
+        # NAI 프롬프트 어시스턴트 — WD 태거 + LM Studio를 한 창으로 통합 (Ctrl+G)
+        self.assistant_action = self.tools_menu.addAction("")
+        self.assistant_action.setShortcut("Ctrl+G")
+        self.assistant_action.triggered.connect(self._on_open_assistant)
 
         # M3: Presets action
         self.presets_action = self.tools_menu.addAction("")
@@ -621,93 +616,28 @@ class MainWindow(QMainWindow):
         """Gallery에서 Reuse Settings 요청 시 기존 apply_reusable로 위임."""
         self.open_image_info(path)
 
-    # ── M3: WD14 Auto-Tag ────────────────────────────────
+    # ── NAI 프롬프트 어시스턴트 (WD 태거 + LM Studio 통합) ──
 
-    def _on_open_wd14(self) -> None:
-        """WD14 Auto-Tag 다이얼로그를 연다.
+    def _on_open_assistant(self) -> None:
+        """통합 프롬프트 어시스턴트 창을 연다.
 
-        모델과 태그 CSV는 옵션 → 태그에서 지정한 폴더(`wd14_dir`)에서, 거기서 고른
-        모델(`wd14_model`)을 우선해 찾는다 (기본 폴더는 데이터 폴더의 `wd14/`).
-        파일 이름은 받은 곳마다 다르므로 폴더 안을 훑는다 —
-        `core.wd14_tagger.resolve_model_files` 참고.
+        LM Studio(`lmstudio`)를 쓸 수 없으면 창을 여는 대신 이유를 알린다. WD 태거는
+        런타임/모델이 없어도 창은 열되(다른 모드는 쓸 수 있으므로) WD 모드만 잠근다.
         """
-        from ..core.wd14_tagger import resolve_model_files, runtime_error
+        from ..core.llm.lmstudio_client import LMStudioConfig
+        from ..core.llm.lmstudio_client import runtime_error as llm_runtime_error
 
         tr = self._i18n.get_text
 
-        # onnxruntime을 쓸 수 없으면 창을 열어 봐야 아무것도 못 한다 — 이유를 그대로 알린다.
-        # (모델이 없는 것과 원인이 전혀 다르므로 안내도 따로 한다.)
-        failure = runtime_error()
-        if failure:
-            logger.warning("WD14 runtime unavailable: %s", failure)
-            QMessageBox.information(
-                self, tr("menu.wd14_auto_tag"), tr("errors.wd14_runtime_missing", failure)
-            )
-            return
-
-        from .wd14_dialog import WD14Dialog
-
-        directory = self._settings.wd14_dir_path()
-        model_path, tags_path = resolve_model_files(directory, self._settings.wd14_model)
-
-        if model_path is None or tags_path is None:
-            missing = "*.onnx" if model_path is None else "*.csv"
-            logger.warning("WD14 model files not found in %s (missing %s)", directory, missing)
-            QMessageBox.information(
-                self,
-                tr("menu.wd14_auto_tag"),
-                tr("errors.wd14_model_missing", missing, str(directory)),
-            )
-            return
-
-        try:
-            from ..core.wd14_tagger import WD14Tagger
-
-            tagger = WD14Tagger(model_path=model_path, tags_path=tags_path)
-        except Exception:
-            logger.warning("WD14 tagger could not be initialized")
-            QMessageBox.information(
-                self,
-                tr("menu.wd14_auto_tag"),
-                tr("errors.wd14_model_missing", "*.onnx", str(directory)),
-            )
-            return
-
-        dialog = WD14Dialog(tagger=tagger, i18n=self._i18n, parent=self)
-        dialog.tags_selected.connect(self._on_wd14_tags_selected)
-        dialog.exec()
-
-    def _on_wd14_tags_selected(self, tags: list[str]) -> None:
-        """WD14에서 선택된 태그를 현재 포커스된 프롬프트 필드에 추가."""
-        from ..core.wd14_tagger import append_tags_to_prompt
-
-        # 현재 포커스된 프롬프트 필드 결정 (기본: main prompt)
-        target = self.prompt_edit
-        if self.negative_edit.hasFocus():
-            target = self.negative_edit
-
-        current = target.toPlainText()
-        target.setPlainText(append_tags_to_prompt(current, tags))
-
-    # ── 자연어 프롬프트 생성 (LM Studio) ────────────────────
-
-    def _on_open_lmstudio(self) -> None:
-        """LM Studio 연동 프롬프트 생성 다이얼로그를 연다.
-
-        `lmstudio`를 쓸 수 없으면(소스 실행 시 미설치) 창을 여는 대신 이유를 알린다 —
-        WD14의 `runtime_error()` 경로와 같다.
-        """
-        from ..core.llm.lmstudio_client import LMStudioConfig, runtime_error
-
-        tr = self._i18n.get_text
-
-        failure = runtime_error()
+        failure = llm_runtime_error()
         if failure:
             logger.warning("LM Studio runtime unavailable: %s", failure)
-            QMessageBox.information(self, tr("menu.prompt_gen"), tr("lmstudio.err_not_installed", failure))
+            QMessageBox.information(
+                self, tr("menu.prompt_assistant"), tr("lmstudio.err_not_installed", failure)
+            )
             return
 
-        from .lmstudio_dialog import LMStudioDialog
+        from .assistant_dialog import AssistantDialog
 
         cfg = self._settings.lmstudio
         config = LMStudioConfig(
@@ -717,17 +647,45 @@ class MainWindow(QMainWindow):
             style=cfg.default_style,
             system_prompt=cfg.system_prompt,
         )
-        dialog = LMStudioDialog(
+        factory, reason = self._wd_tagger_factory()
+        dialog = AssistantDialog(
             config=config,
             i18n=self._i18n,
+            wd_tagger_factory=factory,
+            wd_unavailable_reason=reason,
             default_apply_mode=cfg.default_apply_mode,
             default_style=cfg.default_style,
+            default_mode=cfg.default_mode,
+            default_length=cfg.default_length,
             parent=self,
         )
-        dialog.prompt_ready.connect(self._on_lmstudio_prompt_ready)
+        dialog.prompt_ready.connect(self._on_assistant_prompt_ready)
         dialog.exec()
 
-    def _on_lmstudio_prompt_ready(self, prompt: str, negative: str, mode: str) -> None:
+    def _wd_tagger_factory(self):
+        """(factory, reason) 반환. WD를 쓸 수 있으면 태거를 만드는 콜러블, 아니면 (None, 이유).
+
+        태거 생성을 지연 콜러블로 넘기는 이유: 창을 열 때가 아니라 WD 모드에서 실제로
+        생성을 누를 때 ONNX 세션을 만들도록 해, LLM만 쓰는 사용자는 비용을 치르지 않는다.
+        """
+        from ..core.wd14_tagger import resolve_model_files, runtime_error
+
+        tr = self._i18n.get_text
+        failure = runtime_error()
+        if failure:
+            return None, tr("errors.wd14_runtime_missing", failure)
+
+        directory = self._settings.wd14_dir_path()
+        model_path, tags_path = resolve_model_files(directory, self._settings.wd14_model)
+        if model_path is None or tags_path is None:
+            missing = "*.onnx" if model_path is None else "*.csv"
+            return None, tr("errors.wd14_model_missing", missing, str(directory))
+
+        from ..core.wd14_tagger import WD14Tagger
+
+        return (lambda: WD14Tagger(model_path=model_path, tags_path=tags_path)), ""
+
+    def _on_assistant_prompt_ready(self, prompt: str, negative: str, mode: str) -> None:
         """생성된 프롬프트를 프롬프트/네거티브 칸에 반영한다 (mode: append|replace)."""
         from ..core.llm.prompt_apply import apply_generated_prompt
 
@@ -2072,8 +2030,7 @@ class MainWindow(QMainWindow):
         self.measure_credit_action.setText(tr("logs.measure_credit"))
         self.measure_credit_action.setToolTip(tr("logs.measure_credit_hint"))
         # M3: WD14 / Presets / Gallery actions
-        self.wd14_action.setText(tr("menu.wd14_auto_tag"))
-        self.prompt_gen_action.setText(tr("menu.prompt_gen"))
+        self.assistant_action.setText(tr("menu.prompt_assistant"))
         self.presets_action.setText(tr("menu.presets"))
         self.gallery_action.setText(tr("menu.gallery_view"))
         self.folders_menu.setTitle(tr("folders.title"))
