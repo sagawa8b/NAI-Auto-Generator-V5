@@ -556,6 +556,19 @@ class MainWindow(QMainWindow):
         # Gallery View — save_dir 기반 썸네일 그리드
         self._gallery_view: GalleryView | None = None
 
+        # 이미지 정보 창 — 모드리스라 하나만 띄워 두고 파일만 갈아 끼운다
+        self._image_info_dialog: ImageInfoDialog | None = None
+
+        # 프롬프트/캐릭터 슬롯에 이미지를 놓으면 경로를 붙이지 않고 이미지 정보를 연다
+        self.prompt_tabs.image_dropped.connect(self.open_image_info)
+        self.character_prompts.slot_added.connect(self._connect_slot_image_drop)
+        for slot in self.character_prompts.slots:
+            self._connect_slot_image_drop(slot)
+
+    def _connect_slot_image_drop(self, slot: CharacterSlot) -> None:
+        """캐릭터 슬롯 입력창에 놓은 이미지도 메인 프롬프트와 똑같이 다룬다."""
+        slot.tabs.image_dropped.connect(self.open_image_info)
+
     def _refresh_tag_completer(self) -> None:
         """설정된 경로(비어 있으면 내장 DB)로 태그 DB를 다시 읽고 드롭다운을 붙인다 (Req 7.3).
 
@@ -622,6 +635,7 @@ class MainWindow(QMainWindow):
                 parent=self,
             )
             self._gallery_view.reuse_requested.connect(self._on_gallery_reuse)
+            self._gallery_view.settings_reused.connect(self.apply_reusable)
             self._gallery_view.setWindowTitle(self._i18n.get_text("menu.gallery_view"))
             self._gallery_view.setMinimumSize(600, 400)
 
@@ -1424,23 +1438,30 @@ class MainWindow(QMainWindow):
             self.status_label.setText(tr("statusbar.before_login"))
 
     def _on_open_image_info(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            self._i18n.get_text("image_info.open"),
-            self._settings.save_dir,
-            "Images (*.png *.webp)",
-        )
-        if path:
-            self.open_image_info(path)
+        """메뉴에서 연다 — 파일 선택 창을 먼저 띄우지 않는다.
+
+        V4와 같은 흐름이다: 창부터 뜨고, 그 안에서 파일 열기 버튼을 누르거나
+        이미지를 끌어다 놓는다. 창은 모드리스라 메인 창을 막지 않는다.
+        """
+        self._show_image_info()
 
     def open_image_info(self, path: str) -> ImageInfoDialog:
         """PNG의 생성 정보를 보여주고, 사용자가 수락하면 설정을 UI에 적용한다."""
         from pathlib import Path as _Path
 
-        dialog = ImageInfoDialog(self._i18n, self)
-        dialog.settings_selected.connect(self.apply_reusable)
+        dialog = self._show_image_info()
         dialog.load_file(_Path(path))
-        dialog.exec()
+        return dialog
+
+    def _show_image_info(self) -> ImageInfoDialog:
+        """이미지 정보 창을 띄우고 돌려준다 (없으면 만들고, 있으면 앞으로 가져온다)."""
+        if self._image_info_dialog is None:
+            self._image_info_dialog = ImageInfoDialog(self._i18n, self)
+            self._image_info_dialog.settings_selected.connect(self.apply_reusable)
+        dialog = self._image_info_dialog
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
         return dialog
 
     def apply_reusable(self, s: ReusableSettings) -> None:
