@@ -608,6 +608,7 @@
       "no_file": "Select a file",
       "open_file": "Open File",
       "apply_selected": "Apply Selected",
+      "copy_selected": "Copy selected",
       "zoom_hint": "Scroll: zoom, Double-click: reset"
     },
     "image_source": {

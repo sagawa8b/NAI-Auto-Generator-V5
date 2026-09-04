@@ -608,6 +608,7 @@
       "no_file": "ファイルを選択してください",
       "open_file": "ファイルを開く",
       "apply_selected": "選択項目を適用",
+      "copy_selected": "選択項目をコピー",
       "zoom_hint": "スクロール: ズーム、ダブルクリック: リセット"
     },
     "image_source": {

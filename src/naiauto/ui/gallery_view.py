@@ -263,7 +263,8 @@ class GalleryView(QDialog):
       - 읽을 수 없는 PNG → 깨진 이미지 자리 표시 + 메타데이터 스킵
     """
 
-    reuse_requested = Signal(str)  # path to PNG
+    reuse_requested = Signal(str)  # path to PNG — 이미지 정보 창을 열어 달라는 요청
+    settings_reused = Signal(object)  # ReusableSettings — 창 안에서 이미 고른 설정
 
     def __init__(self, save_dir: str, i18n: I18nManager, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -426,7 +427,14 @@ class GalleryView(QDialog):
 
         dialog = ImageInfoDialog(self._i18n, parent=self)
         dialog.load_file(_Path(path))
-        dialog.settings_selected.connect(lambda _s: self.reuse_requested.emit(path))
+
+        def _reuse(settings) -> None:
+            # 여기서 고른 항목을 그대로 넘긴다 — 메인 창의 이미지 정보 창을 한 번 더
+            # 띄우면 (모달인 이 창 뒤에 가려서) 손댈 수도 없고, 고른 것도 버려진다.
+            dialog.accept()
+            self.settings_reused.emit(settings)
+
+        dialog.settings_selected.connect(_reuse)
         dialog.exec()
 
     # ------------------------------------------------------------------
