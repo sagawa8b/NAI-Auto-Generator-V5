@@ -13,7 +13,7 @@ from collections.abc import Callable
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QKeyEvent
-from PySide6.QtWidgets import QLabel, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QSizePolicy, QToolButton, QVBoxLayout, QWidget
 
 from ...core.i18n.manager import I18nManager
 
@@ -34,6 +34,9 @@ class SummaryStrip(QLabel):
         self.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setStyleSheet("color: palette(mid);")
+        # 요약은 한 줄이라 폭이 곧 글자 수다. Ignored로 두지 않으면 이 라벨의 최소 폭이
+        # 좌측 패널 전체의 하한이 되어, 패널을 절반까지 좁힐 수 없다 (잘려도 되는 글이다).
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
 
 
 class SectionHeader(QToolButton):

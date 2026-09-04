@@ -26,7 +26,8 @@
       "prompt_assistant": "NAI 프롬프트 어시스턴트...",
       "presets": "프리셋...",
       "preset_applied": "프리셋을 적용했습니다.",
-      "accounts": "API 계정 관리(Accounts)..."
+      "accounts": "API 계정 관리(Accounts)...",
+      "narrow_panel": "입력 패널 좁게"
     },
     "statusbar": {
       "before_login": "로그인이 필요합니다.",
@@ -93,6 +94,7 @@
       "uc_preset": "네거티브 프리셋:",
       "quality_tags": "퀄리티 태그 자동 추가",
       "undesired_content": "네거티브",
+      "position_panel": "위치 지정",
       "position_hint": "마커를 끌어 캐릭터 위치를 지정하세요. 캔버스 비율은 현재 생성 해상도를 따릅니다.",
       "position_auto": "자동",
       "summary_ai": "스텝 {0} · PG {1} · 시드 {2} · {3}",
@@ -100,7 +102,8 @@
       "section_expanded": "펼침",
       "section_collapsed": "접힘",
       "options_menu": "옵션...",
-      "manual_position": "수동 위치 지정"
+      "manual_position": "수동 위치 지정",
+      "toggle_slot": "슬롯 접기 / 펼치기"
     },
     "image_options": {
       "title": "이미지 옵션",
@@ -212,7 +215,11 @@
       "save_image_short": "저장",
       "prompt_title": "결과 프롬프트",
       "overlay_toggle": "프롬프트 결과 표시",
-      "overlay_toggle_short": "결과"
+      "overlay_toggle_short": "결과",
+      "field_rescale": "Rescale",
+      "field_scheduler": "노이즈 스케줄",
+      "overlay_waiting": "생성을 시작하면 이 자리에 그 이미지의 프롬프트와 설정이 표시됩니다.",
+      "overlay_toggle_hint": "방금 생성한 이미지의 프롬프트와 설정을 결과 이미지 위에 겹쳐 보여 줍니다 (F8). 와일드카드·아티스트 조합이 전개된 뒤의 실제 전송 값입니다."
     },
     "dialogs": {
       "login_title": "NAI API 로그인",
@@ -575,7 +582,7 @@
     "batch": {
       "count": "생성 매수 (0=무한):",
       "delay": "간격(초):",
-      "random_resolution": "매 장마다 해상도 랜덤 (세로/가로/정방형)",
+      "random_resolution": "해상도 랜덤",
       "random_resolution_tooltip": "생성할 때마다 Wide/Square/Portrait 중 하나를 무작위로 골라 해상도를 바꿉니다. i2i/인페인팅 중에는 원본 이미지 크기가 우선이라 적용되지 않습니다.",
       "random_settings_order": "세팅별 연속 생성에서 세팅 파일을 무작위 순서로",
       "random_settings_order_hint": "끄면 고른 순서대로 순환합니다. 켜면 매 장마다 무작위로 고릅니다 (같은 파일이 연달아 나오지는 않습니다).",

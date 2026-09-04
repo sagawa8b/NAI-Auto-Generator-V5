@@ -143,6 +143,9 @@ class UiState(BaseModel):
     """Collapsible_Section 펼침 상태. 기본은 접힘."""
 
     ai_settings_expanded: bool = False
+    #: 캐릭터 위치 지정 캔버스. 여기만 기본이 펼침이다 — 접힌 채로 뜨면 캐릭터를
+    #: 두 명 넣었을 때 위치를 지정할 수 있다는 사실 자체가 보이지 않는다.
+    position_panel_expanded: bool = True
 
 
 class PromptFontSettings(BaseModel):
@@ -208,6 +211,8 @@ class AppSettings(BaseModel):
     debug_logging: bool = False  # 로그 뷰어에서 켜면 DEBUG 레벨로 기록
     show_image_source: bool = False  # i2i 패널은 보기 메뉴(F2)로 켤 때만 표시
     show_enhance: bool = False  # 강화(업스케일) 패널은 보기 메뉴(F4)로 켤 때만 표시
+    #: 결과 이미지 위에 그 장의 프롬프트를 겹쳐 보여 준다 (보기 메뉴 F8, V4의 '프롬프트 결과 표시')
+    show_result_overlay: bool = False
     measure_credit: bool = False  # V5 크레딧 소모량 측정 로그 (도구 메뉴)
     check_updates_on_start: bool = True  # 시작 시 새 버전 확인 (기타 메뉴에서 수동 확인도 가능)
     generation: GenerationDefaults = Field(default_factory=GenerationDefaults)

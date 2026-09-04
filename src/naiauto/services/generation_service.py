@@ -282,6 +282,7 @@ class GenerationService:
                         path=str(path),
                         size_bytes=len(result.raw_bytes),
                         seed=req.seed,
+                        request=req,
                     )
                 )
 

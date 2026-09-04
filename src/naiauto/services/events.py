@@ -7,6 +7,10 @@ ui/qt_bridge.py가 이 이벤트들을 Qt 시그널로 변환한다 (Qt는 여�
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover - 타입 힌트 전용 (서비스 계층에 무거운 import를 만들지 않는다)
+    from ..core.api.models import GenerationRequest
 
 
 @dataclass(frozen=True)
@@ -32,6 +36,10 @@ class ImageCompleted(GenerationEvent):
     path: str
     size_bytes: int
     seed: int
+    #: 이 장에 실제로 보낸 요청 — 와일드카드·아티스트 조합·{a|b} 선택까지 전개된 값이다.
+    #: 결과 오버레이가 "방금 만든 이미지의 프롬프트"를 그대로 보여 주는 데 쓴다.
+    #: 기본 None: 이벤트를 직접 만들어 쓰는 테스트가 이 필드까지 채우지 않아도 되게.
+    request: GenerationRequest | None = None
 
 
 @dataclass(frozen=True)

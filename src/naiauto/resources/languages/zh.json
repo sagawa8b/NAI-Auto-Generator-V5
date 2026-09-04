@@ -26,7 +26,8 @@
       "prompt_assistant": "NAI 提示词助手...",
       "presets": "预设...",
       "preset_applied": "已应用预设。",
-      "accounts": "API 账户管理(Accounts)..."
+      "accounts": "API 账户管理(Accounts)...",
+      "narrow_panel": "收窄输入面板"
     },
     "statusbar": {
       "before_login": "需要登录。",
@@ -93,6 +94,7 @@
       "uc_preset": "负面预设:",
       "quality_tags": "自动添加质量标签",
       "undesired_content": "负面内容",
+      "position_panel": "位置指定",
       "position_hint": "拖动标记来指定角色位置。画布比例与当前生成分辨率一致。",
       "position_auto": "自动",
       "summary_ai": "步数 {0} · PG {1} · 种子 {2} · {3}",
@@ -100,7 +102,8 @@
       "section_expanded": "已展开",
       "section_collapsed": "已折叠",
       "options_menu": "选项...",
-      "manual_position": "手动位置"
+      "manual_position": "手动位置",
+      "toggle_slot": "折叠 / 展开该角色"
     },
     "image_options": {
       "title": "图像选项",
@@ -212,7 +215,11 @@
       "save_image_short": "保存",
       "prompt_title": "结果提示词",
       "overlay_toggle": "显示提示词",
-      "overlay_toggle_short": "显示"
+      "overlay_toggle_short": "显示",
+      "field_rescale": "Rescale",
+      "field_scheduler": "噪声调度",
+      "overlay_waiting": "开始生成后，这里会显示该图片的提示词与设置。",
+      "overlay_toggle_hint": "在结果图像上叠加显示刚生成图片的提示词与设置 (F8)。显示的是展开通配符与画师组合之后实际发送的值。"
     },
     "dialogs": {
       "login_title": "NAI API 登录",
@@ -575,7 +582,7 @@
     "batch": {
       "count": "生成数量 (0=无限):",
       "delay": "间隔(秒):",
-      "random_resolution": "每张随机分辨率 (横/竖/正方形)",
+      "random_resolution": "随机分辨率",
       "random_resolution_tooltip": "每次生成时随机选择 Wide/Square/Portrait 中的一种分辨率。i2i/局部重绘时会优先使用原图尺寸，因此不生效。",
       "random_settings_order": "按设置连续生成时随机选择设置文件",
       "random_settings_order_hint": "关闭时按选择顺序循环；开启后每张随机挑选一个(不会连续两次使用同一个文件)。",

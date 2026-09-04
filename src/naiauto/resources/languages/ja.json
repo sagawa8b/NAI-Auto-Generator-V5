@@ -26,7 +26,8 @@
       "prompt_assistant": "NAI プロンプトアシスタント...",
       "presets": "プリセット...",
       "preset_applied": "プリセットを適用しました。",
-      "accounts": "APIアカウント管理(Accounts)..."
+      "accounts": "APIアカウント管理(Accounts)...",
+      "narrow_panel": "入力パネルを狭く"
     },
     "statusbar": {
       "before_login": "ログインが必要です。",
@@ -93,6 +94,7 @@
       "uc_preset": "ネガティブプリセット:",
       "quality_tags": "クオリティタグを自動追加",
       "undesired_content": "ネガティブ",
+      "position_panel": "位置指定",
       "position_hint": "マーカーをドラッグしてキャラクターの位置を指定します。キャンバスの比率は現在の生成解像度に合わせて表示されます。",
       "position_auto": "自動",
       "summary_ai": "ステップ {0} · PG {1} · シード {2} · {3}",
@@ -100,7 +102,8 @@
       "section_expanded": "展開",
       "section_collapsed": "折りたたみ",
       "options_menu": "オプション...",
-      "manual_position": "手動位置指定"
+      "manual_position": "手動位置指定",
+      "toggle_slot": "スロットを折りたたむ / 展開"
     },
     "image_options": {
       "title": "画像オプション",
@@ -212,7 +215,11 @@
       "save_image_short": "保存",
       "prompt_title": "結果プロンプト",
       "overlay_toggle": "プロンプト表示",
-      "overlay_toggle_short": "表示"
+      "overlay_toggle_short": "表示",
+      "field_rescale": "Rescale",
+      "field_scheduler": "ノイズスケジュール",
+      "overlay_waiting": "生成すると、その画像のプロンプトと設定がここに表示されます。",
+      "overlay_toggle_hint": "生成したばかりの画像のプロンプトと設定を結果画像に重ねて表示します (F8)。ワイルドカードやアーティスト組み合わせを展開した後の、実際に送信した値です。"
     },
     "dialogs": {
       "login_title": "NAI API ログイン",
@@ -575,7 +582,7 @@
     "batch": {
       "count": "生成枚数 (0=無限):",
       "delay": "間隔(秒):",
-      "random_resolution": "1枚ごとに解像度をランダム化 (縦/横/正方形)",
+      "random_resolution": "解像度ランダム",
       "random_resolution_tooltip": "生成ごとにWide/Square/Portraitのいずれかをランダムに選んで解像度を変更します。i2i/インペイント中は元画像サイズが優先されるため適用されません。",
       "random_settings_order": "セット別連続生成で設定ファイルをランダム順に",
       "random_settings_order_hint": "オフなら選んだ順に巡回します。オンにすると毎回ランダムに選びます(同じファイルが連続することはありません)。",

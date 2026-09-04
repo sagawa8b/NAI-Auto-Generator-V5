@@ -17,7 +17,6 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
     QGroupBox,
-    QHBoxLayout,
     QLabel,
     QPushButton,
     QSizePolicy,
@@ -39,6 +38,7 @@ from ...core.resolution_catalog import (
     exceeds_free_pixels,
     snap_size,
 )
+from .flow_layout import FlowLayout
 from .wheel_guard import guard_wheel
 
 if TYPE_CHECKING:  # pragma: no cover - 타입 힌트 전용
@@ -60,9 +60,9 @@ class AspectSelector(QWidget):
         super().__init__(parent)
         self._current = Aspect.SQUARE
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        # FlowLayout — 패널이 좁아지면 버튼 세 개가 두 줄로 나뉜다 (QHBoxLayout이면
+        # 세 버튼의 폭 합이 그대로 해상도 패널의 최소 폭이 된다).
+        layout = FlowLayout(self, spacing=4)
 
         self._group = QButtonGroup(self)
         self._group.setExclusive(True)
@@ -128,18 +128,18 @@ class ResolutionPanel(QGroupBox):
         layout = QVBoxLayout(self)
 
         # 1행: 등급 콤보 + Aspect 버튼
-        top_row = QHBoxLayout()
+        top_row = FlowLayout(expand=True)  # 남는 자리는 Expanding인 등급 콤보가 가져간다
         self.group_label = QLabel()
         self.group_combo = QComboBox()
         self.group_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.aspect_selector = AspectSelector()
         top_row.addWidget(self.group_label)
-        top_row.addWidget(self.group_combo, stretch=1)
+        top_row.addWidget(self.group_combo)
         top_row.addWidget(self.aspect_selector)
         layout.addLayout(top_row)
 
         # 2행: 너비 × 높이
-        size_row = QHBoxLayout()
+        size_row = FlowLayout()
         self.width_label = QLabel()
         self.width_spin = self._make_dimension_spin(DEFAULT_SIZE[0])
         self.times_label = QLabel("×")
@@ -150,7 +150,6 @@ class ResolutionPanel(QGroupBox):
         size_row.addWidget(self.times_label)
         size_row.addWidget(self.height_label)
         size_row.addWidget(self.height_spin)
-        size_row.addStretch(1)
         layout.addLayout(size_row)
 
         # 3행: 경고 / 안내

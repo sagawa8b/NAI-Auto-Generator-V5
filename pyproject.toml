@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nai-auto-v5"
-version = "0.7.4"
+version = "0.7.5"
 description = "NovelAI Diffusion V5 image generation automation app (PySide6)"
 readme = "README.md"
 requires-python = ">=3.10"

@@ -26,7 +26,8 @@
       "prompt_assistant": "NAI Prompt Assistant...",
       "presets": "Presets...",
       "preset_applied": "Preset loaded.",
-      "accounts": "Manage API Accounts..."
+      "accounts": "Manage API Accounts...",
+      "narrow_panel": "Narrow input panel"
     },
     "statusbar": {
       "before_login": "Login required.",
@@ -93,6 +94,7 @@
       "uc_preset": "UC Preset:",
       "quality_tags": "Append quality tags",
       "undesired_content": "Undesired Content",
+      "position_panel": "Position",
       "position_hint": "Drag the markers to place each character. The canvas matches the current generation resolution.",
       "position_auto": "Auto",
       "summary_ai": "Steps {0} · PG {1} · Seed {2} · {3}",
@@ -100,7 +102,8 @@
       "section_expanded": "expanded",
       "section_collapsed": "collapsed",
       "options_menu": "Options...",
-      "manual_position": "Manual Position"
+      "manual_position": "Manual Position",
+      "toggle_slot": "Collapse / expand slot"
     },
     "image_options": {
       "title": "Image Options",
@@ -212,7 +215,11 @@
       "save_image_short": "Save",
       "prompt_title": "Result Prompt",
       "overlay_toggle": "Show Prompt",
-      "overlay_toggle_short": "Result"
+      "overlay_toggle_short": "Result",
+      "field_rescale": "Rescale",
+      "field_scheduler": "Noise schedule",
+      "overlay_waiting": "Once you generate an image, its prompt and settings appear here.",
+      "overlay_toggle_hint": "Overlays the prompt and settings of the image you just generated on the result view (F8). Shows the values actually sent, after wildcards and artist combos are expanded."
     },
     "dialogs": {
       "login_title": "NAI API Login",
@@ -575,7 +582,7 @@
     "batch": {
       "count": "Count (0=infinite):",
       "delay": "Delay (sec):",
-      "random_resolution": "Random resolution per image (Wide/Square/Portrait)",
+      "random_resolution": "Random resolution",
       "random_resolution_tooltip": "Picks a random Wide/Square/Portrait resolution for each generated image. Ignored while i2i/inpainting locks the size to the source image.",
       "random_settings_order": "Pick settings files in random order (per-settings batch)",
       "random_settings_order_hint": "Off: cycle through the files in the order you picked them. On: pick one at random for each image (never the same file twice in a row).",

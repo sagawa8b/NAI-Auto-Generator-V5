@@ -9,7 +9,7 @@ V5도 캐릭터 프롬프트를 지원한다 (2026-08-21 캡처의 `characterPro
 
 from __future__ import annotations
 
-from PySide6.QtCore import QSettings, Signal
+from PySide6.QtCore import QSettings, Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -17,21 +17,40 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSizePolicy,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from ...core.api.models import CharacterCaption
 from ...core.i18n.manager import I18nManager
-from .position_picker import PositionPicker, clamp_coord
+from .collapsible_section import CollapsibleSection
+from .flow_layout import FlowLayout
+from .position_picker import CANVAS_HEIGHT, PositionPicker, clamp_coord
 from .prompt_tabs import PromptTabs
 from .resize_handle import ResizeHandle
 from .wheel_guard import WheelGuard, guard_wheel
+
+#: 위치 지정 캔버스 높이를 담는 QSettings 키 (접힘 상태는 settings.ui가 들고 있다).
+POSITION_HEIGHT_KEY = "ui/position_picker_height"
+#: 접힌 위치 패널 요약에서 캐릭터 사이를 잇는 구분자.
+POSITION_SUMMARY_SEPARATOR = " · "
+#: 접힌 캐릭터 슬롯 헤더에 남기는 프롬프트 미리보기 길이 (글자 수).
+SLOT_PREVIEW_LENGTH = 40
 
 X_LABELS = ("A", "B", "C", "D", "E")
 Y_LABELS = ("1", "2", "3", "4", "5")
 GRID_VALUES = (0.1, 0.3, 0.5, 0.7, 0.9)  # 안내선/셀 이름 계산용 (스냅은 하지 않는다)
 DEFAULT_CENTER = 0.5
+
+
+def slot_preview(prompt: str, limit: int = SLOT_PREVIEW_LENGTH) -> str:
+    """접힌 슬롯 헤더에 남길 프롬프트 한 줄 (줄바꿈은 공백으로, 길면 말줄임)."""
+    flat = " ".join(prompt.split())
+    if len(flat) <= limit:
+        return flat
+    return flat[:limit].rstrip() + "…"
 
 
 def grid_cell_name(center_x: float, center_y: float) -> str:
@@ -54,15 +73,27 @@ class CharacterSlot(QFrame):
         self._center = (DEFAULT_CENTER, DEFAULT_CENTER)
         self._positioned = False  # 사용자가 직접 옮겼는가 (자동 배치 대상 판별)
         self._position_active = False
+        self._collapsed = False
         self.setFrameShape(QFrame.Shape.StyledPanel)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 6, 8, 6)
 
         header = QHBoxLayout()
+        # 접기 화살표 — 슬롯이 서너 개만 돼도 세로가 금방 찬다. 접으면 헤더 한 줄만 남는다.
+        self.collapse_button = QToolButton()
+        self.collapse_button.setAutoRaise(True)
+        self.collapse_button.setArrowType(Qt.ArrowType.DownArrow)
+        self.collapse_button.clicked.connect(lambda: self.set_collapsed(not self._collapsed))
         self.enabled_check = QCheckBox()
         self.enabled_check.setChecked(True)
         self.title_label = QLabel()
+        # 접혔을 때만 보이는 프롬프트 미리보기. Ignored로 두어 이 글자 수가 슬롯의
+        # 최소 폭이 되지 않게 한다 (좁힌 패널에서 잘려도 되는 글이다).
+        self.preview_label = QLabel()
+        self.preview_label.setStyleSheet("color: palette(mid);")
+        self.preview_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.preview_label.setVisible(False)
         self.position_label = QLabel()
         self.position_value = QLabel()
         self.position_value.setStyleSheet("color: palette(mid);")
@@ -70,8 +101,10 @@ class CharacterSlot(QFrame):
         self.remove_button.setFixedWidth(30)
         self.remove_button.clicked.connect(lambda: self.remove_requested.emit(self))
 
+        header.addWidget(self.collapse_button)
         header.addWidget(self.enabled_check)
         header.addWidget(self.title_label)
+        header.addWidget(self.preview_label, stretch=1)
         header.addStretch(1)
         header.addWidget(self.position_label)
         header.addWidget(self.position_value)
@@ -100,6 +133,7 @@ class CharacterSlot(QFrame):
         self.uc_edit = self.tabs.negative_edit
         self.prompt_edit.textChanged.connect(self.changed)
         self.uc_edit.textChanged.connect(self.changed)
+        self.prompt_edit.textChanged.connect(self._refresh_preview)
         self._refresh_position_text()
         self._resize_handle.restore_height()
 
@@ -112,6 +146,26 @@ class CharacterSlot(QFrame):
     @property
     def center(self) -> tuple[float, float]:
         return self._center
+
+    @property
+    def collapsed(self) -> bool:
+        """본문(프롬프트 탭)을 접어 헤더 한 줄만 남긴 상태인가."""
+        return self._collapsed
+
+    def set_collapsed(self, collapsed: bool) -> None:
+        """본문을 접거나 편다. 접어도 값은 그대로 살아 있다 (숨기기만 한다)."""
+        self._collapsed = bool(collapsed)
+        self.tabs.setVisible(not self._collapsed)
+        self._resize_handle.setVisible(not self._collapsed)
+        self.collapse_button.setArrowType(
+            Qt.ArrowType.RightArrow if self._collapsed else Qt.ArrowType.DownArrow
+        )
+        self.preview_label.setVisible(self._collapsed)
+        self._refresh_preview()
+
+    def _refresh_preview(self) -> None:
+        if self._collapsed:
+            self.preview_label.setText(slot_preview(self.prompt_edit.toPlainText()))
 
     @property
     def positioned(self) -> bool:
@@ -170,6 +224,7 @@ class CharacterSlot(QFrame):
         self.position_label.setText(tr("ui.position"))
         self.tabs.retranslate()
         self.remove_button.setToolTip(tr("ui.clear_all"))
+        self.collapse_button.setToolTip(tr("ui.toggle_slot"))
 
 
 class CharacterPromptsWidget(QGroupBox):
@@ -190,7 +245,8 @@ class CharacterPromptsWidget(QGroupBox):
 
         layout = QVBoxLayout(self)
 
-        controls = QHBoxLayout()
+        # FlowLayout — 좌측 패널을 좁히면 체크박스와 버튼이 다음 줄로 넘어간다.
+        controls = FlowLayout()
         self.ai_position_check = QCheckBox()
         self.ai_position_check.setChecked(False)
         self.ai_position_check.toggled.connect(self._refresh_position_enabled)
@@ -205,18 +261,41 @@ class CharacterPromptsWidget(QGroupBox):
         self.clear_button.clicked.connect(self.clear_all)
         controls.addWidget(self.ai_position_check)
         controls.addWidget(self.manual_position_check)
-        controls.addStretch(1)
         controls.addWidget(self.add_button)
         controls.addWidget(self.clear_button)
         layout.addLayout(controls)
 
+        # 위치 지정 캔버스는 접을 수 있다 — 좌표를 한 번 잡고 나면 200px 넘는 캔버스가
+        # 캐릭터 슬롯을 화면 밖으로 밀어내기만 한다. 접으면 지금 좌표를 요약 한 줄로 보여 준다.
         self.position_picker = PositionPicker()
         self.position_picker.moved.connect(self._on_marker_moved)
         self.position_hint = QLabel()
         self.position_hint.setWordWrap(True)
         self.position_hint.setStyleSheet("color: palette(mid);")
-        layout.addWidget(self.position_hint)
-        layout.addWidget(self.position_picker)
+
+        position_body = QWidget()
+        body_layout = QVBoxLayout(position_body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(2)
+        body_layout.addWidget(self.position_hint)
+        body_layout.addWidget(self.position_picker)
+        # 캔버스 높이도 드래그로 조절한다 (마커를 정확히 놓으려면 넓은 편이 낫다).
+        self._picker_handle = ResizeHandle(
+            target=self.position_picker,
+            settings=QSettings(),
+            parent=position_body,
+            settings_key=POSITION_HEIGHT_KEY,
+            default_height=CANVAS_HEIGHT,
+        )
+        body_layout.addWidget(self._picker_handle)
+        self._picker_handle.restore_height()
+
+        self.position_section = CollapsibleSection(
+            i18n, "ui.position_panel", summary_provider=self._compose_position_summary
+        )
+        self.position_section.set_content(position_body)
+        self.position_section.set_expanded(True)
+        layout.addWidget(self.position_section)
 
         self._slots_layout = QVBoxLayout()
         self._slots_layout.setSpacing(6)
@@ -306,6 +385,7 @@ class CharacterPromptsWidget(QGroupBox):
         placed = self._marker_slots()
         if 0 <= index < len(placed):
             placed[index].set_center(center_x, center_y)
+            self.position_section.refresh_summary()  # 접었을 때 보일 요약을 최신 좌표로
 
     def _auto_arrange(self, placed: list[CharacterSlot]) -> None:
         """직접 옮긴 적 없는 슬롯을 가로로 고르게 벌린다.
@@ -330,11 +410,34 @@ class CharacterPromptsWidget(QGroupBox):
             self._auto_arrange(placed)
         for slot in self._slots:
             slot.set_position_enabled(enabled and slot.is_enabled)
-        self.position_picker.setVisible(enabled)
-        self.position_hint.setVisible(enabled)
+        # 좌표를 못 쓰는 상황에서는 접기 헤더까지 통째로 감춘다 — 접어 둔 상태여도
+        # 캔버스가 살아 있는 것처럼 보이면 안 된다.
+        self.position_section.setVisible(enabled)
         # 숨겨져 있어도 마커 목록은 항상 실제 슬롯과 맞춰 둔다 (삭제된 슬롯이 남지 않도록).
         # 라벨은 슬롯 번호 그대로 — 캔버스의 "2"와 "캐릭터 2"가 어긋나지 않게.
         self.position_picker.set_points([(str(self._slots.index(slot) + 1), *slot.center) for slot in placed])
+        self.position_section.refresh_summary()
+
+    # ── 위치 패널 접기 ───────────────────────────────────
+
+    def position_panel_expanded(self) -> bool:
+        """위치 지정 패널이 펼쳐져 있는가."""
+        return self.position_section.is_expanded()
+
+    def set_position_panel_expanded(self, expanded: bool) -> None:
+        """설정 복원용 — False면 캔버스를 접고 요약 한 줄만 남긴다."""
+        self.position_section.refresh_summary()
+        self.position_section.set_expanded(expanded)
+
+    def _compose_position_summary(self) -> str:
+        """접힌 위치 패널에 보일 한 줄 (예: "1 C3 · 2 D3").
+
+        캔버스의 마커가 아니라 슬롯이 들고 있는 좌표를 읽는다 — 마커 목록은
+        `_refresh_position_enabled()`가 돌 때만 갱신되므로 한 박자 늦을 수 있다.
+        """
+        return POSITION_SUMMARY_SEPARATOR.join(
+            f"{self._slots.index(slot) + 1} {grid_cell_name(*slot.center)}" for slot in self._marker_slots()
+        )
 
     # ── 요청 데이터 ──────────────────────────────────────
 
@@ -383,15 +486,20 @@ class CharacterPromptsWidget(QGroupBox):
         self.add_button.setText(tr("ui.add_character"))
         self.clear_button.setText(tr("ui.clear_all"))
         self.position_hint.setText(tr("ui.position_hint"))
+        self.position_section.retranslate()
         for slot in self._slots:
             slot.retranslate()
 
 
 __all__ = [
     "GRID_VALUES",
+    "POSITION_HEIGHT_KEY",
+    "POSITION_SUMMARY_SEPARATOR",
+    "SLOT_PREVIEW_LENGTH",
     "X_LABELS",
     "Y_LABELS",
     "CharacterPromptsWidget",
     "CharacterSlot",
     "grid_cell_name",
+    "slot_preview",
 ]

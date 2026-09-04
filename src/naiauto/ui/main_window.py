@@ -57,6 +57,7 @@ from ..core.metadata.reuse import ReusableSettings
 from ..core.presets import CharacterPromptPreset, GenerationPreset, PresetError, PresetStore
 from ..core.prompt_dynamics import has_dynamic_syntax
 from ..core.resolution_catalog import ResolutionCatalog
+from ..core.result_summary import ResultLabels, compose_result_summary
 from ..core.settings import accounts, credentials
 from ..core.settings.schema import (
     APP_NAME,
@@ -91,7 +92,9 @@ from .tag_completer_dropdown import TagCompleterDropdown
 from .widgets.character_prompts import CharacterPromptsWidget, CharacterSlot
 from .widgets.collapsible_section import CollapsibleSection, compose_ai_summary
 from .widgets.enhance_panel import EnhancePanel
+from .widgets.flow_layout import FlowLayout
 from .widgets.image_source import ImageSourceWidget
+from .widgets.prompt_overlay import PromptOverlay
 from .widgets.prompt_tabs import PromptTabs
 from .widgets.resize_handle import ResizeHandle
 from .widgets.resolution_panel import ResolutionPanel
@@ -114,6 +117,9 @@ _ERROR_TYPE_TO_KEY = {
 
 WINDOW_SIZE = (1180, 760)
 SPLITTER_SIZES = (460, 720)  # 입력 패널 / 결과 패널
+#: 좌측 입력 패널을 여기까지 좁힐 수 있다 — 기본 폭(460)의 절반. 이 아래로는
+#: 프롬프트 입력창이 한 줄도 제대로 안 보여 의미가 없다. 줄바꿈은 FlowLayout이 맡는다.
+LEFT_PANEL_MIN_WIDTH = 230
 
 
 def _format_seconds(value: float) -> str:
@@ -184,6 +190,11 @@ class MainWindow(QMainWindow):
         #: 완성된 것만 기억한다 — 실패한 생성을 같은 값으로 다시 시도하는 길을 막으면 안 된다.
         self._running_request: GenerationRequest | None = None
         self._last_completed_request: GenerationRequest | None = None
+        #: 결과 오버레이가 보여 줄 요청 — 와일드카드가 전개된, 그 장에 실제로 보낸 값이다.
+        #: `_last_completed_request`(동일 조건 재생성 감지용)와 달리 전개 후 값이라 다르다.
+        self._overlay_request: GenerationRequest | None = None
+        #: F9로 입력 패널을 접기 직전의 스플리터 폭 — 다시 누르면 여기로 되돌린다.
+        self._wide_splitter_sizes: list[int] | None = None
 
         self._build_ui()
         self._resize_handle.restore_height()
@@ -254,6 +265,9 @@ class MainWindow(QMainWindow):
         self.ai_settings_body = QWidget()
         form = QFormLayout(self.ai_settings_body)
         form.setContentsMargins(0, 0, 0, 0)
+        # 패널이 좁아지면 "라벨 | 값" 두 칸을 유지하지 못한다 — 그럴 때만 라벨을 값 위로 내린다.
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.sampler_combo = QComboBox()
         self.scheduler_combo = QComboBox()
         self.steps_spin = QSpinBox()
@@ -328,7 +342,7 @@ class MainWindow(QMainWindow):
         left_scroll = QScrollArea()
         left_scroll.setWidget(left)
         left_scroll.setWidgetResizable(True)
-        left_scroll.setMinimumWidth(470)
+        left_scroll.setMinimumWidth(LEFT_PANEL_MIN_WIDTH)
 
         # 생성 바는 스크롤 밖 맨 아래에 고정한다 (웹 UI처럼 상태바 바로 위).
         # 입력을 아무리 스크롤해도 생성 버튼은 늘 같은 자리에 있다.
@@ -342,6 +356,9 @@ class MainWindow(QMainWindow):
         # 오른쪽: 결과 미리보기 — 마우스 스크롤로 확대/축소된다 (ZoomableImageView)
         self.preview_label = ZoomableImageView()
         self.result_panel = self.preview_label
+        # 방금 만든 이미지의 프롬프트를 이미지 위에 겹쳐 보여 준다 (보기 메뉴에서 켠다).
+        # 레이아웃이 아니라 절대 위치라, 켜고 꺼도 이미지 크기는 그대로다.
+        self.result_overlay = PromptOverlay(self.preview_label)
         splitter.addWidget(self.result_panel)
         splitter.setSizes(list(SPLITTER_SIZES))
 
@@ -404,6 +421,12 @@ class MainWindow(QMainWindow):
         self.result_panel_action.setShortcut("F11")
         self.result_panel_action.toggled.connect(self._on_toggle_result_panel)
 
+        # 입력 패널을 최소 폭까지 접었다 펴는 프리셋. 스플리터를 매번 끌지 않아도 되게.
+        self.narrow_panel_action = self.view_menu.addAction("")
+        self.narrow_panel_action.setCheckable(True)
+        self.narrow_panel_action.setShortcut("F9")
+        self.narrow_panel_action.toggled.connect(self._on_narrow_panel_toggled)
+
         self.reset_layout_action = self.view_menu.addAction("")
         self.reset_layout_action.setShortcut("Ctrl+R")
         self.reset_layout_action.triggered.connect(self.reset_layout)
@@ -421,6 +444,13 @@ class MainWindow(QMainWindow):
         self.enhance_action.setShortcut("F4")
         self.enhance_action.toggled.connect(self.enhance_panel.set_active)
         self.enhance_action.toggled.connect(self._on_enhance_toggled)
+
+        # 결과 프롬프트 오버레이 (V4의 "프롬프트 결과 표시" 체크박스)
+        self.result_overlay_action = self.view_menu.addAction("")
+        self.result_overlay_action.setCheckable(True)
+        self.result_overlay_action.setShortcut("F8")
+        self.result_overlay_action.toggled.connect(self._on_result_overlay_toggled)
+        self._wire_result_overlay_toggle()
 
         # M3: Gallery View action
         self.view_menu.addSeparator()
@@ -486,9 +516,11 @@ class MainWindow(QMainWindow):
         """매수·간격 + 생성 버튼 한 줄. 스크롤 밖에 고정되는 바."""
         self.generate_group = QGroupBox()
         bar_layout = QVBoxLayout(self.generate_group)
-        batch_row = QHBoxLayout()
-        quick_row = QHBoxLayout()
-        button_row = QHBoxLayout()
+        # 세 줄 모두 FlowLayout — 패널을 좁히면 한 줄에 안 들어가는 위젯이 다음 줄로 넘어간다.
+        # QHBoxLayout이면 이 줄들의 최소 폭이 그대로 좌측 패널 하한이 되어 절반까지 못 줄인다.
+        batch_row = FlowLayout()
+        quick_row = FlowLayout(expand=True)
+        button_row = FlowLayout(expand=True)
         bar_layout.addLayout(batch_row)
         bar_layout.addLayout(quick_row)
         bar_layout.addLayout(button_row)
@@ -503,6 +535,9 @@ class MainWindow(QMainWindow):
         self.count_label = QLabel()
         self.delay_label = QLabel()
         self.random_resolution_check = QCheckBox()
+        # 결과 프롬프트 오버레이 — 생성 UI에서 바로 켜고 끈다 (V4도 결과 이미지 옆에 있었다).
+        # 보기 메뉴의 같은 항목(F8)과 서로를 따라간다 — 아래 _wire_result_overlay_toggle 참고.
+        self.result_overlay_check = QCheckBox()
 
         self.once_button = QPushButton()
         self.auto_button = QPushButton()
@@ -516,12 +551,10 @@ class MainWindow(QMainWindow):
 
         batch_row.addWidget(self.count_label)
         batch_row.addWidget(self.count_spin)
-        batch_row.addSpacing(12)
         batch_row.addWidget(self.delay_label)
         batch_row.addWidget(self.delay_spin)
-        batch_row.addSpacing(12)
         batch_row.addWidget(self.random_resolution_check)
-        batch_row.addStretch(1)
+        batch_row.addWidget(self.result_overlay_check)
 
         # 퀵 매수 버튼 — 누르면 그 매수로 바로 연속 생성 (V4.5의 Quick Generation)
         self.quick_buttons: list[QPushButton] = []
@@ -916,6 +949,20 @@ class MainWindow(QMainWindow):
         if visible and self._splitter.sizes()[1] == 0:
             self._splitter.setSizes(list(SPLITTER_SIZES))
 
+    def _on_narrow_panel_toggled(self, narrow: bool) -> None:
+        """입력 패널을 최소 폭으로 접거나, 접기 직전 폭으로 되돌린다 (F9)."""
+        sizes = self._splitter.sizes()
+        total = sum(sizes)
+        if narrow:
+            self._wide_splitter_sizes = list(sizes)
+            self._splitter.setSizes([LEFT_PANEL_MIN_WIDTH, max(0, total - LEFT_PANEL_MIN_WIDTH)])
+            return
+        restored = self._wide_splitter_sizes or list(SPLITTER_SIZES)
+        self._wide_splitter_sizes = None
+        # 창 크기가 그사이 바뀌었을 수 있으므로 저장해 둔 비율로 되돌린다.
+        scale = total / max(1, sum(restored))
+        self._splitter.setSizes([max(1, round(size * scale)) for size in restored])
+
     def reset_layout(self) -> None:
         """창 크기와 분할 비율을 기본값으로 되돌린다 (패널을 잃어버렸을 때 복구용).
 
@@ -924,11 +971,14 @@ class MainWindow(QMainWindow):
         """
         self.result_panel_action.setChecked(True)
         self.result_panel.setVisible(True)
+        self._wide_splitter_sizes = None
+        self.narrow_panel_action.setChecked(False)
         if self.isMaximized() or self.isFullScreen():
             self.showNormal()
         self.resize(*WINDOW_SIZE)
         self._splitter.setSizes(list(SPLITTER_SIZES))
         self.ai_section.set_expanded(False)
+        self.character_prompts.set_position_panel_expanded(True)
 
     def target_size(self) -> tuple[int, int]:
         """실제로 생성될 크기 — i2i/인페인팅/강화면 원본 이미지가 정한다."""
@@ -1127,6 +1177,7 @@ class MainWindow(QMainWindow):
             self._settings.show_image_source and self.image_source_action.isEnabled()
         )
         self.enhance_action.setChecked(self._settings.show_enhance and self.enhance_action.isEnabled())
+        self.result_overlay_action.setChecked(self._settings.show_result_overlay)
         self.measure_credit_action.setChecked(self._settings.measure_credit)
         self._apply_prompts()
         self._apply_prompt_font()
@@ -1199,6 +1250,7 @@ class MainWindow(QMainWindow):
         s.batch.random_resolution = self.random_resolution_check.isChecked()
         s.show_image_source = self.image_source_action.isChecked()
         s.show_enhance = self.enhance_action.isChecked()
+        s.show_result_overlay = self.result_overlay_action.isChecked()
         s.measure_credit = self.measure_credit_action.isChecked()
         p = s.prompts
         p.prompt = self.prompt_edit.toPlainText()
@@ -1260,6 +1312,7 @@ class MainWindow(QMainWindow):
             s.show_image_source and self.image_source_action.isEnabled()
         )
         self.enhance_action.setChecked(s.show_enhance and self.enhance_action.isEnabled())
+        self.result_overlay_action.setChecked(s.show_result_overlay)
         self.measure_credit_action.setChecked(s.measure_credit)  # Req 8.8
         self._refresh_tag_completer()  # Req 7.3
         self._apply_prompt_font()
@@ -1286,6 +1339,9 @@ class MainWindow(QMainWindow):
         ):
             signal.connect(self._refresh_section_summaries)
         self.ai_section.toggled.connect(lambda on: self._on_section_toggled("ai_settings_expanded", on))
+        self.character_prompts.position_section.toggled.connect(
+            lambda on: self._on_section_toggled("position_panel_expanded", on)
+        )
 
     def _compose_ai_summary(self) -> str:
         """접힌 `AI 설정` 섹션에 보일 한 줄 요약 (Req 11.6)."""
@@ -1312,6 +1368,7 @@ class MainWindow(QMainWindow):
     def _apply_section_states(self) -> None:
         """`settings.ui`에 저장된 펼침 상태를 섹션에 적용한다 (Req 12.2)."""
         self.ai_section.set_expanded(self._settings.ui.ai_settings_expanded)
+        self.character_prompts.set_position_panel_expanded(self._settings.ui.position_panel_expanded)
 
     def _show_option_notices(self, keys: tuple[str, ...]) -> None:
         """옵션 페이지가 낸 안내 문구를 한 번에 보여 준다 (Req 2.6)."""
@@ -1843,6 +1900,8 @@ class MainWindow(QMainWindow):
             self.status_label.setText(tr("statusbar.auto_error_wait", int(event.wait_seconds)))
         elif isinstance(event, ImageCompleted):
             self._last_completed_request = self._running_request
+            self._overlay_request = event.request
+            self._refresh_result_overlay()
             self._show_image(event.path)
             # 저장 위치를 바로 확인할 수 있게 파일명 표시 + 전체 경로 툴팁
             self.status_label.setToolTip(event.path)
@@ -1929,6 +1988,53 @@ class MainWindow(QMainWindow):
                 self.status_label.setText(tr("statusbar.job_stopped", self._settings_batch_completed))
             else:
                 self.status_label.setText(tr("statusbar.job_finished", self._settings_batch_completed))
+
+    # ── 결과 프롬프트 오버레이 (V4의 "프롬프트 결과 표시") ──────
+
+    def _wire_result_overlay_toggle(self) -> None:
+        """생성 바의 체크박스와 보기 메뉴 항목을 서로 따라가게 한다.
+
+        `setChecked`는 값이 그대로면 시그널을 내지 않으므로 두 방향으로 이어도 되돌이가
+        생기지 않는다. 상태의 출처는 액션 하나뿐이다 — 저장·복원도 액션만 본다.
+        """
+        self.result_overlay_check.toggled.connect(self.result_overlay_action.setChecked)
+        self.result_overlay_action.toggled.connect(self.result_overlay_check.setChecked)
+        self.result_overlay_check.setChecked(self.result_overlay_action.isChecked())
+
+    def _on_result_overlay_toggled(self, on: bool) -> None:
+        self._refresh_result_overlay()
+        self.result_overlay.set_active(on)
+
+    def _result_labels(self) -> ResultLabels:
+        """오버레이가 쓰는 라벨을 지금 언어로 채운다 (core는 i18n을 모른다)."""
+        tr = self._i18n.get_text
+        return ResultLabels(
+            prompt=tr("image_info.field_prompt"),
+            negative=tr("image_info.field_negative"),
+            character_n=tr("ui.character_n"),  # "캐릭터 {}" — core가 번호를 format으로 넣는다
+            character_negative=tr("ui.undesired_content"),
+            position_auto=tr("ui.position_auto"),
+            model=tr("image_info.field_model"),
+            size=tr("image_info.field_size"),
+            seed=tr("image_info.field_seed"),
+            steps=tr("image_info.field_steps"),
+            scale=tr("image_info.field_scale"),
+            rescale=tr("result.field_rescale"),
+            sampler=tr("image_info.field_sampler"),
+            scheduler=tr("result.field_scheduler"),
+        )
+
+    def _refresh_result_overlay(self) -> None:
+        """오버레이 내용을 마지막 결과로 다시 만든다 (생성 직후·언어 전환 후)."""
+        request = self._overlay_request
+        if request is None:
+            self.result_overlay.setPlainText(self._i18n.get_text("result.overlay_waiting"))
+            return
+        self.result_overlay.setPlainText(
+            compose_result_summary(
+                request, self._result_labels(), model_name=get_spec(request.model).api_name
+            )
+        )
 
     def _show_image(self, path: str) -> None:
         pixmap = QPixmap(path)
@@ -2102,9 +2208,13 @@ class MainWindow(QMainWindow):
         self.options_action.setText(tr("ui.options_menu"))
         self.view_menu.setTitle(tr("menu.view"))
         self.result_panel_action.setText(tr("menu.toggle_panel"))
+        self.narrow_panel_action.setText(tr("menu.narrow_panel"))
         self.reset_layout_action.setText(tr("menu.reset_layout"))
         self.image_source_action.setText(tr("image_source.menu"))
         self.enhance_action.setText(tr("enhance.menu"))
+        self.result_overlay_action.setText(tr("result.overlay_toggle"))
+        self.result_overlay_check.setText(tr("result.overlay_toggle"))
+        self.result_overlay_check.setToolTip(tr("result.overlay_toggle_hint"))
         self.tools_menu.setTitle(tr("menu.tools"))
         self.log_action.setText(tr("logs.menu"))
         self.measure_credit_action.setText(tr("logs.measure_credit"))
@@ -2124,6 +2234,7 @@ class MainWindow(QMainWindow):
             self.preview_label.setText(f"{tr('result.no_image')}\n\n{tr('image_info.drop_hint')}")
         if not self.status_label.text():
             self.status_label.setText(tr("statusbar.idle"))
+        self._refresh_result_overlay()  # 오버레이 본문도 바뀐 언어로 다시 만든다
 
     _job_total: int | None = None
     _is_running: bool = False
