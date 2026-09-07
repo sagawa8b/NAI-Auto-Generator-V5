@@ -7,6 +7,11 @@
 `commit`은 검증하지 않는다 — 공백뿐인 입력을 스키마 기본 경로로 되돌리는 **정규화**만 한다
 (Req 2.4). 와일드카드 폴더는 `ui/app.py`에서 주입되므로 바뀌면 다음 실행부터 적용된다는 안내를
 `notices()`로 알린다 (Req 2.6).
+
+**WD14 태거 모델** 구역(`wd14_section.py`)도 경로 표 아래에 함께 둔다 — 모델도 결국 "어느
+폴더의 어느 파일"이라 다른 경로들과 한 화면에 있는 편이 찾기 쉽다 (v0.7.8에서 `태그` 화면에서
+옮겨 왔다). 그 구역은 자기 위젯과 `load`/`commit`/`retranslate`를 스스로 들고 있고, 이 페이지는
+같은 이름의 메서드에서 함께 불러 준다.
 """
 
 from __future__ import annotations
@@ -34,6 +39,7 @@ from ...core.settings.schema import (
     default_wildcards_dir,
 )
 from . import OptionsPage, open_in_file_manager, register_page
+from .wd14_section import WD14ModelSection
 
 #: 저장 후 안내가 필요한 필드 → 안내 문구 i18n 키 (Req 2.6).
 WILDCARDS_RESTART_NOTICE = "options.wildcards_restart_note"
@@ -77,7 +83,7 @@ class _PathRow:
 
 @register_page
 class FoldersPage(OptionsPage):
-    """결과 / 와일드카드 / 프리셋 폴더 경로 (Req 2.1)."""
+    """결과 / 와일드카드 / 프리셋 폴더 경로 (Req 2.1) + WD14 태거 모델 폴더·모델."""
 
     KEY = "folders"
 
@@ -99,6 +105,12 @@ class FoldersPage(OptionsPage):
             grid.addWidget(row.open_button, index, 3)
             self._rows[field.name] = row
         layout.addLayout(grid)
+
+        # WD14 태거 모델 — 폴더 + 모델 + 내려받기 (구역이 자기 위젯을 들고 있다).
+        layout.addSpacing(12)
+        self.wd14 = WD14ModelSection(i18n, self)
+        layout.addWidget(self.wd14)
+
         layout.addStretch(1)
 
         # 편의 접근자 (design.md 2.1의 위젯 이름)
@@ -107,6 +119,11 @@ class FoldersPage(OptionsPage):
         self.presets_dir_edit = self._rows["presets_dir"].edit
         self.artist_combos_dir_edit = self._rows["artist_combos_dir"].edit
         self.gallery_dir_edit = self._rows["gallery_dir"].edit
+        # WD14 구역 위젯도 페이지에서 바로 닿게 (테스트와 예전 호출부가 쓰던 이름)
+        self.wd14_dir_edit = self.wd14.wd14_dir_edit
+        self.wd14_model_combo = self.wd14.wd14_model_combo
+        self.wd14_download_button = self.wd14.wd14_download_button
+        self.wd14_status_label = self.wd14.wd14_status_label
 
         self.retranslate()
 
@@ -132,11 +149,13 @@ class FoldersPage(OptionsPage):
             value = str(getattr(draft, field.name))
             self._loaded[field.name] = self._normalize(field, value)
             self._rows[field.name].edit.setText(value)
+        self.wd14.load(draft)
 
     def commit(self, draft: AppSettings) -> None:
         """빈 입력을 스키마 기본 경로로 되돌린다 — 오류가 아니라 정규화다 (Req 2.4)."""
         for field in _PATH_FIELDS:
             setattr(draft, field.name, self._normalize(field, self._rows[field.name].edit.text()))
+        self.wd14.commit(draft)
 
     def retranslate(self) -> None:
         tr = self._i18n.get_text
@@ -146,6 +165,7 @@ class FoldersPage(OptionsPage):
             row.open_button.setText(tr("options.open_folder"))
         # 비워 두면 결과 폴더를 본다는 안내는 자리표시자로 (번역 대상이라 여기서 갱신)
         self._rows["gallery_dir"].edit.setPlaceholderText(tr("options.folder_gallery_dir_hint"))
+        self.wd14.retranslate()
 
     def notices(self) -> tuple[str, ...]:
         """와일드카드 폴더가 바뀌었으면 재시작 안내 키를 돌려준다 (Req 2.6)."""

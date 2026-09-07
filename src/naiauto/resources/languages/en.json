@@ -352,12 +352,16 @@
       "err_template_empty": "Enter a filename template.",
       "err_template_no_token": "Must contain at least one known token.",
       "wildcards_restart_note": "The new wildcards folder takes effect on the next launch.",
+      "wildcards_autocomplete_enabled": "Enable wildcard autocomplete",
+      "wildcards_title": "Wildcard autocomplete",
+      "wildcards_autocomplete_hint": "Typing __ , __= or ## in a prompt box lists the file names in the wildcards folder. (Change that folder on the Folders page.)",
       "log_dir_failed": "Could not use the log folder: {}",
       "tags_loaded": "Loaded {} tags.",
       "tags_bundled": "Using the bundled tag database ({} tags)",
       "tags_disabled_empty": "The path is empty, so tag completion is off.",
       "tags_disabled_error": "The tag file could not be read, so completion is off.",
       "tags_autocomplete_enabled": "Enable tag autocomplete",
+      "tags_title": "Tag autocomplete",
       "prompt_font_size": "Prompt field font size",
       "prompt_font_size_default": "Default",
       "prompt_font_color": "Prompt field text color",
@@ -472,7 +476,7 @@
     },
     "options_nav": {
       "folders": "Folders",
-      "folders_desc": "Set paths for results, settings, and wildcards folders.",
+      "folders_desc": "Set the results, settings, and wildcards folder paths, plus the WD14 tagger model.",
       "filename": "Filename",
       "filename_desc": "Configure the format used for saved file names.",
       "generation": "Generation",
@@ -481,8 +485,8 @@
       "resolution_desc": "Configure resolutions and custom resolution slots.",
       "interface": "Interface",
       "interface_desc": "Set the language, panel visibility, and layout reset.",
-      "tags": "Tag Completion",
-      "tags_desc": "Set the path for the tag auto-completion file.",
+      "completion": "Autocomplete",
+      "completion_desc": "Configure the tag and wildcard suggestions shown in prompt boxes.",
       "llm": "Prompt Generation (LLM)",
       "llm_desc": "Configure the LM Studio local LLM used for natural-language prompt generation.",
       "log": "Logging",
@@ -814,7 +818,8 @@
       "apply_append": "Append to prompt",
       "apply_replace": "Replace prompt",
       "copy": "📋 Copy",
-      "copied": "Copied the result to the clipboard."
+      "copied": "Copied the result to the clipboard.",
+      "applied": "Applied the result to the prompt."
     }
   }
 }

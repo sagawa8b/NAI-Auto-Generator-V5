@@ -204,7 +204,11 @@ class AppSettings(BaseModel):
     gallery_dir: str = ""
     log_dir: str = ""  # 빈 문자열 = OS 표준 로그 위치
     tag_database_path: str = ""  # 태그 자동완성 DB 경로 (빈 문자열 = 앱에 동봉된 기본 DB)
-    tag_autocomplete_enabled: bool = True  # False면 DB가 있어도 자동완성 드롭다운을 붙이지 않는다
+    tag_autocomplete_enabled: bool = True  # False면 DB가 있어도 태그 후보를 제안하지 않는다
+    #: 프롬프트에 `__`/`##`를 칠 때 와일드카드 **이름**을 제안할지. 태그와 스위치를 나눠 둔 이유는
+    #: 읽는 곳이 다르기 때문이다 — 태그는 `tag_database_path`의 DB 파일, 와일드카드는
+    #: `wildcards_dir` 폴더다. 한쪽을 꺼도 다른 쪽은 그대로 뜬다.
+    wildcard_autocomplete_enabled: bool = True
     filename_template: str = "{datetime}_{seed}"
     #: 생성 이미지 저장 형식. "png"(기본, 원본 그대로) 또는 "webp"(무손실, 메타데이터는
     #: EXIF로 옮겨 재사용 가능 — core/metadata/save.py 참고).

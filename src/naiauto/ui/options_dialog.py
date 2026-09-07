@@ -72,7 +72,7 @@ NAV_ORDER: tuple[str, ...] = (
     PAGE_GENERATION,
     PAGE_RESOLUTION,
     "interface",
-    "tags",
+    "completion",
     "llm",
     "log",
 )
@@ -95,6 +95,7 @@ OWNED_FIELDS: tuple[str, ...] = (
     "log_dir",
     "tag_database_path",
     "tag_autocomplete_enabled",
+    "wildcard_autocomplete_enabled",
     "prompt_font",
     "filename_template",
     "image_format",

@@ -361,12 +361,16 @@
       "err_template_empty": "请输入文件名格式。",
       "err_template_no_token": "必须包含至少一个已知标记。",
       "wildcards_restart_note": "新的通配符文件夹将从下次启动开始生效。",
+      "wildcards_autocomplete_enabled": "启用通配符自动完成",
+      "wildcards_title": "通配符自动完成",
+      "wildcards_autocomplete_hint": "在提示词输入框中输入 __ · __= · ## 时，会列出通配符文件夹中的文件名。（文件夹位置在「文件夹路径」页面中更改。）",
       "log_dir_failed": "无法使用日志文件夹: {}",
       "tags_loaded": "已加载 {} 个标签。",
       "tags_bundled": "正在使用内置标签数据库（{} 个）",
       "tags_disabled_empty": "路径为空，标签自动完成已关闭。",
       "tags_disabled_error": "无法读取标签文件，自动完成已关闭。",
       "tags_autocomplete_enabled": "启用标签自动完成",
+      "tags_title": "标签自动完成",
       "prompt_font_size": "提示词输入框字体大小",
       "prompt_font_size_default": "默认",
       "prompt_font_color": "提示词输入框文字颜色",
@@ -472,7 +476,7 @@
     },
     "options_nav": {
       "folders": "文件夹",
-      "folders_desc": "设置生成结果、设置文件及通配符文件夹的路径。",
+      "folders_desc": "设置生成结果、设置文件、通配符文件夹路径以及 WD14 标注模型。",
       "filename": "文件名",
       "filename_desc": "配置保存文件名的格式。",
       "generation": "连续生成",
@@ -481,8 +485,8 @@
       "resolution_desc": "配置分辨率启用选项及自定义分辨率槽。",
       "interface": "界面",
       "interface_desc": "设置语言、面板显示与布局重置。",
-      "tags": "标签补全",
-      "tags_desc": "设置标签自动补全文件的路径。",
+      "completion": "自动完成",
+      "completion_desc": "设置提示词输入框中显示的标签与通配符自动完成。",
       "llm": "提示词生成 (LLM)",
       "llm_desc": "配置用于自然语言提示词生成的 LM Studio 本地 LLM 连接。",
       "log": "日志设置",
@@ -814,7 +818,8 @@
       "apply_append": "追加到提示词",
       "apply_replace": "覆盖提示词",
       "copy": "📋 复制",
-      "copied": "已将结果复制到剪贴板。"
+      "copied": "已将结果复制到剪贴板。",
+      "applied": "已将结果应用到提示词。"
     }
   }
 }

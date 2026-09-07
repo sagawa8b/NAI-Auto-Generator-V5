@@ -361,12 +361,16 @@
       "err_template_empty": "ファイル名の形式を入力してください。",
       "err_template_no_token": "既知のトークンを1つ以上含めてください。",
       "wildcards_restart_note": "新しいワイルドカードフォルダは次回起動から適用されます。",
+      "wildcards_autocomplete_enabled": "ワイルドカード自動補完を使う",
+      "wildcards_title": "ワイルドカード自動補完",
+      "wildcards_autocomplete_hint": "プロンプト入力欄で __ · __= · ## を入力すると、ワイルドカードフォルダのファイル名を一覧表示します。(フォルダの場所は「フォルダパス」画面で変更します。)",
       "log_dir_failed": "ログフォルダを使用できません: {}",
       "tags_loaded": "タグ {}件を読み込みました。",
       "tags_bundled": "同梱の既定タグDBを使用中 ({}件)",
       "tags_disabled_empty": "パスが空のためタグ補完は無効です。",
       "tags_disabled_error": "タグファイルを読み込めないため補完は無効です。",
       "tags_autocomplete_enabled": "タグ自動補完を使う",
+      "tags_title": "タグ自動補完",
       "prompt_font_size": "プロンプト入力欄のフォントサイズ",
       "prompt_font_size_default": "デフォルト",
       "prompt_font_color": "プロンプト入力欄の文字色",
@@ -472,7 +476,7 @@
     },
     "options_nav": {
       "folders": "フォルダ",
-      "folders_desc": "生成結果・設定ファイル・ワイルドカードのフォルダを設定します。",
+      "folders_desc": "生成結果・設定ファイル・ワイルドカードのフォルダパスと WD14 タガーモデルを設定します。",
       "filename": "ファイル名",
       "filename_desc": "保存ファイル名の形式を設定します。",
       "generation": "連続生成",
@@ -481,8 +485,8 @@
       "resolution_desc": "解像度の有効化とカスタム解像度スロットを設定します。",
       "interface": "インターフェース",
       "interface_desc": "言語・パネル表示・レイアウト初期化を設定します。",
-      "tags": "タグ補完",
-      "tags_desc": "タグ自動補完ファイルのパスを設定します。",
+      "completion": "自動補完",
+      "completion_desc": "プロンプト入力欄に表示されるタグ・ワイルドカード自動補完を設定します。",
       "llm": "プロンプト生成 (LLM)",
       "llm_desc": "自然言語プロンプト生成に使う LM Studio のローカル LLM 接続を設定します。",
       "log": "ログ設定",
@@ -814,7 +818,8 @@
       "apply_append": "プロンプトに追記",
       "apply_replace": "プロンプトを上書き",
       "copy": "📋 コピー",
-      "copied": "結果をクリップボードにコピーしました。"
+      "copied": "結果をクリップボードにコピーしました。",
+      "applied": "結果をプロンプトに反映しました。"
     }
   }
 }

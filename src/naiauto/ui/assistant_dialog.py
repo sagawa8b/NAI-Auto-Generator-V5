@@ -187,6 +187,9 @@ class _WDWorker(QThread):
 class AssistantDialog(QDialog):
     """WD 태거 / LLM 태거 / LLM 어시스턴트를 한 창에서.
 
+    **모드리스** 창이다 (`show()`로 띄운다) — 떠 있는 동안에도 메인 창에서 프롬프트를
+    고치고 생성을 돌릴 수 있어야 한다. 그래서 결과를 반영해도 창은 닫히지 않는다.
+
     Parameters
     ----------
     config : LMStudioConfig
@@ -630,12 +633,17 @@ class AssistantDialog(QDialog):
     # ── 반영 / 복사 ──────────────────────────────────────
 
     def _apply(self, mode: str) -> None:
+        """결과를 메인 창에 넘긴다. 창은 닫지 않는다.
+
+        모드리스 창이라 반영한 뒤에도 그대로 남는다 — 메인 창에서 결과를 보고 마음에
+        안 들면 다시 생성해 덮어쓰면 된다. 닫는 것은 `닫기` 버튼의 몫이다.
+        """
         prompt = self._result_edit.toPlainText().strip()
         negative = self._negative_edit.toPlainText().strip()
         if not prompt and not negative:
             return
         self.prompt_ready.emit(prompt, negative, mode)
-        self.accept()
+        self._status_label.setText(self._i18n.get_text("assistant.applied"))
 
     def _on_copy(self) -> None:
         prompt = self._result_edit.toPlainText().strip()

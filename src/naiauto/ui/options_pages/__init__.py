@@ -123,13 +123,13 @@ def open_in_file_manager(
 # 페이지 등록 — `register_page` 정의 뒤여야 하고, 정적 import여야 한다 (모듈 docstring 참고).
 from . import (  # noqa: E402
     batch_page,  # noqa: F401
+    completion_page,  # noqa: F401
     filename_page,  # noqa: F401
     folders_page,  # noqa: F401
     interface_page,  # noqa: F401
     llm_page,  # noqa: F401
     logging_page,  # noqa: F401
     resolution_page,  # noqa: F401
-    tags_page,  # noqa: F401
 )
 
 __all__ = [

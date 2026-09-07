@@ -361,12 +361,16 @@
       "err_template_empty": "파일명 형식을 입력해주세요.",
       "err_template_no_token": "알려진 토큰을 최소 하나 포함해야 합니다.",
       "wildcards_restart_note": "새 와일드카드 폴더는 다음 실행부터 적용됩니다.",
+      "wildcards_autocomplete_enabled": "와일드카드 자동완성 사용",
+      "wildcards_title": "와일드카드 자동완성",
+      "wildcards_autocomplete_hint": "프롬프트 입력란에 __ · __= · ## 를 치면 와일드카드 폴더의 파일 이름을 목록으로 보여 줍니다. (폴더 위치는 「폴더 경로」 화면에서 바꿉니다.)",
       "log_dir_failed": "로그 폴더를 사용할 수 없습니다: {}",
       "tags_loaded": "태그 {}개를 불러왔습니다.",
       "tags_bundled": "앱에 동봉된 기본 태그 DB 사용 중 ({}개)",
       "tags_disabled_empty": "경로가 비어 있어 태그 자동완성이 꺼져 있습니다.",
       "tags_disabled_error": "태그 파일을 읽을 수 없어 자동완성이 꺼져 있습니다.",
       "tags_autocomplete_enabled": "태그 자동완성 사용",
+      "tags_title": "태그 자동완성",
       "prompt_font_size": "프롬프트 입력란 폰트 크기",
       "prompt_font_size_default": "기본값",
       "prompt_font_color": "프롬프트 입력란 글자색",
@@ -472,7 +476,7 @@
     },
     "options_nav": {
       "folders": "폴더 경로",
-      "folders_desc": "생성 결과, 설정 파일, 와일드카드 폴더 경로를 설정합니다.",
+      "folders_desc": "생성 결과, 설정 파일, 와일드카드 폴더 경로와 WD14 태거 모델을 설정합니다.",
       "filename": "파일명 설정",
       "filename_desc": "저장되는 파일명 형식을 설정합니다.",
       "generation": "연속 생성",
@@ -481,8 +485,8 @@
       "resolution_desc": "해상도 활성화 및 커스텀 해상도를 설정합니다.",
       "interface": "인터페이스",
       "interface_desc": "언어, 패널 표시, 레이아웃 초기화를 설정합니다.",
-      "tags": "태그 자동완성",
-      "tags_desc": "태그 자동완성 파일 경로를 설정합니다.",
+      "completion": "자동완성",
+      "completion_desc": "프롬프트 입력란에 뜨는 태그·와일드카드 자동완성을 설정합니다.",
       "llm": "프롬프트 생성 (LLM)",
       "llm_desc": "자연어 프롬프트 생성용 LM Studio 로컬 LLM 연결을 설정합니다.",
       "log": "로그 설정",
@@ -814,7 +818,8 @@
       "apply_append": "프롬프트에 이어붙이기",
       "apply_replace": "프롬프트 덮어쓰기",
       "copy": "📋 복사",
-      "copied": "결과를 클립보드에 복사했습니다."
+      "copied": "결과를 클립보드에 복사했습니다.",
+      "applied": "결과를 프롬프트에 반영했습니다."
     }
   }
 }

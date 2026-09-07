@@ -69,6 +69,7 @@ from ..core.settings.schema import (
 from ..core.settings.store import ensure_dirs
 from ..core.tag_completer import TagCompleter, resolve_database_path
 from ..core.updates import RELEASES_PAGE, ReleaseInfo, check_for_update
+from ..core.wildcards.catalog import WildcardCatalog
 from ..services.events import (
     GenerationEvent,
     ImageCompleted,
@@ -581,6 +582,11 @@ class MainWindow(QMainWindow):
         _build_ui() 이후에 호출되어야 한다 (위젯이 존재해야 연결 가능).
         """
         # TagCompleter dropdown — 프롬프트/네거티브 + 캐릭터 슬롯 전부에 붙인다 (V4.5와 동일)
+        # 같은 드롭다운이 와일드카드 이름(`__`/`##`)도 제안하지만, 읽는 곳은 태그 DB가 아니라
+        # 와일드카드 폴더다. 폴더는 창을 띄울 때의 설정 그대로다 — 옵션에서 바꾸면 다음
+        # 실행부터 (전개 엔진과 같은 규칙, `options.wildcards_restart_note`). 폴더 안 파일
+        # 변화는 카탈로그가 알아서 따라간다.
+        self._wildcard_catalog = WildcardCatalog(self._settings.wildcards_dir)
         self._completer_dropdowns: dict[QPlainTextEdit, TagCompleterDropdown] = {}
         self.character_prompts.slot_added.connect(self._attach_slot_completers)
         self.character_prompts.slot_removed.connect(self._detach_slot_completers)
@@ -592,6 +598,12 @@ class MainWindow(QMainWindow):
 
         # 이미지 정보 창 — 모드리스라 하나만 띄워 두고 파일만 갈아 끼운다
         self._image_info_dialog: ImageInfoDialog | None = None
+
+        # 프롬프트 어시스턴트 창 — 역시 모드리스다. 떠 있는 동안에도 프롬프트를 고치고
+        # 생성을 돌릴 수 있어야 해서, 열려 있으면 앞으로 가져오기만 한다.
+        # (형이 `AssistantDialog`이 아니라 `QDialog`인 이유: 그 클래스는 LLM 모듈까지
+        #  끌고 와서 창을 열 때 지연 임포트한다.)
+        self._assistant_dialog: QDialog | None = None
 
         # 프롬프트/캐릭터 슬롯에 이미지를 놓으면 경로를 붙이지 않고 이미지 정보를 연다
         self.prompt_tabs.image_dropped.connect(self.open_image_info)
@@ -620,10 +632,18 @@ class MainWindow(QMainWindow):
             self._attach_slot_completers(slot)
 
     def _attach_completer(self, edit: QPlainTextEdit) -> None:
-        """완성기가 활성이면 편집기 하나에 드롭다운을 붙인다."""
-        if not self._tag_completer.is_enabled or not self._settings.tag_autocomplete_enabled:
+        """켜져 있는 자동완성만 물려 편집기 하나에 드롭다운을 붙인다.
+
+        태그(`태그` 화면의 DB 파일)와 와일드카드(`폴더` 화면의 와일드카드 폴더)는 읽는 곳도
+        스위치도 따로다. 한쪽만 켜져 있으면 그쪽 후보만 뜨고, 둘 다 꺼져 있으면 아예 붙이지
+        않는다 (태그 DB를 읽지 못한 것과 태그 자동완성을 끈 것은 다른 이야기다 — 전자는
+        드롭다운이 붙은 채 태그 후보만 비어 있고, 와일드카드는 그대로 뜬다).
+        """
+        tags = self._tag_completer if self._settings.tag_autocomplete_enabled else None
+        wildcards = self._wildcard_catalog if self._settings.wildcard_autocomplete_enabled else None
+        if tags is None and wildcards is None:
             return
-        self._completer_dropdowns[edit] = TagCompleterDropdown(edit, self._tag_completer)
+        self._completer_dropdowns[edit] = TagCompleterDropdown(edit, tags, wildcards)
 
     def _attach_slot_completers(self, slot: CharacterSlot) -> None:
         """새로 추가된 캐릭터 슬롯의 프롬프트/UC 입력창에도 자동완성을 붙인다."""
@@ -686,11 +706,19 @@ class MainWindow(QMainWindow):
     # ── NAI 프롬프트 어시스턴트 (WD 태거 + LM Studio 통합) ──
 
     def _on_open_assistant(self) -> None:
-        """통합 프롬프트 어시스턴트 창을 연다.
+        """통합 프롬프트 어시스턴트 창을 **모드리스로** 연다.
+
+        모달이 아니라서 창이 떠 있는 동안에도 메인 창에서 프롬프트를 고치고 생성을 돌릴
+        수 있다 — LLM이 뽑아 준 문장을 보면서 손으로 다듬는 것이 원래 쓰임새다. 이미 떠
+        있으면 새로 만들지 않고 앞으로 가져온다.
 
         LM Studio(`lmstudio`)를 쓸 수 없으면 창을 여는 대신 이유를 알린다. WD 태거는
         런타임/모델이 없어도 창은 열되(다른 모드는 쓸 수 있으므로) WD 모드만 잠근다.
         """
+        if self._assistant_dialog is not None and self._assistant_dialog.isVisible():
+            self._assistant_dialog.raise_()
+            self._assistant_dialog.activateWindow()
+            return
         from ..core.llm.lmstudio_client import LMStudioConfig
         from ..core.llm.lmstudio_client import runtime_error as llm_runtime_error
 
@@ -739,7 +767,14 @@ class MainWindow(QMainWindow):
             parent=self,
         )
         dialog.prompt_ready.connect(self._on_assistant_prompt_ready)
-        dialog.exec()
+        # 닫힌 창은 버리고 다시 만든다 — 그래야 그 사이 옵션에서 바꾼 LM Studio 설정이
+        # 다음에 열 때 반영된다.
+        if self._assistant_dialog is not None:
+            self._assistant_dialog.deleteLater()
+        self._assistant_dialog = dialog
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
 
     def _wd_tagger_factory(self):
         """(factory, reason) 반환. WD를 쓸 수 있으면 태거를 만드는 콜러블, 아니면 (None, 이유).
@@ -1567,6 +1602,19 @@ class MainWindow(QMainWindow):
         if s.characters:
             self.character_prompts.load_captions(s.characters)
         self.status_label.setText(self._i18n.get_text("image_info.applied"))
+
+    # ── 창 닫기 ──────────────────────────────────────────
+
+    def closeEvent(self, event) -> None:  # noqa: N802 (Qt 콜백 이름)
+        """메인 창을 닫으면 곁창(어시스턴트·갤러리·이미지 정보)도 함께 닫는다.
+
+        모두 모드리스라 그냥 두면 메인 창이 사라져도 남아 있고, 창이 하나라도 열려 있는
+        동안은 `app.exec()`이 돌아오지 않아 앱이 끝나지 않는다 (설정 저장도 그 뒤다).
+        """
+        for window in (self._assistant_dialog, self._gallery_view, self._image_info_dialog):
+            if window is not None:
+                window.close()
+        super().closeEvent(event)
 
     # ── 드래그&드롭 ─────────────────────────────────────
 
