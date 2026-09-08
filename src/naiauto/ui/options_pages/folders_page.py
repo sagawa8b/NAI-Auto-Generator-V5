@@ -1,6 +1,7 @@
 """폴더 경로 Options_Page (KEY="folders", Req 2.1–2.4, 2.6).
 
-네 경로(`save_dir`, `wildcards_dir`, `presets_dir`, `artist_combos_dir`)를 같은 모양의 행으로 다룬다: 경로 입력란 +
+경로들(`save_dir`, `wildcards_dir`, `presets_dir`, `artist_combos_dir`, `arena_dir`, `gallery_dir`)을
+같은 모양의 행으로 다룬다: 경로 입력란 +
 `찾아보기` + `폴더 열기`. 세 행의 차이는 필드 이름·라벨 키·스키마 기본값뿐이라 `_PATH_FIELDS`
 테이블 하나로 기술하고 위젯은 루프로 만든다.
 
@@ -33,6 +34,7 @@ from PySide6.QtWidgets import (
 from ...core.i18n.manager import I18nManager
 from ...core.settings.schema import (
     AppSettings,
+    default_arena_dir,
     default_artist_combos_dir,
     default_presets_dir,
     default_save_dir,
@@ -61,6 +63,7 @@ _PATH_FIELDS: tuple[_PathField, ...] = (
     _PathField("wildcards_dir", "options.folder_wildcards_dir", default_wildcards_dir),
     _PathField("presets_dir", "options.folder_presets_dir", default_presets_dir),
     _PathField("artist_combos_dir", "options.folder_artist_combos_dir", default_artist_combos_dir),
+    _PathField("arena_dir", "options.folder_arena_dir", default_arena_dir),
     # 갤러리만 비워 둘 수 있다 — 그러면 결과 폴더를 본다. 그래서 기본값이 save_dir이고,
     # `commit`의 빈 입력 정규화에서도 빠진다 (`_OPTIONAL_FIELDS`).
     _PathField("gallery_dir", "options.folder_gallery_dir", default_save_dir),
@@ -83,7 +86,7 @@ class _PathRow:
 
 @register_page
 class FoldersPage(OptionsPage):
-    """결과 / 와일드카드 / 프리셋 폴더 경로 (Req 2.1) + WD14 태거 모델 폴더·모델."""
+    """결과 / 와일드카드 / 프리셋 / 아레나 폴더 경로 (Req 2.1) + WD14 태거 모델 폴더·모델."""
 
     KEY = "folders"
 
@@ -118,6 +121,7 @@ class FoldersPage(OptionsPage):
         self.wildcards_dir_edit = self._rows["wildcards_dir"].edit
         self.presets_dir_edit = self._rows["presets_dir"].edit
         self.artist_combos_dir_edit = self._rows["artist_combos_dir"].edit
+        self.arena_dir_edit = self._rows["arena_dir"].edit
         self.gallery_dir_edit = self._rows["gallery_dir"].edit
         # WD14 구역 위젯도 페이지에서 바로 닿게 (테스트와 예전 호출부가 쓰던 이름)
         self.wd14_dir_edit = self.wd14.wd14_dir_edit

@@ -89,6 +89,7 @@ OWNED_FIELDS: tuple[str, ...] = (
     "wildcards_dir",
     "presets_dir",
     "artist_combos_dir",
+    "arena_dir",
     "gallery_dir",
     "wd14_dir",
     "wd14_model",

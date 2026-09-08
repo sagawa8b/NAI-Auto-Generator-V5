@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from ..core.i18n.manager import I18nManager
 from ..core.logging_setup import read_log
+from .widgets.window_chrome import enable_window_controls
 
 LEVELS = ("ALL", "DEBUG", "INFO", "WARNING", "ERROR")
 
@@ -64,6 +65,8 @@ class LogDialog(QDialog):
         tr = i18n.get_text
 
         self.setWindowTitle(tr("logs.title"))
+        # 긴 로그를 넓게 펴 볼 수 있게 최대화 단추를 붙인다 (모달이라 최소화는 뺀다).
+        enable_window_controls(self, minimize=False)
         self.resize(900, 600)
         layout = QVBoxLayout(self)
 

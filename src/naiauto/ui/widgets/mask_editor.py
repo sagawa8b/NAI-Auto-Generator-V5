@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...core.i18n.manager import I18nManager
+from .window_chrome import enable_window_controls
 
 DEFAULT_BRUSH = 48
 MIN_BRUSH = 4
@@ -162,6 +163,8 @@ class MaskEditorDialog(QDialog):
                 )
 
         self.setWindowTitle(tr("mask_editor.title"))
+        # 마스크를 크게 놓고 칠할 수 있게 최대화 단추를 붙인다 (모달이라 최소화는 뺀다).
+        enable_window_controls(self, minimize=False)
         self.resize(820, 720)
 
         layout = QVBoxLayout(self)

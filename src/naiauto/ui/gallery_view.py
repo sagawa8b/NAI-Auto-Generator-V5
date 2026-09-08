@@ -55,6 +55,7 @@ from ..core.i18n.manager import I18nManager
 from ..core.metadata.naiinfo import read_metadata
 from ..core.metadata.reuse import extract_reusable
 from .widgets.hidpi_image import scaled_for_screen
+from .widgets.window_chrome import enable_window_controls
 
 logger = logging.getLogger(__name__)
 
@@ -329,6 +330,10 @@ class GalleryView(QDialog):
         layout.addLayout(toolbar)
         layout.addWidget(self._view)
         layout.addWidget(self._placeholder)
+
+        # 썸네일을 많이 늘어놓는 창이다 — 최소화·최대화 단추를 붙인다.
+        # (`show()` 전에 불러야 플래그가 먹는다.)
+        enable_window_controls(self)
 
         # Initial load
         self.refresh()

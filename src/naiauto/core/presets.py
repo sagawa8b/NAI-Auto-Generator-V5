@@ -3,6 +3,9 @@
 Storage: {data_dir}/presets/{name}.json
 Each preset is a single JSON file; PresetStore provides CRUD over the directory.
 Numeric fields are clamped to GENERATION_PARAMS ranges on load.
+
+지울 때는 **휴지통으로** 보낸다 (`core/trash.py`) — 앱 안에 되돌리기가 없어서,
+실수로 지운 프리셋을 되찾을 곳은 OS 휴지통뿐이다.
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from .trash import send_to_trash
 from .validation import GENERATION_PARAMS
 
 logger = logging.getLogger(__name__)
@@ -191,11 +195,15 @@ class PresetStore:
         return new_path
 
     def delete(self, name: str) -> None:
-        """Delete a preset file. Raises PresetError if it doesn't exist."""
+        """프리셋 파일을 **휴지통으로** 보낸다. 없으면 `PresetError`.
+
+        바로 지우지 않는 이유: 공들여 맞춘 설정 묶음이고, 앱 안에는 되돌리기가
+        없다 — 실수로 지웠을 때 되찾을 곳은 OS 휴지통뿐이다.
+        """
         path = self._path_for(name)
         if not path.exists():
             raise PresetError(f"Preset not found: {name!r}")
-        path.unlink()
+        send_to_trash(path)
 
     def exists(self, name: str) -> bool:
         """Check if a preset with the given name exists."""

@@ -49,6 +49,8 @@ from ..core.api.client import NAIClient
 from ..core.api.model_specs import MODEL_REGISTRY, ModelSpec, get_spec
 from ..core.api.models import CharacterCaption, GenerationRequest
 from ..core.api.subscription import OpusUsage
+from ..core.arena.finale import finale_total
+from ..core.arena.store import ArenaStore
 from ..core.credit_estimator import CreditEstimator
 from ..core.enhance import apply_enhance, build_enhance_provider, unusable_sources
 from ..core.i18n.manager import I18nManager
@@ -70,6 +72,7 @@ from ..core.settings.store import ensure_dirs
 from ..core.tag_completer import TagCompleter, resolve_database_path
 from ..core.updates import RELEASES_PAGE, ReleaseInfo, check_for_update
 from ..core.wildcards.catalog import WildcardCatalog
+from ..services.arena_service import ArenaService, build_finale_provider
 from ..services.events import (
     GenerationEvent,
     ImageCompleted,
@@ -81,6 +84,7 @@ from ..services.events import (
 )
 from ..services.generation_service import GenerationJob, GenerationService
 from .accounts_dialog import AccountsDialog
+from .arena import ArenaDialog
 from .gallery_view import GalleryView
 from .image_info_dialog import ImageInfoDialog
 from .log_dialog import LogDialog
@@ -196,6 +200,10 @@ class MainWindow(QMainWindow):
         self._overlay_request: GenerationRequest | None = None
         #: F9로 입력 패널을 접기 직전의 스플리터 폭 — 다시 누르면 여기로 되돌린다.
         self._wide_splitter_sizes: list[int] | None = None
+        #: 그림체 아레나 — 창을 처음 열 때 만든다. 쓰지 않는 사용자가 시작할 때마다
+        #: `arena.json`을 읽을 이유가 없고, 만들어지기 전에는 가로챌 이벤트도 없다.
+        self._arena: ArenaService | None = None
+        self._arena_dialog: ArenaDialog | None = None
 
         self._build_ui()
         self._resize_handle.restore_height()
@@ -478,6 +486,8 @@ class MainWindow(QMainWindow):
         self.assistant_action.triggered.connect(self._on_open_assistant)
 
         # M3: Presets action
+        self.arena_action = self.tools_menu.addAction("")
+        self.arena_action.triggered.connect(self._on_open_arena)
         self.presets_action = self.tools_menu.addAction("")
         self.presets_action.setShortcut("Ctrl+P")
         self.presets_action.triggered.connect(self._on_open_presets)
@@ -493,6 +503,9 @@ class MainWindow(QMainWindow):
         self.open_presets_action = self.folders_menu.addAction("")
         self.open_presets_action.setShortcut("F7")
         self.open_presets_action.triggered.connect(lambda: self._open_folder("presets_dir"))
+        # 아레나 폴더는 단축키를 주지 않는다 — F8은 이미 결과 오버레이가 쓴다.
+        self.open_arena_action = self.folders_menu.addAction("")
+        self.open_arena_action.triggered.connect(lambda: self._open_folder("arena_dir"))
 
         # 기타 — 새 버전 확인 (릴리스 zip으로 배포하므로 앱이 대신 알려 준다)
         self.etc_menu = self.menuBar().addMenu("")
@@ -863,6 +876,91 @@ class MainWindow(QMainWindow):
             self.seed_edit.setText(str(loaded.seed))
 
     # ── M3: Presets ──────────────────────────────────────
+
+    # ── 그림체 아레나 ────────────────────────────────────
+
+    def arena_service(self) -> ArenaService:
+        """아레나 서비스 (없으면 지금 만든다).
+
+        폴더 경로가 옵션에서 바뀌었으면 그 폴더의 데이터로 갈아 끼운다.
+        """
+        if self._arena is None:
+            store = ArenaStore(self._settings.arena_dir)
+            store.ensure_dirs()
+            self._arena = ArenaService(self._service, store)
+            self._arena.store.prune_missing_images(self._arena.state)
+        elif str(self._arena.store.base_dir) != self._settings.arena_dir:
+            self._arena.reload(self._settings.arena_dir)
+        return self._arena
+
+    def arena_base_request(self) -> GenerationRequest:
+        """아레나가 쓸 기본 요청 — 지금 메인 창에 잡혀 있는 설정 그대로.
+
+        작가 블록은 여기 없다. 아레나가 조합마다 프롬프트에 끼워 넣는다.
+        강화(업스케일)는 빼고 만든다 — 습작 한 장에 배율까지 얹을 이유가 없다.
+        """
+        return self.build_job(1, enhance=False).request
+
+    def _on_open_arena(self) -> None:
+        """그림체 아레나를 연다 (없으면 만들고, 있으면 앞으로 가져온다)."""
+        if self._arena_dialog is None:
+            self._arena_dialog = ArenaDialog(
+                self._i18n,
+                self._settings,
+                self.arena_service(),
+                self.arena_base_request,
+                self,
+            )
+            self._arena_dialog.prompt_selected.connect(self._on_arena_prompt_selected)
+            self._arena_dialog.finale_requested.connect(self.start_arena_finale)
+        dialog = self._arena_dialog
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+        return dialog
+
+    def _on_arena_prompt_selected(self, block: str) -> None:
+        """아레나에서 고른 조합을 메인 프롬프트 앞에 붙인다."""
+        current = self.prompt_tabs.prompt().strip()
+        self.prompt_tabs.set_prompt(f"{block}, {current}" if current else block)
+        self.status_label.setText(self._i18n.get_text("arena.sent_to_prompt"))
+
+    def start_arena_finale(self, combos: list, per_combo: int) -> int:
+        """아레나 통계 결산 — 순위대로 조합마다 몇 장씩 뽑는다.
+
+        아레나가 아니라 **메인 창의 생성 경로**로 돌린다. 그래야 결과가 결과
+        폴더에 쌓이고 갤러리·결과 미리보기에도 뜬다 — 아레나 폴더의 습작과는
+        자리가 다르다. `폴더 강화`와 같은 방식으로, 장마다 요청을 새로 만든다.
+
+        Returns:
+            실제로 시작한 장수 (시작하지 못했으면 0).
+        """
+        tr = self._i18n.get_text
+        total = finale_total(combos, per_combo)
+        if not combos or total < 1:
+            return 0
+        if self._service.is_running:
+            QMessageBox.information(self, tr("errors.warning"), tr("arena.finale_busy"))
+            return 0
+
+        job = self.build_job(count=total, enhance=False)
+        arena = self._settings.arena
+        provider = build_finale_provider(
+            job.request,
+            combos,
+            per_combo,
+            insert_position=arena.insert_position,
+            use_prefix=arena.use_prefix,
+        )
+        job = dataclasses.replace(
+            job,
+            request_provider=provider,
+            randomize_resolution=False,
+            resolution_choices=(),
+        )
+        self._start_job(job)
+        self.status_label.setText(tr("arena.finale_started").format(len(combos), total))
+        return total
 
     def _on_open_presets(self) -> None:
         """Preset Manager 다이얼로그를 연다."""
@@ -1945,6 +2043,10 @@ class MainWindow(QMainWindow):
     # ── 서비스 이벤트 (메인 스레드에서 수신) ──────────────
 
     def _on_generation_event(self, event: GenerationEvent) -> None:
+        # 아레나가 뽑는 습작은 아레나 창이 처리한다 — 결과 미리보기·갤러리·진행
+        # 표시에 끼어들면 안 된다.
+        if self._arena is not None and self._arena.handle_event(event):
+            return
         tr = self._i18n.get_text
         if isinstance(event, JobStarted):
             self._job_total = event.total
@@ -2282,12 +2384,14 @@ class MainWindow(QMainWindow):
         self.measure_credit_action.setToolTip(tr("logs.measure_credit_hint"))
         # M3: WD14 / Presets / Gallery actions
         self.assistant_action.setText(tr("menu.prompt_assistant"))
+        self.arena_action.setText(tr("menu.arena"))
         self.presets_action.setText(tr("menu.presets"))
         self.gallery_action.setText(tr("menu.gallery_view"))
         self.folders_menu.setTitle(tr("folders.title"))
         self.open_results_action.setText(tr("folders.results"))
         self.open_wildcards_action.setText(tr("folders.wildcards"))
         self.open_presets_action.setText(tr("folders.presets"))
+        self.open_arena_action.setText(tr("folders.arena"))
         self.etc_menu.setTitle(tr("menu.etc"))
         self.update_action.setText(tr("updates.menu"))
         self.language_menu.setTitle(tr("menu.languages"))

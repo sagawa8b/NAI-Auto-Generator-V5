@@ -11,13 +11,22 @@ from pathlib import Path
 import platformdirs
 from pydantic import BaseModel, Field
 
+from ..arena.finale import DEFAULT_PER_COMBO, DEFAULT_TOP_N
+from ..arena.models import (
+    CURVE_DESCENDING,
+    INSERT_PREFIX,
+    WEIGHT_MODE_BALANCED,
+    WEIGHT_STEP,
+    ComboGenParams,
+)
+
 APP_NAME = "NAI-Auto-V5"
 #: QSettings(창 크기·스플리터 폭 등 UI 상태)의 조직 이름.
 #: 비워 두면 Windows 레지스트리 백엔드가 AccessError 상태가 되어 읽기도 쓰기도
 #: 조용히 무시된다 — 반드시 QCoreApplication.setOrganizationName()으로 지정해야 한다.
 ORG_NAME = "sagawa8b"
 
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 DEFAULT_WORD_LIMIT = 20
 CUSTOM_RESOLUTION_SLOTS = 6
 QUICK_COUNT_SLOTS = 4
@@ -60,6 +69,15 @@ def default_presets_dir() -> Path:
 
 def default_artist_combos_dir() -> Path:
     return default_data_dir() / "artist_combos"
+
+
+def default_arena_dir() -> Path:
+    """그림체 아레나의 데이터 폴더 (`arena.json` + `images/`).
+
+    결과 폴더와 나눠 둔 이유는 아레나가 뽑는 그림이 **습작**이기 때문이다 — 결과
+    폴더에 섞이면 갤러리가 아레나 이미지로 뒤덮인다.
+    """
+    return default_data_dir() / "artist_arena"
 
 
 def default_wd14_dir() -> Path:
@@ -161,6 +179,97 @@ class PromptFontSettings(BaseModel):
     deemphasis_color: str = ""  # "" = 기본 고정색 (가중치 < 1.0, 예: "-2::text::")
 
 
+class ArenaSettings(BaseModel):
+    """그림체 아레나의 조작값 — 조합 생성·월드컵·진화 화면에서 만지는 것 전부.
+
+    아레나가 자기 설정을 따로 들고 있는 이유는, 원본 프로그램에서 "껐다 켜면 작가 수
+    최소·최대 같은 걸 다시 만져 줘야 한다"는 불만이 가장 많았기 때문이다. 화면에서
+    바꾼 값은 전부 여기에 남아 다음 실행에 그대로 복원된다.
+
+    생성 파라미터(모델·스텝·샘플러)는 여기에 두지 않는다 — 메인 창의 현재 설정을
+    그대로 쓴다. 다만 해상도만은 따로 둘 수 있게 했다: 아레나는 그림체만 보면 되는
+    습작이라 작게 뽑아 크레딧을 아끼는 쪽이 낫다.
+    """
+
+    # ── 조합 생성 ──────────────────────────────────────────────────────
+    min_artists: int = 3
+    max_artists: int = 6
+    weight_mode: str = WEIGHT_MODE_BALANCED
+    weight_min: float = 0.8
+    weight_max: float = 1.8
+    #: 가중치를 이 폭의 배수로 맞춘다 (0.01~1.0). 0.05면 1.15·1.20·1.25처럼,
+    #: 0.01이면 1.16·1.17처럼 잘게 나온다.
+    weight_step: float = WEIGHT_STEP
+    curve: str = CURVE_DESCENDING
+    #: 프롬프트에 `artist:` 접두사를 붙일지.
+    use_prefix: bool = True
+    #: 작가 블록을 기본 프롬프트의 앞/뒤/`<artist>` 자리 중 어디에 넣을지.
+    #: 작가 태그를 맨 앞에 쓰는 사람이 많아 기본은 앞이다.
+    insert_position: str = INSERT_PREFIX
+    #: `랜덤 조합 만들기` 한 번에 만들 조합 수.
+    batch_size: int = 12
+
+    # ── 생성 ───────────────────────────────────────────────────────────
+    #: 아레나 전용 해상도. 0이면 메인 창의 현재 해상도를 따른다.
+    width: int = 0
+    height: int = 0
+    #: 세션 시드. 0이면 아레나를 처음 돌릴 때 하나 뽑아 여기 적어 둔다.
+    #: **모든 조합이 같은 시드를 쓴다** — 구도·포즈가 같아야 그림체 차이만 남는다.
+    seed: int = 0
+    #: 준비된(그림이 있고 아직 안 싸운) 조합이 이 수 아래로 내려가면 다음 묶음을 미리 뽑는다.
+    prefetch_threshold: int = 4
+    #: 월드컵에서 그림이 떨어지면 알아서 더 뽑을지. **기본은 꺼짐** — 이것은 실제로
+    #: 크레딧을 쓰는 동작이라, 사용자가 켜지 않았는데 앱이 알아서 소모하면 안 된다.
+    auto_prefetch: bool = False
+
+    # ── 월드컵 ─────────────────────────────────────────────────────────
+    #: 어떤 조합끼리 붙일지: "all" | "favorites" | "unsettled"
+    league: str = "all"
+    #: 대결 화면의 이미지 배율 (%). QHD 이상에서 작아 보인다는 지적이 있어 넣었다.
+    image_scale: int = 100
+    #: 월드컵 판정 단축키(방향키·Space·Delete)를 쓸지. 끄면 그 키들이 포커스가 있는
+    #: 위젯(슬라이더·콤보 상자 등)으로 그냥 간다.
+    match_shortcuts: bool = True
+
+    # ── 진화 ───────────────────────────────────────────────────────────
+    #: 교배 한 번에 만들 자식 수.
+    children_per_run: int = 8
+    #: 부모로 쓸 상위 조합 수.
+    parent_pool: int = 20
+    mutation_rate: float = 0.15
+    weight_jitter: float = 0.15
+    #: 일괄 정리 조건 — 이만큼 싸웠는데 이 점수 아래면 지울 후보로 본다.
+    purge_min_matches: int = 5
+    purge_elo: float = 960.0
+    # ── 통계 결산 ──────────────────────────────────────────────────────
+    #: 결산에 올릴 등수 (위에서부터 몇 개까지).
+    finale_top_n: int = DEFAULT_TOP_N
+    #: 조합 하나당 뽑을 장수.
+    finale_per_combo: int = DEFAULT_PER_COMBO
+    #: 전적이 없는 조합도 결산에 넣을지. 1000점은 실력이 아니라 '모름'이라 기본은 꺼짐.
+    finale_include_unrated: bool = False
+
+    #: 조합을 지울 때 그림 파일까지 지울지. **기본 꺼짐** — 파일을 남겨 두면 실수로
+    #: 지워도 `되돌리기`가 그림까지 온전히 되살린다. 남은 파일은 통계 탭의
+    #: `안 쓰는 그림 정리`로 언제든 치울 수 있다.
+    delete_images_with_combo: bool = False
+
+    def combo_params(self) -> ComboGenParams:
+        """조합 생성 로직(`core/arena`)이 받는 모양으로. 범위 정리는 그쪽이 한다."""
+        return ComboGenParams(
+            min_artists=self.min_artists,
+            max_artists=self.max_artists,
+            weight_mode=self.weight_mode,
+            weight_min=self.weight_min,
+            weight_max=self.weight_max,
+            weight_step=self.weight_step,
+            curve=self.curve,
+            use_prefix=self.use_prefix,
+            mutation_rate=self.mutation_rate,
+            weight_jitter=self.weight_jitter,
+        ).clamped()
+
+
 class LMStudioSettings(BaseModel):
     """자연어 프롬프트 생성용 로컬 LLM(LM Studio) 연결 설정.
 
@@ -195,6 +304,8 @@ class AppSettings(BaseModel):
     wildcards_dir: str = Field(default_factory=lambda: str(default_wildcards_dir()))
     presets_dir: str = Field(default_factory=lambda: str(default_presets_dir()))
     artist_combos_dir: str = Field(default_factory=lambda: str(default_artist_combos_dir()))
+    #: 그림체 아레나 데이터 폴더 (`arena.json` + `images/`).
+    arena_dir: str = Field(default_factory=lambda: str(default_arena_dir()))
     #: WD14 자동 태깅이 쓸 ONNX 모델·태그 CSV가 든 폴더 (옵션 → 태그에서 바꾼다).
     wd14_dir: str = Field(default_factory=lambda: str(default_wd14_dir()))
     #: 쓸 WD14 모델 이름 (`<이름>.onnx`). 빈 문자열이면 폴더에서 찾아 쓴다.
@@ -230,6 +341,7 @@ class AppSettings(BaseModel):
     ui: UiState = Field(default_factory=UiState)
     prompt_font: PromptFontSettings = Field(default_factory=PromptFontSettings)
     lmstudio: LMStudioSettings = Field(default_factory=LMStudioSettings)
+    arena: ArenaSettings = Field(default_factory=ArenaSettings)
 
     def log_dir_path(self) -> Path:
         """설정된 로그 디렉터리. 빈 문자열이면 OS 표준 위치."""

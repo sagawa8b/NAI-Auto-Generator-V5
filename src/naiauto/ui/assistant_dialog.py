@@ -58,6 +58,7 @@ from ..core.llm.lmstudio_client import (
 )
 from ..core.wd14_tagger import WD14Error, threshold_for_length
 from .widgets.hidpi_image import HiDpiImageLabel
+from .widgets.window_chrome import enable_window_controls
 
 if TYPE_CHECKING:
     from ..core.i18n.manager import I18nManager
@@ -231,6 +232,8 @@ class AssistantDialog(QDialog):
 
         tr = i18n.get_text
         self.setWindowTitle(tr("assistant.title"))
+        # 모드리스로 오래 띄워 두는 창이다 — 최소화·최대화 단추를 붙인다.
+        enable_window_controls(self)
         self.setMinimumSize(620, 680)
 
         self._build_ui(default_mode)

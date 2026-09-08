@@ -31,6 +31,7 @@ from ..core.i18n.manager import I18nManager
 from ..core.metadata.naiinfo import read_metadata
 from ..core.metadata.reuse import ReusableSettings, extract_reusable
 from .widgets.dialog_image_view import DialogImageView
+from .widgets.window_chrome import enable_window_controls, ensure_on_screen
 
 _VALID_SUFFIXES = {".png", ".webp"}
 _SETTINGS_GEOMETRY_KEY = "image_info/geometry"
@@ -79,6 +80,8 @@ class ImageInfoDialog(QDialog):
         self.setWindowTitle(tr("image_info.title"))
         self.setWindowModality(Qt.WindowModality.NonModal)
         self.setAcceptDrops(True)
+        # 메타데이터를 크게 펼쳐 보는 창이다 — 최소화·최대화 단추를 붙인다.
+        enable_window_controls(self)
         self.setMinimumSize(700, 500)
 
         main_layout = QVBoxLayout(self)
@@ -316,6 +319,10 @@ class ImageInfoDialog(QDialog):
             geometry = self._qsettings.value(_SETTINGS_GEOMETRY_KEY)
             if geometry:
                 self.restoreGeometry(geometry)
+                if self.isFullScreen():  # 전체 화면 토글이 있던 버전에서 남은 값
+                    self.showNormal()
+                # 화면 밖 좌표가 남아 있으면 제목 표시줄이 잘려 창을 못 옮긴다.
+                ensure_on_screen(self)
             splitter_state = self._qsettings.value(_SETTINGS_SPLITTER_KEY)
             if splitter_state:
                 self._splitter.restoreState(splitter_state)
