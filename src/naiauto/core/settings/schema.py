@@ -89,6 +89,11 @@ class GenerationDefaults(BaseModel):
     model: str = "naid5f"
     width: int = 832
     height: int = 1216
+    #: 해상도 패널에서 고른 등급 ("Normal"/"Large"/"Wallpaper"/"Custom"). ""이면 지정 없음
+    #: — 크기로 되짚는다. 크기만으로는 등급을 되살릴 수 없어서 따로 남긴다: 커스텀 행은
+    #: 보통 Normal에도 있는 크기라, 다시 켰을 때 등급이 Normal로 되돌아가면 해상도 랜덤이
+    #: 커스텀이 아닌 Normal 해상도를 뽑는다.
+    resolution_group: str = ""
     steps: int = 28
     cfg_scale: float = 5.0
     cfg_rescale: float = 0.0  # matches V5 ModelSpec default

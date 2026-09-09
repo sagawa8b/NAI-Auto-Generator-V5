@@ -33,6 +33,7 @@ __all__ = [
     "classify_group",
     "exceeds_free_pixels",
     "is_valid_dimension",
+    "parse_group",
     "snap_dimension",
     "snap_size",
 ]
@@ -97,6 +98,16 @@ class Resolution:
 
 
 # ── 순수 함수 ──────────────────────────────────────────────────────────────
+
+
+def parse_group(value: str) -> ResolutionGroup | None:
+    """설정 파일에 저장된 등급 문자열을 되돌린다. 빈 값·모르는 값은 None (지정 없음)."""
+    if not value:
+        return None
+    try:
+        return ResolutionGroup(value)
+    except ValueError:
+        return None
 
 
 def classify_group(width: int, height: int) -> ResolutionGroup:
@@ -248,6 +259,14 @@ class ResolutionCatalog:
     def contains(self, width: int, height: int) -> bool:
         """선택 가능 목록에 있는지 (Req 10.10의 '직접 입력' 판단)."""
         return self.group_of(width, height) is not None
+
+    def contains_in_group(self, group: ResolutionGroup, width: int, height: int) -> bool:
+        """그 등급이 이 크기를 담고 있는지.
+
+        `group_of`와 달리 등급을 지정해 묻는다 — 커스텀 행은 Normal과 같은 크기를 담는
+        일이 흔해서, 크기만으로 소속을 되짚으면 사용자가 고른 등급을 잃는다.
+        """
+        return any(item.size == (width, height) for item in self.resolutions(group))
 
     def group_of(self, width: int, height: int) -> ResolutionGroup | None:
         """그 크기를 담고 있는 첫 등급 (GROUP_ORDER 우선). 없으면 None."""

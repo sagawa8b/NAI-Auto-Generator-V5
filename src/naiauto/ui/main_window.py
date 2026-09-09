@@ -58,7 +58,7 @@ from ..core.logging_setup import configure_logging, crash_log_path, log_path
 from ..core.metadata.reuse import ReusableSettings
 from ..core.presets import CharacterPromptPreset, GenerationPreset, PresetError, PresetStore
 from ..core.prompt_dynamics import has_dynamic_syntax
-from ..core.resolution_catalog import ResolutionCatalog
+from ..core.resolution_catalog import ResolutionCatalog, parse_group
 from ..core.result_summary import ResultLabels, compose_result_summary
 from ..core.settings import accounts, credentials
 from ..core.settings.schema import (
@@ -976,11 +976,13 @@ class MainWindow(QMainWindow):
         """현재 UI 상태를 GenerationPreset으로 변환 (프리셋 저장용)."""
         spec = self.current_spec()
         size = self.resolution_panel.size()
+        group = self.resolution_panel.current_group()
         return GenerationPreset(
             name="",  # 저장 시 입력받음
             model=spec.key,
             width=size[0],
             height=size[1],
+            resolution_group=group.value if group is not None else "",
             steps=self.steps_spin.value(),
             cfg_scale=self.cfg_spin.value(),
             cfg_rescale=self.rescale_spin.value(),
@@ -1009,8 +1011,8 @@ class MainWindow(QMainWindow):
             if idx >= 0:
                 self.model_combo.setCurrentIndex(idx)
 
-        # Resolution
-        self._select_resolution(preset.width, preset.height)
+        # Resolution (등급까지 — 세팅별 연속 생성이 파일을 갈아 끼울 때 커스텀 등급을 잃지 않는다)
+        self._select_resolution(preset.width, preset.height, preset.resolution_group)
 
         # Sampler / scheduler
         sampler_idx = self.sampler_combo.findText(preset.sampler)
@@ -1073,13 +1075,17 @@ class MainWindow(QMainWindow):
     def current_spec(self) -> ModelSpec:
         return get_spec(self.model_combo.currentData())
 
-    def _select_resolution(self, width: int, height: int) -> bool:
+    def _select_resolution(self, width: int, height: int, group: str = "") -> bool:
         """해상도 패널에 (w, h)를 적용한다.
 
         반환값은 적용된 크기가 선택 가능 목록에 있는지 — 없으면 패널이 `직접 입력`으로
         표시한다 (Req 10.10). 크기 자체는 어느 경우에도 그대로 적용된다.
+
+        `group`은 저장해 둔 등급 이름이다 (""이면 크기로 되짚는다). 등급 간 중복 크기
+        때문에 크기만으로는 `Custom`을 되살릴 수 없어, 저장된 값이 있으면 함께 넘긴다.
         """
         self.resolution_panel.set_size(width, height)
+        self.resolution_panel.set_group(parse_group(group))
         return self.resolution_panel.current_group() is not None
 
     def _rebuild_resolution_catalog(self) -> None:
@@ -1232,7 +1238,7 @@ class MainWindow(QMainWindow):
         if not self._service.is_running:
             return
         size = self.target_size()
-        choices = () if self.locked_size() is not None else self.resolution_panel.aspect_random_choices()
+        choices = () if self.locked_size() is not None else self.resolution_panel.random_resolution_choices()
         self._service.set_live_resolution(size[0], size[1], choices)
 
     def _push_live_prompt(self) -> None:
@@ -1300,7 +1306,7 @@ class MainWindow(QMainWindow):
         idx = self.model_combo.findData(g.model)
         self.model_combo.setCurrentIndex(idx if idx >= 0 else 0)
         self._on_model_changed()
-        self._select_resolution(g.width, g.height)
+        self._select_resolution(g.width, g.height, g.resolution_group)
         if g.sampler in self.current_spec().samplers:
             self.sampler_combo.setCurrentText(g.sampler)
         self.steps_spin.setValue(g.steps)
@@ -1383,6 +1389,8 @@ class MainWindow(QMainWindow):
         g = s.generation
         g.model = self.model_combo.currentData()
         g.width, g.height = self.resolution_panel.size()
+        selected_group = self.resolution_panel.current_group()
+        g.resolution_group = selected_group.value if selected_group is not None else ""
         g.sampler = self.sampler_combo.currentText()
         g.scheduler = self.scheduler_combo.currentText()
         g.steps = self.steps_spin.value()
@@ -1760,7 +1768,7 @@ class MainWindow(QMainWindow):
         randomize = self.seed_random_check.isChecked()
         # i2i/인페인팅으로 해상도가 잠겨 있으면 랜덤 해상도는 원본 크기를 덮어쓰면 안 되므로 끈다.
         resolution_choices = (
-            self.resolution_panel.aspect_random_choices() if self.locked_size() is None else ()
+            self.resolution_panel.random_resolution_choices() if self.locked_size() is None else ()
         )
         randomize_resolution = self.random_resolution_check.isChecked() and len(resolution_choices) >= 2
         request = GenerationRequest(

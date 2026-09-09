@@ -604,7 +604,7 @@
       "count": "Count (0=infinite):",
       "delay": "Delay (sec):",
       "random_resolution": "Random resolution",
-      "random_resolution_tooltip": "Picks a random Wide/Square/Portrait resolution for each generated image. Ignored while i2i/inpainting locks the size to the source image.",
+      "random_resolution_tooltip": "Picks a random resolution for each generated image — every custom resolution enabled in Options when the group is “Custom”, otherwise one of Wide/Square/Portrait. Ignored while i2i/inpainting locks the size to the source image.",
       "random_settings_order": "Pick settings files in random order (per-settings batch)",
       "random_settings_order_hint": "Off: cycle through the files in the order you picked them. On: pick one at random for each image (never the same file twice in a row).",
       "duplicate_action": "When regenerating with identical settings",

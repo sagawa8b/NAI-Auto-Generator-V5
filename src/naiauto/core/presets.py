@@ -47,6 +47,9 @@ class GenerationPreset(BaseModel):
     model: str
     width: int
     height: int
+    #: 해상도 등급 이름 (`ResolutionGroup`의 값). ""이면 지정 없음 — 크기로 되짚는다.
+    #: 이 항목이 없던 시절의 프리셋·설정 파일도 그대로 읽힌다.
+    resolution_group: str = ""
     steps: int
     cfg_scale: float
     cfg_rescale: float

@@ -604,7 +604,7 @@
       "count": "生成枚数 (0=無限):",
       "delay": "間隔(秒):",
       "random_resolution": "解像度ランダム",
-      "random_resolution_tooltip": "生成ごとにWide/Square/Portraitのいずれかをランダムに選んで解像度を変更します。i2i/インペイント中は元画像サイズが優先されるため適用されません。",
+      "random_resolution_tooltip": "生成ごとに解像度をランダムに変更します。等級が「カスタム」ならオプションで有効にしたカスタム解像度すべてから、それ以外の等級ならWide/Square/Portraitのいずれかを選びます。i2i/インペイント中は元画像サイズが優先されるため適用されません。",
       "random_settings_order": "セット別連続生成で設定ファイルをランダム順に",
       "random_settings_order_hint": "オフなら選んだ順に巡回します。オンにすると毎回ランダムに選びます(同じファイルが連続することはありません)。",
       "duplicate_action": "同じ条件で再生成するとき",

@@ -118,10 +118,13 @@ class ResolutionPanel(QGroupBox):
         super().__init__(parent)
         self._i18n = i18n
         self._catalog: ResolutionCatalog | None = None
+        #: 사용자가 고른 등급. 크기만으로 되짚으면 (등급 간 중복 크기 때문에) 잃어버린다.
+        self._selected_group: ResolutionGroup | None = None
         self._source_locked = False
         self._source_size: tuple[int, int] | None = None
-        #: i2i 잠금 직전의 t2i 크기 — 잠금이 풀리면 이 값으로 되돌린다.
+        #: i2i 잠금 직전의 t2i 크기·등급 — 잠금이 풀리면 이 값으로 되돌린다.
         self._unlocked_size: tuple[int, int] | None = None
+        self._unlocked_group: ResolutionGroup | None = None
         # 프로그램이 값을 넣는 동안 사용자 조작 경로가 다시 발화하는 것을 막는다.
         self._syncing = False
 
@@ -192,8 +195,14 @@ class ResolutionPanel(QGroupBox):
     # ── 공개 API ────────────────────────────────────────────────────────
 
     def set_catalog(self, catalog: ResolutionCatalog) -> None:
-        """등급 콤보를 다시 채운다. 현재 크기가 목록에 있으면 유지, 없으면 기본값 (Req 5.9, 5.10)."""
+        """등급 콤보를 다시 채운다. 현재 크기가 목록에 있으면 유지, 없으면 기본값 (Req 5.9, 5.10).
+
+        고른 등급은 새 카탈로그에도 남아 있는 동안 유지한다 — 옵션을 저장하거나 모델을
+        바꿀 때마다 등급이 Normal로 되돌아가면, 해상도 랜덤이 엉뚱한 등급에서 뽑는다.
+        """
         self._catalog = catalog
+        if self._selected_group is not None and self._selected_group not in catalog.groups():
+            self._selected_group = None
         self._rebuild_group_combo()
         width, height = self.size()
         if catalog.groups() and not catalog.contains(width, height):
@@ -220,13 +229,16 @@ class ResolutionPanel(QGroupBox):
         self._source_locked = bool(locked)
         self._source_size = source_size if self._source_locked else None
         if self._source_locked and not was_locked:
-            # 잠기기 전 t2i 크기를 기억한다 — 원본을 치우면 사용자가 고르던 크기로 돌아간다.
+            # 잠기기 전 t2i 크기·등급을 기억한다 — 원본을 치우면 고르던 자리로 돌아간다.
             self._unlocked_size = (self.width_spin.value(), self.height_spin.value())
+            self._unlocked_group = self._selected_group
         if self._source_locked and source_size is not None:
             # 원본 크기는 스냅하지 않고 그대로 보여 준다 (실제 생성 크기와 어긋나면 안 된다).
             self._apply_size(source_size[0], source_size[1], snap=False)
         elif not self._source_locked and was_locked and self._unlocked_size is not None:
             restored, self._unlocked_size = self._unlocked_size, None
+            # 등급 먼저 되돌린다 — `_apply_size`가 그 등급이 이 크기를 담는지 보고 정한다.
+            self._selected_group, self._unlocked_group = self._unlocked_group, None
             self._apply_size(restored[0], restored[1], snap=False)
         for widget in (self.width_spin, self.height_spin, self.group_combo, self.aspect_selector):
             widget.setEnabled(not self._source_locked)
@@ -235,14 +247,20 @@ class ResolutionPanel(QGroupBox):
     def is_source_locked(self) -> bool:
         return self._source_locked
 
-    def aspect_random_choices(self) -> tuple[tuple[int, int], ...]:
-        """현재 등급에서 사용 가능한 각 Aspect의 대표 해상도 (랜덤 해상도 기능용).
+    def random_resolution_choices(self) -> tuple[tuple[int, int], ...]:
+        """해상도 랜덤이 매 장 골라 쓸 후보들.
 
-        "직접 입력" 상태(`current_group()`이 None)면 카탈로그 전체에서 Aspect별 첫 해상도를 쓴다.
+        - `Custom` 등급이면 켜 둔 **커스텀 해상도 전부**. 커스텀 행을 여러 개 등록하는
+          이유가 그 크기들을 돌아가며 쓰려는 것이므로, Aspect 대표 하나로 줄이면 등록해
+          둔 크기 대부분이 뽑히지 않는다 (V4의 `_get_custom_resolution_list`와 같은 규칙).
+        - 그 밖의 등급이면 Aspect별 대표 1개씩 — Wide/Square/Portrait 중 하나가 걸린다.
+        - "직접 입력" 상태(`current_group()`이 None)면 카탈로그 전체에서 Aspect별 첫 해상도.
         """
         if self._catalog is None:
             return ()
         group = self.current_group()
+        if group is ResolutionGroup.CUSTOM:
+            return tuple(item.size for item in self._catalog.resolutions(group))
         sizes: list[tuple[int, int]] = []
         for aspect in self._available_aspects():
             item = (
@@ -267,6 +285,21 @@ class ResolutionPanel(QGroupBox):
             return ResolutionGroup(data)
         except ValueError:
             return None
+
+    def set_group(self, group: ResolutionGroup | None) -> None:
+        """저장해 둔 등급 선택을 복원한다 — 크기는 건드리지 않는다.
+
+        그 등급이 지금 카탈로그에 없거나 현재 크기를 담고 있지 않으면 무시한다: 화면에
+        실제 크기가 속하지 않은 등급이 떠 있으면 안 된다 (Req 10.10).
+        """
+        if group is None or self._catalog is None:
+            return
+        width, height = self.width_spin.value(), self.height_spin.value()
+        if not self._catalog.contains_in_group(group, width, height):
+            return
+        self._selected_group = group
+        self._sync_group_combo()
+        self._sync_aspect()
 
     def retranslate(self) -> None:
         """Aspect 버튼 라벨은 건드리지 않는다 (Req 10.4)."""
@@ -307,10 +340,26 @@ class ResolutionPanel(QGroupBox):
                 return index
         return -1
 
+    def _group_for_current_size(self) -> ResolutionGroup | None:
+        """지금 크기를 보여 줄 등급. 고른 등급이 그 크기를 담고 있으면 그대로 둔다.
+
+        커스텀 행은 보통 Normal에도 있는 크기를 담는다. 그래서 크기만으로 소속을 되짚으면
+        (`group_of`는 GROUP_ORDER 순서상 Normal을 먼저 고른다) 사용자가 고른 `Custom`이
+        조용히 `Normal`로 되돌아가고, 그 상태로 해상도 랜덤을 켜면 커스텀이 아니라 Normal
+        해상도가 뽑힌다.
+        """
+        if self._catalog is None:
+            return None
+        selected = self._selected_group
+        width, height = self.width_spin.value(), self.height_spin.value()
+        if selected is not None and self._catalog.contains_in_group(selected, width, height):
+            return selected
+        return self._catalog.group_of(width, height)
+
     def _sync_group_combo(self) -> None:
         """현재 크기를 담고 있는 등급을 표시. 목록에 없으면 "직접 입력" (Req 10.10)."""
-        width, height = self.width_spin.value(), self.height_spin.value()
-        group = self._catalog.group_of(width, height) if self._catalog is not None else None
+        group = self._group_for_current_size()
+        self._selected_group = group
         index = self._index_of_data(group.value if group is not None else DIRECT_ENTRY)
         if index < 0:
             return
@@ -393,6 +442,7 @@ class ResolutionPanel(QGroupBox):
         if self._syncing or self._catalog is None:
             return
         group = self.current_group()
+        self._selected_group = group
         if group is None:  # "직접 입력"을 직접 골랐다 — 현재 크기를 그대로 둔다.
             self._sync_aspect()
             return
