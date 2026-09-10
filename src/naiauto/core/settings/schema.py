@@ -253,11 +253,33 @@ class ArenaSettings(BaseModel):
     finale_per_combo: int = DEFAULT_PER_COMBO
     #: 전적이 없는 조합도 결산에 넣을지. 1000점은 실력이 아니라 '모름'이라 기본은 꺼짐.
     finale_include_unrated: bool = False
+    #: 결산 순위를 사람 Elo 대신 LLM 판독 점수로 매길지. 켜면 판독한 조합만 점수순으로
+    #: 뽑힌다 (사람 월드컵을 안 돌렸어도 LLM 추천 순서로 결산할 수 있다). 기본은 꺼짐.
+    finale_by_judge: bool = False
 
     #: 조합을 지울 때 그림 파일까지 지울지. **기본 꺼짐** — 파일을 남겨 두면 실수로
     #: 지워도 `되돌리기`가 그림까지 온전히 되살린다. 남은 파일은 통계 탭의
     #: `안 쓰는 그림 정리`로 언제든 치울 수 있다.
     delete_images_with_combo: bool = False
+
+    # ── LLM 그림체 판독 ─────────────────────────────────────────────────
+    #: V4 그림체를 재현하려고, 로컬 VLM(LM Studio)에게 참조 이미지와의 유사도를 매기게
+    #: 하는 기능의 설정. 연결(host)·타임아웃은 `AppSettings.lmstudio`를 그대로 쓴다 —
+    #: 여기는 판정에만 필요한 값을 둔다.
+    #: 참조(V4 그림체) 이미지 파일 경로들. 사용자가 판정 탭에서 등록한다.
+    judge_reference_paths: list[str] = Field(default_factory=list)
+    #: 판정에 쓸 VLM 식별자. 빈 문자열이면 LM Studio에 로드된 첫 모델을 쓴다.
+    #: 프롬프트 생성용 모델과 다를 수 있어(비전 필요) 별도로 둔다.
+    judge_model: str = ""
+    #: 판정 시스템 프롬프트 override. 빈 문자열이면 내장 기본 프롬프트를 쓴다.
+    #: 값이 있으면 기본을 **완전히 교체**한다 (LLM 태깅의 덧붙이기와 다르다) — 모델마다
+    #: 잘 듣는 채점 지시가 달라, 점수 포화가 심하면 여기서 rubric을 바꿔 실험할 수 있다.
+    judge_system_prompt: str = ""
+    #: 한 판정에 넣을 참조 이미지 최대 장수. 컨텍스트(~20k) 안에서 안전한 상한.
+    #: 초과분은 잘라내고 UI가 안내한다.
+    judge_max_references: int = 5
+    #: 판정이 끝난 뒤 상위 몇 개를 즐겨찾기로 표시할지 (후속 액션 기본값).
+    judge_favorite_top_n: int = 5
 
     def combo_params(self) -> ComboGenParams:
         """조합 생성 로직(`core/arena`)이 받는 모양으로. 범위 정리는 그쪽이 한다."""

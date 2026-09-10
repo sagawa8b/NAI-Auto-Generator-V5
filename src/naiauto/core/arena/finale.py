@@ -24,15 +24,44 @@ MAX_TOP_N = 200
 MAX_PER_COMBO = 20
 
 
-def finale_combos(state: ArenaState, top_n: int, *, include_unrated: bool = False) -> list[Combo]:
+def finale_combos(
+    state: ArenaState,
+    top_n: int,
+    *,
+    include_unrated: bool = False,
+    by_judge: bool = False,
+) -> list[Combo]:
     """결산에 올릴 조합 — 통계 표와 **같은 순서**로 위에서부터 `top_n`개.
 
-    기본적으로 한 번도 안 싸운 조합은 뺀다. 1000점은 실력이 아니라 '모름'이라,
-    결산에 섞이면 순위가 있는 것처럼 보인다. `include_unrated=True`면 전부 올린다
-    (아직 월드컵을 안 돌렸는데 그냥 다 뽑아 보고 싶은 경우).
+    `by_judge=False`(기본)면 사람 Elo 순위를 쓴다. 한 번도 안 싸운 조합은 뺀다 —
+    1000점은 실력이 아니라 '모름'이라, 결산에 섞이면 순위가 있는 것처럼 보인다.
+    `include_unrated=True`면 전부 올린다 (아직 월드컵을 안 돌렸는데 그냥 다 뽑아 보고
+    싶은 경우).
+
+    `by_judge=True`면 **LLM 판독 점수**(`judge_score`) 순위를 쓴다. 사람 Elo와 무관하게,
+    LLM이 참조 그림체와 닮았다고 본 순서로 뽑는다. 점수가 없는(-1) 조합은 뺀다 —
+    판독하지 않은 것을 결산에 섞으면 안 되기 때문이다. `include_unrated`는 이 경우
+    무시한다 (LLM 결산의 '평가 안 됨'은 곧 '점수 없음'이라 이미 걸러진다).
     """
+    if by_judge:
+        return judge_leaderboard_combos(state.combos, max(0, top_n))
     combos = state.combos if include_unrated else [c for c in state.combos if c.matches > 0]
     return leaderboard(combos, max(0, top_n))
+
+
+def judge_leaderboard_combos(combos: list[Combo], limit: int = 0) -> list[Combo]:
+    """LLM 판독 점수 높은 순. 점수가 없는(-1) 조합은 뺀다.
+
+    통계 탭의 `LLM 점수순` 정렬과 LLM 결산이 같은 순서를 쓰도록 한 곳에 둔다.
+    services 계층의 `judge_leaderboard`와 결과는 같지만, core는 순수해야 하므로
+    여기서 다시 정의한다 (service를 import하면 계층이 뒤집힌다).
+    """
+    ranked = sorted(
+        (combo for combo in combos if combo.has_judge_score),
+        key=lambda combo: combo.judge_score,
+        reverse=True,
+    )
+    return ranked[:limit] if limit > 0 else ranked
 
 
 def finale_total(combos: list[Combo], per_combo: int) -> int:
@@ -59,4 +88,5 @@ __all__ = [
     "combo_for_index",
     "finale_combos",
     "finale_total",
+    "judge_leaderboard_combos",
 ]

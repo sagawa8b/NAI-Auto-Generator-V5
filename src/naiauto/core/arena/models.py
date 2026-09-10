@@ -186,10 +186,20 @@ class Combo:
     image_path: str = ""  # images/ 안의 파일명 (폴더를 옮겨도 살아남게 상대경로)
     seed: int = 0
     created_at: float = field(default_factory=time.time)
+    #: LLM 그림체 판독 결과. `judge_score`는 참조와의 유사도 0~100, 아직 판독하지
+    #: 않았으면 -1(=모름). `judge_reason`은 모델이 준 한 줄 근거다. 사람 Elo와는
+    #: 완전히 별개로, "LLM 추천 랭킹"에만 쓴다.
+    judge_score: int = -1
+    judge_reason: str = ""
 
     @property
     def has_image(self) -> bool:
         return bool(self.image_path)
+
+    @property
+    def has_judge_score(self) -> bool:
+        """LLM 판독 점수가 있는지 (0~100). -1이면 아직 판독 전."""
+        return self.judge_score >= 0
 
     @property
     def win_rate(self) -> float:
@@ -214,6 +224,8 @@ class Combo:
             "image_path": self.image_path,
             "seed": self.seed,
             "created_at": self.created_at,
+            "judge_score": self.judge_score,
+            "judge_reason": self.judge_reason,
         }
 
     @classmethod
@@ -246,6 +258,8 @@ class Combo:
             image_path=_as_str(data.get("image_path")),
             seed=_as_int(data.get("seed"), 0),
             created_at=_as_float(data.get("created_at"), 0.0),
+            judge_score=_as_int(data.get("judge_score"), -1),
+            judge_reason=_as_str(data.get("judge_reason")),
         )
 
 

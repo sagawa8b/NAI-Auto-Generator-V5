@@ -27,6 +27,7 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
@@ -56,6 +57,7 @@ from ...core.arena.finale import (
     MAX_TOP_N,
     finale_combos,
     finale_total,
+    judge_leaderboard_combos,
 )
 from ...core.arena.models import Combo
 from .base import ArenaTab
@@ -65,12 +67,17 @@ logger = logging.getLogger(__name__)
 COL_TIER = 0
 COL_GENERATION = 1
 COL_ELO = 2
-COL_RECORD = 3
-COL_ARTISTS = 4
-SHEET_COLUMNS = 5
+COL_JUDGE = 3  # LLM 판독 점수 (사람 Elo와 별개)
+COL_RECORD = 4
+COL_ARTISTS = 5
+SHEET_COLUMNS = 6
 
 #: 작가 순위에 보여 줄 인원.
 ARTIST_TOP_N = 20
+
+#: 티어 시트 정렬 기준.
+SORT_ELO = "elo"  # 사람 Elo 순 (기본)
+SORT_JUDGE = "judge"  # LLM 판독 점수 순
 
 
 class StatsTab(ArenaTab):
@@ -93,6 +100,19 @@ class StatsTab(ArenaTab):
         self.tier_label.setWordWrap(True)
         layout.addWidget(self.tier_label)
 
+        # 정렬 기준 — 사람 Elo 순(기본)과 LLM 판독 점수 순. 두 점수를 나란히
+        # 보여 주되, 어느 쪽으로 줄 세울지 고르게 한다.
+        sort_row = QHBoxLayout()
+        self.sort_label = QLabel()
+        sort_row.addWidget(self.sort_label)
+        self.sort_combo = QComboBox()
+        self.sort_combo.addItem("", SORT_ELO)
+        self.sort_combo.addItem("", SORT_JUDGE)
+        self.sort_combo.currentIndexChanged.connect(self._refresh_sheet)
+        sort_row.addWidget(self.sort_combo)
+        sort_row.addStretch(1)
+        layout.addLayout(sort_row)
+
         self.sheet = QTableWidget(0, SHEET_COLUMNS)
         self.sheet.verticalHeader().setVisible(False)
         self.sheet.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -100,7 +120,7 @@ class StatsTab(ArenaTab):
         self.sheet.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         header = self.sheet.horizontalHeader()
         header.setSectionResizeMode(COL_ARTISTS, QHeaderView.ResizeMode.Stretch)
-        for col in (COL_TIER, COL_GENERATION, COL_ELO, COL_RECORD):
+        for col in (COL_TIER, COL_GENERATION, COL_ELO, COL_JUDGE, COL_RECORD):
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         layout.addWidget(self.sheet, 2)
 
@@ -140,6 +160,9 @@ class StatsTab(ArenaTab):
         self.finale_unrated_check = QCheckBox()
         self.finale_unrated_check.toggled.connect(self._refresh_finale_hint)
         finale_row.addWidget(self.finale_unrated_check)
+        self.finale_judge_check = QCheckBox()
+        self.finale_judge_check.toggled.connect(self._on_finale_judge_toggled)
+        finale_row.addWidget(self.finale_judge_check)
         self.finale_button = QPushButton()
         self.finale_button.clicked.connect(self.start_finale)
         finale_row.addWidget(self.finale_button)
@@ -177,6 +200,8 @@ class StatsTab(ArenaTab):
         self.finale_top_spin.setValue(max(1, min(MAX_TOP_N, arena.finale_top_n)))
         self.finale_per_spin.setValue(max(1, min(MAX_PER_COMBO, arena.finale_per_combo)))
         self.finale_unrated_check.setChecked(arena.finale_include_unrated)
+        self.finale_judge_check.setChecked(arena.finale_by_judge)
+        self._sync_finale_checks()
 
         self.retranslate()
 
@@ -194,6 +219,7 @@ class StatsTab(ArenaTab):
         arena.finale_top_n = self.finale_top_spin.value()
         arena.finale_per_combo = self.finale_per_spin.value()
         arena.finale_include_unrated = self.finale_unrated_check.isChecked()
+        arena.finale_by_judge = self.finale_judge_check.isChecked()
 
     def retranslate(self) -> None:
         tr = self.tr
@@ -202,10 +228,14 @@ class StatsTab(ArenaTab):
                 tr("arena.col_tier"),
                 tr("arena.col_generation"),
                 tr("arena.col_elo"),
+                tr("arena.col_judge"),
                 tr("arena.col_record"),
                 tr("arena.col_artists"),
             ]
         )
+        self.sort_label.setText(tr("arena.sort_sheet_by"))
+        self.sort_combo.setItemText(0, tr("arena.sort_by_elo"))
+        self.sort_combo.setItemText(1, tr("arena.sort_by_judge"))
         self.artists_table.setHorizontalHeaderLabels(
             [tr("arena.col_artist"), tr("arena.col_elo"), tr("arena.col_winrate"), tr("arena.col_uses")]
         )
@@ -224,6 +254,8 @@ class StatsTab(ArenaTab):
         self.finale_top_label.setText(tr("arena.finale_top"))
         self.finale_per_label.setText(tr("arena.finale_per_combo"))
         self.finale_unrated_check.setText(tr("arena.finale_include_unrated"))
+        self.finale_judge_check.setText(tr("arena.finale_by_judge"))
+        self.finale_judge_check.setToolTip(tr("arena.finale_by_judge_hint"))
         self.finale_button.setText(tr("arena.finale_start"))
         self.finale_button.setToolTip(tr("arena.finale_start_hint"))
         self.refresh()
@@ -236,18 +268,31 @@ class StatsTab(ArenaTab):
         self.tier_label.setText(self.tr("arena.tier_sheet").format(" · ".join(parts)))
 
     def _refresh_sheet(self) -> None:
-        combos = leaderboard(self.state.combos)
+        combos = self._sorted_combos()
         self.sheet.setRowCount(len(combos))
         for row, combo in enumerate(combos):
             self._fill_sheet_row(row, combo)
 
+    def _sorted_combos(self) -> list[Combo]:
+        """지금 정렬 기준으로 줄 세운 조합 목록.
+
+        `LLM 점수순`이면 판독 점수가 있는 조합만 점수순으로 올린다 (점수 없는 것은
+        LLM 결산 대상이 아니므로 표에서도 빼, 순위 오해를 막는다). `Elo순`은 기존대로
+        전부 올린다 — 사람 순위는 판독 여부와 무관하기 때문이다.
+        """
+        if self.sort_combo.currentData() == SORT_JUDGE:
+            return judge_leaderboard_combos(self.state.combos)
+        return leaderboard(self.state.combos)
+
     def _fill_sheet_row(self, row: int, combo: Combo) -> None:
         tr = self.tr
         mark = "" if is_settled(combo.matches) else tr("arena.tier_provisional_mark")
+        judge_text = str(combo.judge_score) if combo.has_judge_score else "-"
         cells = (
             (COL_TIER, f"{tier_of(combo.elo)}{mark}" if combo.matches else "-"),
             (COL_GENERATION, str(combo.generation)),
             (COL_ELO, f"{combo.elo:.0f}" if combo.matches else "-"),
+            (COL_JUDGE, judge_text),
             (COL_RECORD, f"{combo.wins}/{combo.matches}"),
             (COL_ARTISTS, format_artist_block(combo.slots, self.arena.use_prefix)),
         )
@@ -374,12 +419,26 @@ class StatsTab(ArenaTab):
     # ── 결산 ────────────────────────────────────────────────────────────
 
     def finale_selection(self) -> list[Combo]:
-        """지금 설정으로 결산에 올라갈 조합 — 표에 보이는 순서 그대로 위에서부터."""
+        """지금 설정으로 결산에 올라갈 조합 — 표에 보이는 순서 그대로 위에서부터.
+
+        `LLM 점수 순` 체크가 켜져 있으면 사람 Elo 대신 LLM 판독 점수로 뽑는다.
+        """
         return finale_combos(
             self.state,
             self.finale_top_spin.value(),
             include_unrated=self.finale_unrated_check.isChecked(),
+            by_judge=self.finale_judge_check.isChecked(),
         )
+
+    def _on_finale_judge_toggled(self, _checked: bool) -> None:
+        self._sync_finale_checks()
+        self._refresh_finale_hint()
+
+    def _sync_finale_checks(self) -> None:
+        """LLM 점수 순이면 `전적 없는 조합도`는 뜻이 없다 — LLM 결산은 점수가 있는 것만
+        올리기 때문이다. 오해를 막으려 비활성화한다."""
+        by_judge = self.finale_judge_check.isChecked()
+        self.finale_unrated_check.setEnabled(not by_judge)
 
     def start_finale(self) -> int:
         """결산 생성을 요청한다. 실제로 돌릴 장수를 돌려준다 (못 돌리면 0).

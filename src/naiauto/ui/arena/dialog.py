@@ -46,6 +46,7 @@ from .arena_tab import ArenaMatchTab
 from .base import ArenaTab
 from .build_tab import BuildTab
 from .evolve_tab import EvolveTab
+from .judge_tab import JudgeTab
 from .roster_tab import RosterTab
 from .stats_tab import StatsTab
 
@@ -93,6 +94,7 @@ class ArenaDialog(QDialog):
         self.roster_tab = RosterTab(i18n, settings, service, self)
         self.build_tab = BuildTab(i18n, settings, service, request_provider, self)
         self.match_tab = ArenaMatchTab(i18n, settings, service, self)
+        self.judge_tab = JudgeTab(i18n, settings, service, self)
         self.evolve_tab = EvolveTab(i18n, settings, service, self)
         self.stats_tab = StatsTab(i18n, settings, service, self)
         self.stats_tab.prompt_selected.connect(self.prompt_selected)
@@ -101,6 +103,7 @@ class ArenaDialog(QDialog):
             self.roster_tab,
             self.build_tab,
             self.match_tab,
+            self.judge_tab,
             self.evolve_tab,
             self.stats_tab,
         ]
@@ -267,6 +270,7 @@ class ArenaDialog(QDialog):
         닫자마자 잡을 죽이면, 크레딧을 이미 쓴 그림을 버리는 셈이 된다.
         """
         self.commit()
+        self.judge_tab.shutdown()  # 판독 워커가 돌고 있으면 멈추고 기다린다
         self._qsettings.setValue(_GEOMETRY_KEY, self.saveGeometry())
         self._qsettings.setValue(_TAB_KEY, self.tabs.currentIndex())
         self._service.unsubscribe(self._on_arena_event)

@@ -32,6 +32,12 @@ from .prompt_config import (
     PromptConfig,
     default_prompt_config,
 )
+from .style_judge import (
+    StyleJudgeConfig,
+    StyleScore,
+    judge_user_message,
+    parse_style_score,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +66,11 @@ __all__ = [
     "LMStudioVisionUnsupported",
     "PromptConfig",
     "PromptResult",
+    "StyleJudgeConfig",
+    "StyleScore",
     "default_prompt_config",
+    "judge_user_message",
+    "parse_style_score",
     "runtime_error",
     "system_prompt_for_style",
 ]
@@ -333,6 +343,75 @@ class LMStudioPromptGenerator:
 
         return parse_prompt_result(raw)
 
+    def score_style(
+        self,
+        references: list[bytes],
+        candidate: bytes,
+        config: StyleJudgeConfig | None = None,
+        should_cancel: CancelCheck | None = None,
+    ) -> StyleScore:
+        """참조 그림체(여러 장)와 후보 한 장을 비교해 0~100 유사도 점수를 매긴다.
+
+        아레나의 그림체 자동 판독이 쓴다. 후보를 **한 장씩** 넣어 절대 점수를 받는
+        방식이라(순서 편향 없음), 참조 이미지들은 매번 같은 그룹으로 앞에 붙고 후보만
+        마지막에 바뀐다.
+
+        Parameters
+        ----------
+        references : list[bytes]
+            목표 그림체를 정의하는 참조 이미지 원본 바이트들 (PNG/JPEG/WebP). 비어 있으면
+            비교 대상이 없으므로 `LMStudioResponseError`.
+        candidate : bytes
+            점수를 매길 후보 이미지 원본 바이트.
+        config : StyleJudgeConfig | None
+            연결·모델·타임아웃·참조 상한·시스템 프롬프트. None이면 기본값.
+        should_cancel : Callable[[], bool] | None
+            True를 돌려주면 스트리밍을 멈추고 `LMStudioCancelled`를 던진다.
+
+        Returns
+        -------
+        StyleScore
+            `ok=False`면 숫자를 못 건졌다는 뜻 — 호출한 쪽이 실패로 집계한다.
+
+        Raises
+        ------
+        LMStudioError
+            연결/모델 부재/타임아웃/비전 미지원/취소/생성 실패.
+        """
+        config = config or StyleJudgeConfig()
+        refs = [ref for ref in references if ref]
+        if not refs:
+            raise LMStudioResponseError("no reference images provided for style judging")
+        if not candidate:
+            raise LMStudioResponseError("no candidate image provided for style judging")
+
+        # 참조는 상한까지만 — 컨텍스트를 넘기면 서버가 통째로 거절할 수 있다.
+        limit = config.max_reference_images if config.max_reference_images > 0 else len(refs)
+        refs = refs[:limit]
+
+        lms = _import_lmstudio()
+        self._apply_timeout(lms, config.timeout)
+        cancelled = should_cancel or (lambda: False)
+
+        client = None
+        try:
+            client = lms.Client(config.host or DEFAULT_HOST)
+            model = self._resolve_model(client, config.model)
+            chat = lms.Chat(config.effective_system_prompt())
+            # 참조들을 먼저, 후보를 마지막에 — 시스템/사용자 프롬프트가 "마지막이 후보"라고
+            # 못박는 순서와 일치시킨다.
+            images = self._prepare_image_list(lms, [*refs, candidate])
+            chat.add_user_message(judge_user_message(len(refs)), images=images)
+            raw = self._stream_response(lms, model, chat, cancelled, _SAFETY_MAX_TOKENS)
+        except LMStudioError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            raise self._map_generation_error(e, has_image=True) from e
+        finally:
+            _close_client(client)
+
+        return parse_style_score(raw)
+
     # ── 내부 ─────────────────────────────────────────────────
 
     @staticmethod
@@ -407,6 +486,22 @@ class LMStudioPromptGenerator:
             return [lms.prepare_image(image)]
         except Exception as e:  # noqa: BLE001
             raise LMStudioResponseError(f"could not prepare image: {e}") from e
+
+    @staticmethod
+    def _prepare_image_list(lms, images: list[bytes]) -> list:
+        """여러 이미지 바이트를 순서 그대로 SDK 핸들 리스트로 (그림체 판정용).
+
+        빈/None 항목은 걸러 낸다 — 참조가 하나라도 살아 있으면 판정은 진행되어야 한다.
+        """
+        handles = []
+        for data in images:
+            if not data:
+                continue
+            try:
+                handles.append(lms.prepare_image(data))
+            except Exception as e:  # noqa: BLE001
+                raise LMStudioResponseError(f"could not prepare image: {e}") from e
+        return handles
 
     @staticmethod
     def _user_message(
