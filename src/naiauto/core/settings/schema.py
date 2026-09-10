@@ -280,6 +280,11 @@ class ArenaSettings(BaseModel):
     judge_max_references: int = 5
     #: 판정이 끝난 뒤 상위 몇 개를 즐겨찾기로 표시할지 (후속 액션 기본값).
     judge_favorite_top_n: int = 5
+    #: 결과 CSV에 **판독 조건(모델·참조 장수·채점 지시 여부 등)까지** 담을지.
+    #: 모델을 바꿔 가며 판독해 성능을 견주려면 점수 옆에 누가 어떤 조건으로 매겼는지가
+    #: 있어야 한다. 기본으로 켜 두는 이유는, 나중에 CSV를 다시 보며 "이건 어느 모델로
+    #: 뽑은 거였지"를 알 방법이 파일 밖에는 없기 때문이다. 끄면 예전과 같은 네 칸이다.
+    judge_export_run_info: bool = True
 
     def combo_params(self) -> ComboGenParams:
         """조합 생성 로직(`core/arena`)이 받는 모양으로. 범위 정리는 그쪽이 한다."""

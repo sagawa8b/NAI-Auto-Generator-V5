@@ -117,12 +117,19 @@ class StyleScore:
 
     `raw`는 파싱 전 모델 원문 — UI가 파싱 실패 시 폴백 표시에 쓸 수 있다.
     `ok`가 False면 점수를 신뢰할 수 없다는 뜻이다 (숫자를 못 건졌다).
+
+    `model`은 **서버가 실제로 고른** 모델 식별자다. 설정의 모델명이 아니라 결과인
+    이유는, 설정이 비어 있으면(자동) 로드된 첫 모델이 쓰이고 부분 일치로 골라질 수도
+    있어서다 — 모델을 바꿔 가며 점수를 견주려면 누가 매겼는지가 정확해야 한다.
+    파싱만 하는 자리(`parse_style_score`)에서는 알 수 없으므로 비어 있고,
+    호출한 쪽(`lmstudio_client.score_style`)이 채운다.
     """
 
     score: int = MIN_SCORE
     reason: str = ""
     raw: str = ""
     ok: bool = False
+    model: str = ""
 
 
 def judge_user_message(reference_count: int) -> str:

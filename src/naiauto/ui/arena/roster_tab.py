@@ -11,6 +11,18 @@
 - **이미지를 끌어다 놓으면 그 그림에 쓰인 작가를 뽑아 등록한다.** 원본 제작자는
   webp의 메타데이터를 읽지 못해 이 기능을 접었는데, 이 앱은 PNG tEXt·webp EXIF·
   스텔스 메타데이터를 모두 읽는 판독기(`core/metadata/naiinfo.py`)가 이미 있다.
+
+## 넣는 자리를 오른쪽으로 뺀다
+
+표가 화면 전체를 차지하는데 정작 **작가를 넣는 입구가 표 밑에 눌려** 있었다. 끌어다
+놓기는 가장 편한 방법인데 회색 안내문 한 줄로만 존재해, 그런 기능이 있는 줄도 알기
+어려웠다.
+
+- 왼쪽은 순위표, 오른쪽은 넣는 자리(과녁 · 붙여넣기 · 추가 버튼)로 나눈다.
+- 끌어다 놓는 자리를 **실제로 보이는 점선 과녁**으로 만들고, 끌고 오는 동안 밝힌다.
+  창 전체 드롭도 그대로 받는다 — 과녁을 정확히 겨눌 필요는 없다.
+- 후보가 수백 명이 되면 눈으로 못 찾는다 — **이름 검색**을 붙였다.
+- 되돌릴 수 없는 `명단 비우기`는 `선택 삭제`와 떼어 놓고 위험 등급을 준다.
 """
 
 from __future__ import annotations
@@ -26,9 +38,11 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -40,6 +54,7 @@ from ...core.arena.models import ArtistEntry
 from ...core.metadata.naiinfo import read_metadata
 from ...core.metadata.reuse import extract_reusable
 from .base import ArenaTab
+from .style import ROLE_DROP_ZONE, mark_danger, mark_primary
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +75,13 @@ _IMAGE_SUFFIXES = (".png", ".webp", ".jpg", ".jpeg")
 
 #: 한 번에 너무 많이 떨구면 판독에 시간이 걸린다 — 여기까지만 본다.
 _MAX_DROPPED_FILES = 500
+
+#: 좌우 패널 사이의 여백과 처음 뜰 때의 나눔 비율 (논리 픽셀).
+PANEL_GAP = 8
+SPLIT_SIZES = (620, 300)
+
+#: 끌어다 놓기를 받는 과녁의 최소 높이 (논리 픽셀).
+DROP_ZONE_HEIGHT = 96
 
 
 def artists_in_image(path: Path) -> list[str]:
@@ -90,13 +112,25 @@ class RosterTab(ArenaTab):
         self._updating = False  # 표를 다시 그리는 동안 itemChanged 재진입 방지
         self._sort = SORT_ELO
 
-        layout = QVBoxLayout(self)
+        root = QVBoxLayout(self)
+        # 표가 화면 전체를 차지하는데 정작 **작가를 넣는 입구가 표 밑에 눌려** 있었다.
+        # 왼쪽은 순위표, 오른쪽은 넣는 자리.
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        root.addWidget(self.splitter, 1)
 
-        # 1행: 개수 + 정렬
+        # ── 왼쪽: 순위표 ────────────────────────────────────────────────
+        left = QWidget()
+        layout = QVBoxLayout(left)
+        layout.setContentsMargins(0, 0, PANEL_GAP, 0)
+
         top = QHBoxLayout()
         self.count_label = QLabel()
         top.addWidget(self.count_label)
-        top.addStretch(1)
+        # 후보가 수백 명이 되면 눈으로 찾기 어렵다.
+        self.search_edit = QLineEdit()
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.textChanged.connect(self.refresh)
+        top.addWidget(self.search_edit, 1)
         self.sort_label = QLabel()
         top.addWidget(self.sort_label)
         self.sort_combo = QComboBox()
@@ -106,7 +140,6 @@ class RosterTab(ArenaTab):
         top.addWidget(self.sort_combo)
         layout.addLayout(top)
 
-        # 표
         self.table = QTableWidget(0, COLUMN_COUNT)
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -119,31 +152,51 @@ class RosterTab(ArenaTab):
         self.table.itemChanged.connect(self._on_item_changed)
         layout.addWidget(self.table, 1)
 
-        # 붙여넣기 입력
-        self.add_edit = QPlainTextEdit()
-        self.add_edit.setMaximumHeight(72)
-        layout.addWidget(self.add_edit)
-
-        # 버튼 줄
-        buttons = QHBoxLayout()
-        self.add_button = QPushButton()
-        self.add_button.clicked.connect(self._on_add)
-        buttons.addWidget(self.add_button)
+        row_actions = QHBoxLayout()
         self.remove_button = QPushButton()
         self.remove_button.clicked.connect(self.remove_selected)
-        buttons.addWidget(self.remove_button)
+        row_actions.addWidget(self.remove_button)
         self.normalize_button = QPushButton()
         self.normalize_button.clicked.connect(self._on_normalize)
-        buttons.addWidget(self.normalize_button)
-        buttons.addStretch(1)
-        self.clear_button = QPushButton()
-        self.clear_button.clicked.connect(self._on_clear)
-        buttons.addWidget(self.clear_button)
-        layout.addLayout(buttons)
+        row_actions.addWidget(self.normalize_button)
+        row_actions.addStretch(1)
+        layout.addLayout(row_actions)
+        self.splitter.addWidget(left)
 
-        self.hint_label = QLabel()
-        self.hint_label.setWordWrap(True)
-        layout.addWidget(self.hint_label)
+        # ── 오른쪽: 넣는 자리 ───────────────────────────────────────────
+        right = QWidget()
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(PANEL_GAP, 0, 0, 0)
+
+        # 끌어다 놓기는 가장 편한 방법인데 회색 안내문 한 줄로만 존재했다 — 실제로
+        # 보이는 과녁을 만든다 (창 전체 드롭도 그대로 받는다).
+        self.drop_zone = QLabel()
+        self.drop_zone.setObjectName(ROLE_DROP_ZONE)
+        self.drop_zone.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.drop_zone.setWordWrap(True)
+        self.drop_zone.setMinimumHeight(DROP_ZONE_HEIGHT)
+        right_layout.addWidget(self.drop_zone)
+
+        self.add_edit = QPlainTextEdit()
+        self.add_edit.setMinimumHeight(72)
+        right_layout.addWidget(self.add_edit, 1)
+
+        self.add_button = QPushButton()
+        mark_primary(self.add_button)
+        self.add_button.clicked.connect(self._on_add)
+        right_layout.addWidget(self.add_button)
+
+        right_layout.addStretch(1)
+        # 되돌릴 수 없다 — 표 옆의 `선택 삭제`와 떼어 놓고 위험 등급을 준다.
+        self.clear_button = QPushButton()
+        mark_danger(self.clear_button)
+        self.clear_button.clicked.connect(self._on_clear)
+        right_layout.addWidget(self.clear_button)
+        self.splitter.addWidget(right)
+
+        self.splitter.setStretchFactor(0, 1)
+        self.splitter.setStretchFactor(1, 0)
+        self.splitter.setSizes(list(SPLIT_SIZES))
 
         self.setAcceptDrops(True)
         self.retranslate()
@@ -154,13 +207,18 @@ class RosterTab(ArenaTab):
     def refresh(self) -> None:
         self._updating = True
         try:
-            entries = self._sorted_entries()
+            entries = self._visible_entries()
             self.table.setRowCount(len(entries))
             for row, entry in enumerate(entries):
                 self._fill_row(row, entry)
         finally:
             self._updating = False
-        self.count_label.setText(self.tr("arena.roster_count").format(len(self.state.artists)))
+        total = len(self.state.artists)
+        if len(entries) == total:
+            self.count_label.setText(self.tr("arena.roster_count").format(total))
+        else:
+            # 걸러 놓고 "N명"만 보이면 나머지가 지워진 줄 안다.
+            self.count_label.setText(self.tr("arena.roster_count_filtered").format(len(entries), total))
 
     def retranslate(self) -> None:
         tr = self.tr
@@ -181,15 +239,25 @@ class RosterTab(ArenaTab):
         for index in range(self.sort_combo.count()):
             self.sort_combo.setItemText(index, labels[self.sort_combo.itemData(index)])
         self.sort_label.setText(tr("arena.sort_by"))
+        self.search_edit.setPlaceholderText(tr("arena.roster_search"))
         self.add_edit.setPlaceholderText(tr("arena.roster_add_placeholder"))
         self.add_button.setText(tr("arena.roster_add"))
         self.remove_button.setText(tr("arena.roster_remove"))
         self.normalize_button.setText(tr("arena.roster_normalize"))
+        self.normalize_button.setToolTip(tr("arena.roster_normalize_hint"))
         self.clear_button.setText(tr("arena.roster_clear"))
-        self.hint_label.setText(tr("arena.roster_drop_hint"))
+        self.drop_zone.setText(tr("arena.roster_drop_hint"))
         self.refresh()
 
     # ── 표 ──────────────────────────────────────────────────────────────
+
+    def _visible_entries(self) -> list[ArtistEntry]:
+        """정렬한 뒤 검색어로 거른 줄들. 검색어가 비면 전부."""
+        needle = self.search_edit.text().strip().casefold()
+        entries = self._sorted_entries()
+        if not needle:
+            return entries
+        return [entry for entry in entries if needle in entry.name.casefold()]
 
     def _sorted_entries(self) -> list[ArtistEntry]:
         entries = list(self.state.artists)
@@ -348,13 +416,26 @@ class RosterTab(ArenaTab):
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:  # noqa: N802 (Qt 콜백 이름)
         if any(self._image_paths(event)):
             event.acceptProposedAction()
+            self._highlight_drop_zone(True)
+
+    def dragLeaveEvent(self, event) -> None:  # noqa: N802
+        self._highlight_drop_zone(False)
+        super().dragLeaveEvent(event)
 
     def dropEvent(self, event: QDropEvent) -> None:  # noqa: N802
+        self._highlight_drop_zone(False)
         paths = self._image_paths(event)
         if not paths:
             return
         event.acceptProposedAction()
         self.add_from_images(paths)
+
+    def _highlight_drop_zone(self, active: bool) -> None:
+        """끌고 오는 동안 과녁을 밝힌다 — 여기에 놓으면 된다는 신호."""
+        self.drop_zone.setProperty("dragging", "true" if active else "false")
+        # 동적 속성으로 고른 QSS는 다시 계산해 줘야 반영된다.
+        self.drop_zone.style().unpolish(self.drop_zone)
+        self.drop_zone.style().polish(self.drop_zone)
 
     def add_from_images(self, paths: list[Path]) -> None:
         """떨어뜨린 그림들에서 작가를 뽑아 명단에 넣는다.

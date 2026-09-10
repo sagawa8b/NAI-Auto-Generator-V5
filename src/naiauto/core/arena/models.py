@@ -191,6 +191,10 @@ class Combo:
     #: 완전히 별개로, "LLM 추천 랭킹"에만 쓴다.
     judge_score: int = -1
     judge_reason: str = ""
+    #: **이 점수를 매긴 모델의 이름.** 모델을 바꿔 가며 판독해 보고 어느 쪽이 사람
+    #: 취향과 잘 맞는지 견주려면, 점수 옆에 누가 매겼는지가 함께 남아야 한다.
+    #: 설정의 모델명이 아니라 서버가 **실제로 고른** 식별자다 (빈 값이면 자동 선택).
+    judge_model: str = ""
 
     @property
     def has_image(self) -> bool:
@@ -226,6 +230,7 @@ class Combo:
             "created_at": self.created_at,
             "judge_score": self.judge_score,
             "judge_reason": self.judge_reason,
+            "judge_model": self.judge_model,
         }
 
     @classmethod
@@ -260,6 +265,65 @@ class Combo:
             created_at=_as_float(data.get("created_at"), 0.0),
             judge_score=_as_int(data.get("judge_score"), -1),
             judge_reason=_as_str(data.get("judge_reason")),
+            judge_model=_as_str(data.get("judge_model")),
+        )
+
+
+@dataclass
+class JudgeRun:
+    """마지막 LLM 판독이 **어떤 조건으로** 돌았는지 — 모델 간 비교의 기준선.
+
+    조합마다 남는 `Combo.judge_model`이 "누가 이 점수를 매겼나"에 답한다면, 여기에는
+    그 판독 한 회차의 조건이 남는다: 참조를 몇 장 썼는지, 채점 지시를 손봤는지,
+    몇 개를 성공/실패했는지. 같은 후보를 모델 A와 B로 판독해 견줄 때, 점수만으로는
+    "참조를 3장 쓴 판독과 5장 쓴 판독"을 구분할 수 없기 때문이다.
+
+    `arena.json`에 함께 저장되므로 앱을 껐다 켜도 남는다. 판독 점수를 비우면 이것도
+    함께 지운다 — 지워진 점수의 조건만 남아 있으면 거짓말이 된다.
+    """
+
+    #: 서버가 실제로 고른 모델 식별자 (설정값이 아니라 결과).
+    model: str = ""
+    host: str = ""
+    #: 요청 제한 시간(초). 0 이하면 무제한.
+    timeout: float = 0.0
+    #: 이번 판독에 실제로 넣은 참조 장수와, 설정에 걸어 둔 상한.
+    references: int = 0
+    max_references: int = 0
+    #: 채점 지시(시스템 프롬프트)를 손댔는지. 내용 자체는 길어 담지 않는다.
+    custom_prompt: bool = False
+    scored: int = 0
+    failed: int = 0
+    #: 끝난 시각 (ISO 8601, 로컬 시간).
+    finished_at: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "model": self.model,
+            "host": self.host,
+            "timeout": self.timeout,
+            "references": self.references,
+            "max_references": self.max_references,
+            "custom_prompt": self.custom_prompt,
+            "scored": self.scored,
+            "failed": self.failed,
+            "finished_at": self.finished_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: object) -> JudgeRun | None:
+        if not isinstance(data, dict):
+            return None
+        return cls(
+            model=_as_str(data.get("model")),
+            host=_as_str(data.get("host")),
+            timeout=_as_float(data.get("timeout"), 0.0),
+            references=_as_int(data.get("references"), 0, minimum=0),
+            max_references=_as_int(data.get("max_references"), 0, minimum=0),
+            custom_prompt=bool(data.get("custom_prompt", False)),
+            scored=_as_int(data.get("scored"), 0, minimum=0),
+            failed=_as_int(data.get("failed"), 0, minimum=0),
+            finished_at=_as_str(data.get("finished_at")),
         )
 
 
@@ -313,6 +377,8 @@ class ArenaState:
     artists: list[ArtistEntry] = field(default_factory=list)
     combos: list[Combo] = field(default_factory=list)
     total_matches: int = 0  # 지금까지 진행한 대결 수 (통계 표시용)
+    #: 마지막 LLM 판독의 조건. 한 번도 안 돌렸으면 None.
+    judge_run: JudgeRun | None = None
 
     # ------------------------------------------------------------------ 조회
 
@@ -383,6 +449,7 @@ class ArenaState:
             "total_matches": self.total_matches,
             "artists": [entry.to_dict() for entry in self.artists],
             "combos": [combo.to_dict() for combo in self.combos],
+            "judge_run": None if self.judge_run is None else self.judge_run.to_dict(),
         }
 
     @classmethod
@@ -415,4 +482,5 @@ class ArenaState:
             artists=artists,
             combos=combos,
             total_matches=_as_int(data.get("total_matches"), 0, minimum=0),
+            judge_run=JudgeRun.from_dict(data.get("judge_run")),
         )

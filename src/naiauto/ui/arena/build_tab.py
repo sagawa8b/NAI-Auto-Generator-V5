@@ -9,6 +9,19 @@
 **모든 조합이 같은 시드·같은 기본 프롬프트로 뽑힌다.** 그래야 남는 차이가 그림체뿐이다.
 기본 프롬프트는 메인 창의 것을 그대로 쓰고 여기서는 읽기 전용으로 보여 준다 — 아레나가
 자기 프롬프트를 따로 들면 메인 창과 어긋나서 "왜 다른 그림이 나오지" 하게 된다.
+
+## 화면을 좌우로 나눈다
+
+예전에는 설정 여덟 줄과 프롬프트 미리보기가 위쪽을 다 먹고, 정작 만든 조합은 맨 아래에서
+네댓 줄만 보였다. 창 폭이 1000px인데 좌우로 나뉜 곳이 하나도 없었다.
+
+- **왼쪽은 조작값** — 규칙·뽑기·기본 프롬프트를 접이식으로 두고, 접힌 동안에는 현재 값을
+  요약 한 줄로 보여 준다 (옵션 창이 쓰는 `CollapsibleSection` 그대로). 처음에는 규칙만
+  펼쳐 둔다. **와일드카드 경고만은 접이식 밖에** 있다 — 접어 두면 보이지 않는 경고가 된다.
+- **오른쪽은 결과** — 조합 큐가 화면의 대부분을 쓰고, 줄마다 **썸네일**이 붙는다. 뽑아 둔
+  그림을 이 탭에서 볼 방법이 없어서 어느 줄이 무엇인지 태그 문자열로만 가늠해야 했다.
+- **`그림 생성`은 주 동작** — 앱에서 크레딧을 쓰는 유일한 버튼인데 공짜인
+  `랜덤 조합 만들기`와 똑같이 생겨 있었다. 칠하고, 몇 장을 뽑을지 라벨에 적는다.
 """
 
 from __future__ import annotations
@@ -16,14 +29,14 @@ from __future__ import annotations
 import dataclasses
 import logging
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
-    QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -31,6 +44,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSpinBox,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -66,21 +80,39 @@ from ...services.arena_service import (
     pending_combos,
     ready_combos,
 )
+from ..widgets.collapsible_section import CollapsibleSection
 from .base import ArenaTab
+from .style import mark_primary
 
 logger = logging.getLogger(__name__)
 
 #: 해상도 콤보의 "메인 창 설정" 항목이 들고 있는 값.
 RESOLUTION_FOLLOW = (0, 0)
 
-#: 조합 큐 표의 열.
-COL_STATE = 0
-COL_GENERATION = 1
-COL_COMBO = 2
-QUEUE_COLUMNS = 3
+#: 조합 큐 표의 열. 썸네일이 맨 앞이다 — 뽑아 놓은 그림을 이 탭에서 볼 방법이
+#: 없어서, 어느 줄이 무엇인지 태그 문자열로만 가늠해야 했다.
+COL_THUMBNAIL = 0
+COL_STATE = 1
+COL_GENERATION = 2
+COL_COMBO = 3
+QUEUE_COLUMNS = 4
+
+#: 큐 썸네일 한 변 (논리 픽셀).
+THUMBNAIL_SIZE = 44
+
+#: 썸네일 캐시가 이보다 커지면 통째로 비운다 — 조합을 수백 개 만들어 두고 오래
+#: 띄워 놓는 창이라, 지운 조합의 그림까지 끝없이 붙들고 있지 않게 한다.
+_THUMBNAIL_CACHE_MAX = 400
+
+#: 좌우 패널 사이의 여백과 처음 뜰 때의 나눔 비율 (논리 픽셀).
+PANEL_GAP = 8
+SPLIT_SIZES = (340, 660)
 
 #: 상태줄에 조합을 요약해 넣을 때의 최대 길이.
 _STATUS_COMBO_CHARS = 52
+
+#: 접힌 섹션의 요약 한 줄에 넣을 최대 길이.
+_SUMMARY_CHARS = 64
 
 
 def index_of_data(combo: QComboBox, value) -> int:
@@ -103,12 +135,24 @@ class BuildTab(ArenaTab):
     def __init__(self, i18n, settings, service, request_provider, parent: QWidget | None = None) -> None:
         super().__init__(i18n, settings, service, parent)
         self._request_provider = request_provider
+        #: 큐 표의 썸네일 캐시 — (파일 경로, 수정 시각) → 아이콘. 수정 시각을 키에
+        #: 넣어, 같은 이름으로 다시 뽑은 그림이 옛 썸네일로 남지 않게 한다.
+        self._thumbnails: dict[tuple[str, int], QIcon] = {}
 
-        layout = QVBoxLayout(self)
+        root = QVBoxLayout(self)
+        # 폭이 1000px인데 세로로만 쌓아 올려 정작 결과물인 큐가 네댓 줄만 보였다.
+        # 왼쪽은 조작값, 오른쪽은 결과. 좁은 화면에서는 한쪽을 접을 수 있다.
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        root.addWidget(self.splitter, 1)
+
+        left = QWidget()
+        layout = QVBoxLayout(left)
+        layout.setContentsMargins(0, 0, PANEL_GAP, 0)
 
         # ── 조합 규칙 ────────────────────────────────────────────────────
-        self.rules_group = QGroupBox()
-        rules = QFormLayout(self.rules_group)
+        rules_body = QWidget()
+        rules = QFormLayout(rules_body)
+        rules.setContentsMargins(0, 0, 0, 0)
 
         count_row = QHBoxLayout()
         self.min_spin = QSpinBox()
@@ -180,11 +224,17 @@ class BuildTab(ArenaTab):
         self.insert_label = QLabel()
         rules.addRow(self.insert_label, place_row)
 
+        self.rules_group = CollapsibleSection(i18n, "arena.build_rules")
+        self.rules_group.set_content(rules_body)
+        # 처음에는 규칙만 펼쳐 둔다 — 여기가 실제로 손대는 값이고, 나머지는 요약
+        # 한 줄이면 충분하다.
+        self.rules_group.set_expanded(True)
         layout.addWidget(self.rules_group)
 
         # ── 뽑기 ────────────────────────────────────────────────────────
-        self.batch_group = QGroupBox()
-        batch = QFormLayout(self.batch_group)
+        batch_body = QWidget()
+        batch = QFormLayout(batch_body)
+        batch.setContentsMargins(0, 0, 0, 0)
 
         self.batch_spin = QSpinBox()
         self.batch_spin.setRange(1, 200)
@@ -200,50 +250,46 @@ class BuildTab(ArenaTab):
         self.threshold_label = QLabel()
         batch.addRow(self.threshold_label, self.threshold_spin)
 
+        self.batch_group = CollapsibleSection(i18n, "arena.build_batch")
+        self.batch_group.set_content(batch_body)
         layout.addWidget(self.batch_group)
 
         # ── 기본 프롬프트 (읽기 전용) ────────────────────────────────────
-        self.prompt_label = QLabel()
-        layout.addWidget(self.prompt_label)
         self.prompt_view = QPlainTextEdit()
         self.prompt_view.setReadOnly(True)
-        self.prompt_view.setMaximumHeight(132)
-        layout.addWidget(self.prompt_view)
+        self.prompt_view.setMinimumHeight(132)
+        self.prompt_group = CollapsibleSection(i18n, "arena.base_prompt")
+        self.prompt_group.set_content(self.prompt_view)
+        layout.addWidget(self.prompt_group)
+
+        # 경고는 접이식 **밖에** 둔다 — 접어 두면 보이지 않는 경고가 된다.
         self.warning_label = QLabel()
         self.warning_label.setWordWrap(True)
         self.warning_label.setVisible(False)
         layout.addWidget(self.warning_label)
+        layout.addStretch(1)
+        self.splitter.addWidget(left)
 
-        # ── 동작 ────────────────────────────────────────────────────────
-        actions = QHBoxLayout()
-        self.make_button = QPushButton()
-        self.make_button.clicked.connect(self.make_combos)
-        actions.addWidget(self.make_button)
-        self.generate_button = QPushButton()
-        self.generate_button.clicked.connect(self.start_generation)
-        actions.addWidget(self.generate_button)
-        self.stop_button = QPushButton()
-        self.stop_button.clicked.connect(self._service.stop)
-        self.stop_button.setEnabled(False)
-        actions.addWidget(self.stop_button)
-        actions.addStretch(1)
-        layout.addLayout(actions)
+        # ── 오른쪽: 만들어 둔 조합 ──────────────────────────────────────
+        right = QWidget()
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(PANEL_GAP, 0, 0, 0)
 
-        # 진행 막대는 창 아래 상태줄에 있다 (어느 탭에서도 보이게).
         self.summary_label = QLabel()
-        layout.addWidget(self.summary_label)
+        right_layout.addWidget(self.summary_label)
 
-        # ── 조합 큐 ─────────────────────────────────────────────────────
         self.queue_table = QTableWidget(0, QUEUE_COLUMNS)
         self.queue_table.verticalHeader().setVisible(False)
+        self.queue_table.verticalHeader().setDefaultSectionSize(THUMBNAIL_SIZE + 8)
+        self.queue_table.setIconSize(QSize(THUMBNAIL_SIZE, THUMBNAIL_SIZE))
         self.queue_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.queue_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.queue_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         header = self.queue_table.horizontalHeader()
         header.setSectionResizeMode(COL_COMBO, QHeaderView.ResizeMode.Stretch)
-        for col in (COL_STATE, COL_GENERATION):
+        for col in (COL_THUMBNAIL, COL_STATE, COL_GENERATION):
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
-        layout.addWidget(self.queue_table, 1)
+        right_layout.addWidget(self.queue_table, 1)
 
         queue_actions = QHBoxLayout()
         self.remove_button = QPushButton()
@@ -259,7 +305,34 @@ class BuildTab(ArenaTab):
         self.delete_images_check = QCheckBox()
         self.delete_images_check.toggled.connect(self._on_delete_images_toggled)
         queue_actions.addWidget(self.delete_images_check)
-        layout.addLayout(queue_actions)
+        right_layout.addLayout(queue_actions)
+
+        # ── 동작 ────────────────────────────────────────────────────────
+        actions = QHBoxLayout()
+        self.make_button = QPushButton()
+        self.make_button.clicked.connect(self.make_combos)
+        actions.addWidget(self.make_button, 1)
+        # 앱에서 **크레딧을 쓰는 유일한 버튼**이다. 주 동작으로 칠하고, 몇 장을
+        # 뽑을지 라벨에 적는다 — 누르기 전에 알 수 있어야 한다.
+        self.generate_button = QPushButton()
+        mark_primary(self.generate_button)
+        self.generate_button.clicked.connect(self.start_generation)
+        actions.addWidget(self.generate_button, 1)
+        self.stop_button = QPushButton()
+        self.stop_button.clicked.connect(self._service.stop)
+        self.stop_button.setEnabled(False)
+        actions.addWidget(self.stop_button)
+        right_layout.addLayout(actions)
+        self.splitter.addWidget(right)
+
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes(list(SPLIT_SIZES))
+
+        # 본문 위젯이 다 생긴 뒤에야 요약을 만들 수 있다.
+        self.rules_group.set_summary_provider(self._rules_summary)
+        self.batch_group.set_summary_provider(self._batch_summary)
+        self.prompt_group.set_summary_provider(self._prompt_summary)
 
         self._load_settings()
         self.retranslate()
@@ -271,11 +344,14 @@ class BuildTab(ArenaTab):
         self._refresh_summary()
         self._refresh_queue()
         running = self._service.is_running
-        self.make_button.setEnabled(not running)
+        # **조합 만들기는 생성 중에도 열어 둔다.** 만드는 것은 공짜이고, 돌고 있는
+        # 잡은 시작할 때 뜬 목록(`ArenaService._batch`)만 보므로 새 조합이 끼어들지
+        # 않는다. 막아 두면 처음에 조합을 여러 번 나눠 만들 수가 없다.
+        self.make_button.setEnabled(True)
         self.generate_button.setEnabled(not running)
         self.stop_button.setEnabled(running)
-        # 생성 중에는 큐를 건드리지 못하게 한다 — 뽑고 있는 조합을 지우면 방금 쓴
-        # 크레딧이 갈 곳을 잃는다.
+        # 반면 **지우는 것**은 막는다 — 뽑고 있는 조합을 지우면 방금 쓴 크레딧이
+        # 갈 곳을 잃는다.
         self.remove_button.setEnabled(not running)
         self.remove_pending_button.setEnabled(not running and bool(pending_combos(self.state)))
         self.undo_button.setEnabled(not running and self._service.can_undo)
@@ -300,8 +376,8 @@ class BuildTab(ArenaTab):
 
     def retranslate(self) -> None:
         tr = self.tr
-        self.rules_group.setTitle(tr("arena.build_rules"))
-        self.batch_group.setTitle(tr("arena.build_batch"))
+        for section in (self.rules_group, self.batch_group, self.prompt_group):
+            section.retranslate()
         self.count_label.setText(tr("arena.artist_count"))
         self.weight_label.setText(tr("arena.weight"))
         self.wmin_label.setText(tr("arena.weight_min"))
@@ -313,10 +389,9 @@ class BuildTab(ArenaTab):
         self.batch_size_label.setText(tr("arena.batch_size"))
         self.resolution_label.setText(tr("arena.resolution"))
         self.threshold_label.setText(tr("arena.prefetch_threshold"))
-        self.prompt_label.setText(tr("arena.base_prompt"))
         self.warning_label.setText(tr("arena.dynamic_warning"))
         self.make_button.setText(tr("arena.make_combos"))
-        self.generate_button.setText(tr("arena.start_generation"))
+        self._refresh_generate_label()
         self.stop_button.setText(tr("arena.stop"))
         self.prefix_check.setText(tr("arena.use_prefix"))
         self.remove_button.setText(tr("arena.queue_remove"))
@@ -326,7 +401,12 @@ class BuildTab(ArenaTab):
         self.delete_images_check.setText(tr("arena.delete_images_with_combo"))
         self.delete_images_check.setToolTip(tr("arena.delete_images_with_combo_hint"))
         self.queue_table.setHorizontalHeaderLabels(
-            [tr("arena.queue_col_state"), tr("arena.col_generation"), tr("arena.queue_col_combo")]
+            [
+                "",  # 썸네일 — 머리글을 붙이면 그림보다 글이 넓어진다
+                tr("arena.queue_col_state"),
+                tr("arena.col_generation"),
+                tr("arena.queue_col_combo"),
+            ]
         )
 
         mode_keys = {
@@ -502,6 +582,48 @@ class BuildTab(ArenaTab):
         total = len(self.state.combos)
         ready = len(ready_combos(self.state))
         self.summary_label.setText(self.tr("arena.build_summary").format(total, ready, total - ready))
+        self._refresh_generate_label()
+        for section in (self.rules_group, self.batch_group, self.prompt_group):
+            section.refresh_summary()
+
+    def _refresh_generate_label(self) -> None:
+        """`그림 생성` 라벨에 몇 장을 뽑을지 적는다.
+
+        앱에서 크레딧을 쓰는 버튼은 이것 하나뿐인데, 공짜인 `랜덤 조합 만들기`와
+        똑같이 생겨 있었다. 장수를 라벨에 넣으면 버튼 자신이 값을 말한다.
+        """
+        tr = self.tr
+        pending = len(pending_combos(self.state))
+        if pending:
+            self.generate_button.setText(tr("arena.start_generation_n").format(pending))
+        else:
+            self.generate_button.setText(tr("arena.start_generation"))
+
+    # ── 접힌 섹션의 요약 한 줄 ──────────────────────────────────────────
+
+    def _rules_summary(self) -> str:
+        return self.tr("arena.rules_summary").format(
+            self.min_spin.value(),
+            self.max_spin.value(),
+            self.mode_combo.currentText(),
+            format_weight(self.wmin_spin.value()),
+            format_weight(self.wmax_spin.value()),
+            format_weight(self.step_spin.value()),
+        )
+
+    def _batch_summary(self) -> str:
+        return self.tr("arena.batch_summary").format(
+            self.batch_spin.value(),
+            self.resolution_combo.currentText(),
+            self.threshold_spin.value(),
+        )
+
+    def _prompt_summary(self) -> str:
+        """접혀 있을 때도 무슨 프롬프트로 뽑는지는 보이게 — 한 줄로 줄인다."""
+        text = " · ".join(
+            line.strip() for line in self.prompt_view.toPlainText().splitlines() if line.strip()
+        )
+        return text if len(text) <= _SUMMARY_CHARS else text[: _SUMMARY_CHARS - 1] + "…"
 
     def _refresh_queue(self) -> None:
         """만들어 둔 조합을 최신순으로 보여 준다 — 방금 만든 것이 맨 위."""
@@ -528,6 +650,32 @@ class BuildTab(ArenaTab):
                     # 표를 다시 그려도 어느 줄이 어느 조합인지 잃지 않게.
                     item.setData(Qt.ItemDataRole.UserRole, combo.id)
                 self.queue_table.setItem(row, col, item)
+
+            thumbnail = QTableWidgetItem()
+            icon = self._thumbnail(combo)
+            if icon is not None:
+                thumbnail.setIcon(icon)
+            self.queue_table.setItem(row, COL_THUMBNAIL, thumbnail)
+
+    def _thumbnail(self, combo) -> QIcon | None:
+        """큐 줄에 붙일 작은 그림. 그림이 없거나 못 읽으면 None (빈 칸이 곧 `대기`다)."""
+        path = self._service.store.image_path(combo)
+        if path is None:
+            return None
+        try:
+            key = (str(path), path.stat().st_mtime_ns)
+        except OSError:  # 방금 지워졌을 수 있다 — 다음 갱신에 맞춰진다
+            return None
+        icon = self._thumbnails.get(key)
+        if icon is None:
+            pixmap = QPixmap(str(path))
+            if pixmap.isNull():
+                return None
+            if len(self._thumbnails) >= _THUMBNAIL_CACHE_MAX:
+                self._thumbnails.clear()
+            icon = QIcon(pixmap)
+            self._thumbnails[key] = icon
+        return icon
 
     def selected_combos(self) -> list:
         """고른 줄들의 조합 (중복 없이)."""

@@ -29,6 +29,9 @@ class ArenaTab(QWidget):
     #: 그림이 부족하다 — 다이얼로그가 조합 생성 탭에 뽑기를 시킨다.
     #: 크레딧을 쓰는 동작이라 사용자가 자동 뽑기를 켠 경우에만 나간다.
     request_prefetch = Signal()
+    #: 이 단계를 하는 탭으로 보내 달라 (`core/arena/guidance.STEP_*`).
+    #: 빈 화면 안내의 행동 버튼이 쓴다 — 막힌 이유를 말한 자리에서 바로 풀러 갈 수 있게.
+    navigate_requested = Signal(str)
 
     KEY = ""
 

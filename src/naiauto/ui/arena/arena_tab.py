@@ -4,6 +4,19 @@
 대진은 무작위가 아니라 **덜 싸운 조합 우선 + 점수가 가까운 상대**로 짠다
 (`core/arena/elo.pick_match`) — 같은 클릭 수로 순위가 더 정확해진다.
 
+## 화면을 그림에 몰아준다
+
+시간의 대부분을 여기서 쓴다. 그런데 예전에는 그림 위아래로 컨트롤 줄이 다섯 개
+(리그 줄 · 진행 한 줄 · 선택 버튼 · 카드 조작 6개씩 · 판정 5개 · 안내 한 줄) 깔려
+정작 볼 것이 밀려났다. 세 가지를 정리했다.
+
+- **단축키를 버튼 라벨 안으로** — `← → 승자 · ↑ 둘 다 좋음 …` 안내문 한 줄이 통째로
+  없어졌다. 누를 버튼 자신이 어떤 키인지 말한다 (단축키를 끄면 표기도 사라진다).
+- **카드 조작 버튼은 그림 위로** — `combo_card.py` 참고. 되돌릴 수 없는 `삭제`가
+  `복사` 옆에 똑같이 생긴 채로 상시 노출돼 있었다.
+- **빈 화면은 막다른 길이 아니다** — 왜 겨룰 수 없는지(조합이 없다 / 그림이 없다 /
+  리그가 좁다)를 구분해 말하고, 그것을 푸는 탭으로 가는 버튼을 함께 준다.
+
 커뮤니티 요청을 반영한 것들:
 
 - **둘 다 승 / 둘 다 패 / 스킵 / 양쪽 삭제** — 원본에는 스킵밖에 없었다.
@@ -30,8 +43,10 @@ from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
+    QProgressBar,
     QPushButton,
     QSlider,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -44,15 +59,19 @@ from ...core.arena.elo import (
     RESULT_BOTH_WIN,
     RESULT_DRAW,
     apply_match,
+    is_settled,
     pick_match,
     unsettled,
 )
 from ...core.arena.evolution import regenerate_weights
+from ...core.arena.guidance import MIN_COMBOS_TO_MATCH, STEP_GENERATE, STEP_MAKE_COMBOS
 from ...core.arena.models import DEFAULT_ELO, Combo
 from ...services.arena_service import ArenaImageReady, pending_combos, ready_combos
+from ..widgets import EmptyState
 from ..widgets.zoomable_image_view import ZoomableImageView
 from .base import ArenaTab
 from .combo_card import ComboCard
+from .style import mark_danger
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +79,22 @@ LEAGUE_ALL = "all"
 LEAGUE_FAVORITES = "favorites"
 LEAGUE_UNSETTLED = "unsettled"
 LEAGUES = (LEAGUE_ALL, LEAGUE_FAVORITES, LEAGUE_UNSETTLED)
+
+#: 빈 화면의 행동 중 탭 이동이 아닌 것 — 리그를 `전체`로 되돌린다.
+_ACTION_ALL_LEAGUE = "all_league"
+
+#: 행동 → 버튼에 쓸 i18n 키.
+_ACTION_LABELS = {
+    STEP_MAKE_COMBOS: "arena.empty_go_build",
+    STEP_GENERATE: "arena.empty_go_generate",
+    _ACTION_ALL_LEAGUE: "arena.empty_show_all",
+}
+
+#: 판정 버튼에 붙일 단축키 표시. `비김`은 키를 배정하지 않았다.
+_JUDGE_KEYS = {
+    RESULT_BOTH_WIN: "↑",
+    RESULT_BOTH_LOSE: "↓",
+}
 
 #: 배율 슬라이더 범위 (%).
 SCALE_MIN = 50
@@ -107,11 +142,22 @@ class ArenaMatchTab(ArenaTab):
         top.addWidget(self.scale_slider)
         layout.addLayout(top)
 
+        # 진행 — 이 리그가 얼마나 확정됐는지. 창 상태줄은 전체 숫자를 보여 주므로
+        # 여기서는 **지금 보고 있는 리그** 기준으로 얼마나 남았는지를 말한다.
+        progress_row = QHBoxLayout()
+        self.settled_bar = QProgressBar()
+        self.settled_bar.setFixedWidth(140)
+        self.settled_bar.setFormat("%v / %m")
+        progress_row.addWidget(self.settled_bar)
         self.progress_label = QLabel()
-        layout.addWidget(self.progress_label)
+        progress_row.addWidget(self.progress_label, 1)
+        layout.addLayout(progress_row)
 
-        # ── 가운데: 두 장 ───────────────────────────────────────────────
-        cards = QHBoxLayout()
+        # ── 가운데: 두 장, 또는 왜 겨룰 수 없는지 ───────────────────────
+        self.cards_stack = QStackedWidget()
+        self.cards_page = QWidget()
+        cards = QHBoxLayout(self.cards_page)
+        cards.setContentsMargins(0, 0, 0, 0)
         self.left_card = ComboCard(i18n, self)
         self.right_card = ComboCard(i18n, self)
         for card, result in ((self.left_card, RESULT_A), (self.right_card, RESULT_B)):
@@ -123,7 +169,18 @@ class ArenaMatchTab(ArenaTab):
             card.reroll_requested.connect(lambda c=card: self._reroll(c))
             card.delete_requested.connect(lambda c=card: self._delete([c.combo]))
             card.copy_requested.connect(lambda c=card: self._copy(c))
-        layout.addLayout(cards, 1)
+        self.left_card.set_select_key("←", before=True)
+        self.right_card.set_select_key("→", before=False)
+        self.cards_stack.addWidget(self.cards_page)
+
+        # 겨룰 수 없을 때는 카드 대신 **왜 그런지와 어떻게 푸는지**를 띄운다.
+        self.empty_state = EmptyState()
+        self.empty_state.action_clicked.connect(self._on_empty_action)
+        self.cards_stack.addWidget(self.empty_state)
+        layout.addWidget(self.cards_stack, 1)
+
+        #: 빈 화면의 행동 버튼이 무엇을 할지 (`STEP_*` 또는 `_ACTION_ALL_LEAGUE`).
+        self._empty_action = ""
 
         # ── 아래: 양쪽에 대한 판정 ──────────────────────────────────────
         actions = QHBoxLayout()
@@ -140,14 +197,13 @@ class ArenaMatchTab(ArenaTab):
         self.skip_button.clicked.connect(self.skip)
         actions.addWidget(self.skip_button)
         actions.addStretch(1)
+        # 되돌릴 수는 있지만 두 조합이 한 번에 사라진다 — 판정 버튼들과 떼어 놓고
+        # 위험 등급을 준다. 예전에는 `넘기기` 바로 옆에 같은 모양으로 있었다.
         self.delete_both_button = QPushButton()
+        mark_danger(self.delete_both_button)
         self.delete_both_button.clicked.connect(self._delete_both)
         actions.addWidget(self.delete_both_button)
         layout.addLayout(actions)
-
-        self.hint_label = QLabel()
-        self.hint_label.setWordWrap(True)
-        layout.addWidget(self.hint_label)
 
         self._shortcuts = self._build_shortcuts()
 
@@ -179,15 +235,31 @@ class ArenaMatchTab(ArenaTab):
         self.auto_check.setToolTip(tr("arena.auto_prefetch_hint"))
         self.keys_check.setText(tr("arena.match_shortcuts"))
         self.keys_check.setToolTip(tr("arena.match_shortcuts_hint"))
-        self.both_win_button.setText(tr("arena.both_win"))
-        self.draw_button.setText(tr("arena.draw"))
-        self.both_lose_button.setText(tr("arena.both_lose"))
-        self.skip_button.setText(tr("arena.skip"))
-        self.delete_both_button.setText(tr("arena.delete_both"))
-        self.hint_label.setText(tr("arena.shortcuts"))
+        self._apply_judge_labels()
         self.left_card.retranslate()
         self.right_card.retranslate()
         self.refresh()
+
+    def _apply_judge_labels(self) -> None:
+        """판정 버튼 라벨 — 단축키를 켜 두면 키를 라벨 안에 함께 적는다.
+
+        예전에는 `← → 승자 · ↑ 둘 다 좋음 …` 안내문 한 줄이 버튼 아래에 따로 있었다.
+        키를 끄면 표기도 사라져야 한다 — 없는 키를 적어 두면 거짓말이 된다.
+        """
+        tr = self.tr
+        keys_on = self.keys_check.isChecked()
+
+        def label(text_key: str, key: str) -> str:
+            text = tr(text_key)
+            return f"{key}  {text}" if keys_on and key else text
+
+        self.both_win_button.setText(label("arena.both_win", _JUDGE_KEYS[RESULT_BOTH_WIN]))
+        self.draw_button.setText(tr("arena.draw"))
+        self.both_lose_button.setText(label("arena.both_lose", _JUDGE_KEYS[RESULT_BOTH_LOSE]))
+        self.skip_button.setText(label("arena.skip", tr("arena.key_space")))
+        self.delete_both_button.setText(label("arena.delete_both", tr("arena.key_delete")))
+        self.left_card.set_select_key("←" if keys_on else "", before=True)
+        self.right_card.set_select_key("→" if keys_on else "", before=False)
 
     def on_arena_event(self, event) -> None:
         """그림이 새로 나왔는데 화면이 비어 있으면 바로 올린다."""
@@ -227,11 +299,53 @@ class ArenaMatchTab(ArenaTab):
             self.left_card.set_combo(None, None)
             self.right_card.set_combo(None, None)
             self._set_actions_enabled(False)
+            self._refresh_empty_state()
+            self.cards_stack.setCurrentWidget(self.empty_state)
             return
         for card, combo in zip((self.left_card, self.right_card), self._pair, strict=True):
             path = self._service.store.image_path(combo)
             card.set_combo(combo, str(path) if path else None, use_prefix)
         self._set_actions_enabled(True)
+        self.cards_stack.setCurrentWidget(self.cards_page)
+
+    def empty_reason(self) -> tuple[str, str, str]:
+        """겨룰 수 없는 이유 — (제목 키, 이유 문구, 행동). 행동은 `STEP_*` 또는 리그 되돌리기.
+
+        원인이 넷이고 푸는 방법이 다 다르다 — "겨룰 그림이 없습니다" 한 줄로는
+        무엇을 해야 하는지 알 수 없다. 순서는 막히는 곳이 먼저다.
+        """
+        tr = self.tr
+        ready = len(ready_combos(self.state))
+        pending = len(pending_combos(self.state))
+
+        if not self.state.combos:
+            return "arena.empty_no_combos", tr("arena.empty_no_combos_detail"), STEP_MAKE_COMBOS
+        if ready < MIN_COMBOS_TO_MATCH and pending:
+            return (
+                "arena.empty_no_images",
+                tr("arena.empty_no_images_detail").format(pending),
+                STEP_GENERATE,
+            )
+        if ready < MIN_COMBOS_TO_MATCH:
+            return (
+                "arena.empty_need_more",
+                tr("arena.empty_need_more_detail").format(ready),
+                STEP_MAKE_COMBOS,
+            )
+        # 그림은 넉넉한데 리그를 좁혀 놓아 후보가 둘이 안 된다 — 여기서 바로 풀 수 있다.
+        return "arena.empty_league", tr("arena.empty_league_detail"), _ACTION_ALL_LEAGUE
+
+    def _refresh_empty_state(self) -> None:
+        title, detail, action = self.empty_reason()
+        self._empty_action = action
+        self.empty_state.set_content(self.tr(title), detail, self.tr(_ACTION_LABELS[action]))
+
+    def _on_empty_action(self) -> None:
+        if self._empty_action == _ACTION_ALL_LEAGUE:
+            self.league_combo.setCurrentIndex(self.league_combo.findData(LEAGUE_ALL))
+            return
+        if self._empty_action:
+            self.navigate_requested.emit(self._empty_action)
 
     def _set_actions_enabled(self, enabled: bool) -> None:
         for button in (
@@ -244,11 +358,17 @@ class ArenaMatchTab(ArenaTab):
             button.setEnabled(enabled)
 
     def _refresh_progress(self) -> None:
+        """이 리그가 얼마나 확정됐는지. 전체 숫자는 창 상태줄이 이미 보여 준다."""
+        league = self.league_combos()
+        settled = sum(1 for combo in league if is_settled(combo.matches))
+        self.settled_bar.setRange(0, max(1, len(league)))
+        self.settled_bar.setValue(settled)
+        self.progress_label.setText(
+            self.tr("arena.league_progress").format(self.state.total_matches, len(league), settled)
+        )
+
         ready = len(ready_combos(self.state))
         left = len(unsettled(self.state.combos))
-        self.progress_label.setText(
-            self.tr("arena.match_progress").format(self.state.total_matches, ready, left)
-        )
         if ready >= 2 and left == 0 and not self._announced_settled:
             # 전부 확정됐다는 것은 "이제 진화 탭으로 갈 때"라는 뜻이다.
             self.status_message.emit(self.tr("arena.all_settled"))
@@ -377,7 +497,8 @@ class ArenaMatchTab(ArenaTab):
     def _on_auto_toggled(self, checked: bool) -> None:
         self.arena.auto_prefetch = checked
         if checked:
-            self._maybe_prefetch()
+            # 방금 사용자가 켰다 — 이 탭을 보고 있는 것이 확실하다.
+            self._maybe_prefetch(from_user=True)
 
     def reset_image_scale(self) -> None:
         """배율을 100%로 되돌린다 — 창 크기 초기화가 함께 부른다.
@@ -392,11 +513,14 @@ class ArenaMatchTab(ArenaTab):
         self.left_card.set_image_height(height)
         self.right_card.set_image_height(height)
 
-    def _maybe_prefetch(self) -> None:
+    def _maybe_prefetch(self, from_user: bool = False) -> None:
         """그림이 부족하면 더 뽑는다 — **켜 둔 경우에만**.
 
         기본이 꺼짐인 이유는 이것이 실제로 크레딧을 쓰는 동작이기 때문이다. 사용자가
         누르지 않았는데 앱이 알아서 소모하면 안 된다. 꺼져 있으면 안내만 한다.
+
+        `from_user`는 사용자가 방금 `그림 자동 보충`을 켠 경우다. 그때는 이 탭을 보고
+        있는 것이 확실하므로 아래의 "다른 탭" 가드를 건너뛴다.
         """
         pending = pending_combos(self.state)
         if not pending:
@@ -405,14 +529,20 @@ class ArenaMatchTab(ArenaTab):
             # 이미 뽑는 중이다. 여기서 "그림이 없다"를 띄우면 상태줄의 생성 진행
             # 표시를 덮어 버린다 — 곧 생긴다.
             return
+        if not from_user and self.isHidden():
+            # **다른 탭을 보고 있다 — 아무것도 하지 않는다.**
+            #
+            # 이 탭은 조합·작가가 바뀔 때마다 다시 그려진다. 그래서 이 가드가 없으면
+            # 조합 생성 탭에서 `랜덤 조합 만들기`를 누르는 것만으로 여기까지 흘러와
+            # **크레딧을 쓰는 생성이 저절로 시작됐다** (자동 보충을 켜 둔 경우).
+            # 조합을 여러 번 나눠 만들 수도 없었다 — 첫 묶음에서 바로 생성이 걸렸다.
+            #
+            # 안내 메시지도 마찬가지다. 여기서 띄우면 방금 그 탭에서 한 일의 결과를
+            # 덮는다 (조합을 지웠는데 "겨룰 그림이 없습니다"가 뜨는 식으로).
+            return
         if self.auto_check.isChecked():
             if self._service.needs_prefetch(max(2, self.arena.prefetch_threshold)):
                 self.request_prefetch.emit()
-            return
-        if self.isHidden():
-            # 다른 탭을 보고 있다. 이 탭은 상태가 바뀔 때마다 다시 그려지므로, 여기서
-            # 안내를 띄우면 방금 그 탭에서 한 일의 결과 메시지를 덮는다 (조합을
-            # 지웠는데 "겨룰 그림이 없습니다"가 뜨는 식으로).
             return
         self.status_message.emit(self.tr("arena.need_images").format(len(pending)))
 
@@ -461,7 +591,8 @@ class ArenaMatchTab(ArenaTab):
         enabled = self.shortcuts_enabled()
         for shortcut in self._shortcuts:
             shortcut.setEnabled(enabled)
-        self.hint_label.setEnabled(enabled)  # 꺼졌으면 안내도 흐리게
+        # 라벨에 적힌 키도 함께 사라진다 — 안 먹는 키를 적어 두면 거짓말이 된다.
+        self._apply_judge_labels()
 
     def handle_shortcut(self, key: int) -> bool:
         """판정 키면 처리하고 True. 아니면 False (원래 위젯이 받게 둔다)."""

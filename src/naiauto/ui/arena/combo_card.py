@@ -1,12 +1,23 @@
-"""조합 카드 — 그림 한 장과 그 조합의 정보·조작 버튼 (월드컵·진화 공용).
+"""조합 카드 — 그림 한 장과 그 조합의 정보·조작 (월드컵·진화 공용).
 
 **그림을 클릭하면 확대해서 본다** — 고르지 않는다. 사용자 제보 중에 "자세히 보려고
 눌렀는데 그 그림이 마음에 든 것으로 처리돼 곤란하다"는 것이 있었고, 클릭=확대가
 일반적인 UI 동작이기도 하다. 고르는 것은 그림 아래의 선택 버튼과 방향키로 한다.
 
-같은 제보 중에 "선택 버튼이 크기만 크고 자리를 차지해 그림이 작아진다"는 것도 있어,
-선택 버튼은 그림 폭에 맞춘 한 줄로 얇게 둔다 (없애지는 않는다 — 없으면 고를 방법이
-클릭밖에 남지 않아 위의 문제로 되돌아간다).
+## 버튼을 어디에 두는가
+
+여섯 개(선택·즐겨찾기·잠금·리롤·복사·삭제)가 한 줄에 같은 크기·같은 톤으로 있어서,
+되돌릴 수 없는 `삭제`가 `복사` 옆에 똑같이 생긴 채로 놓여 있었다. 무게만 나눈다.
+
+- **선택** — 카드에서 제일 큰 버튼. 이 화면의 주 동작이다.
+- **나머지 다섯** — 그 아래 한 줄에 **전부 보인다.** 다만 `삭제`는 오른쪽 끝으로 떼어
+  놓고 위험 등급(붉은 글씨·테두리)을 준다.
+- 같은 항목을 **우클릭 메뉴**에도 둔다 (크게 보기 포함).
+
+> 한때 리롤·복사·삭제를 그림 위에 겹쳐 마우스를 올렸을 때만 뜨게 했는데 되돌렸다.
+> Qt는 커서가 자식 위젯(여기서는 그림 라벨)으로 들어가는 순간 부모에게 `leaveEvent`를
+> 보낸다 — 그림 쪽으로 다가가는 것만으로 아이콘 줄이 사라져, 사실상 못 누르는
+> 버튼이 됐다. 버튼은 보이는 자리에 둔다.
 """
 
 from __future__ import annotations
@@ -14,11 +25,12 @@ from __future__ import annotations
 import logging
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QAction, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -29,6 +41,7 @@ from ...core.arena.elo import is_settled, tier_of
 from ...core.arena.models import Combo
 from ...core.i18n.manager import I18nManager
 from ..widgets.hidpi_image import HiDpiImageLabel
+from .style import mark_danger, mark_primary, tier_color
 
 logger = logging.getLogger(__name__)
 
@@ -64,11 +77,15 @@ class ComboCard(QFrame):
         self._combo: Combo | None = None
         self._pixmap: QPixmap | None = None
         self._image_height = 360
+        #: 선택 버튼에 붙일 단축키 표시 — (기호, 글 앞에 붙일지). 빈 기호면 안 붙인다.
+        self._select_key = ("", True)
 
         self.setFrameShape(QFrame.Shape.StyledPanel)
         layout = QVBoxLayout(self)
 
         self.header_label = QLabel()
+        # 티어 글자에만 색을 주려면 서식 있는 글이어야 한다.
+        self.header_label.setTextFormat(Qt.TextFormat.RichText)
         layout.addWidget(self.header_label)
 
         self.image_label = _ClickableImage()
@@ -78,6 +95,7 @@ class ComboCard(QFrame):
         layout.addWidget(self.image_label, 1)
 
         self.select_button = QPushButton()
+        mark_primary(self.select_button)
         self.select_button.clicked.connect(self.chosen)
         layout.addWidget(self.select_button)
 
@@ -86,6 +104,7 @@ class ComboCard(QFrame):
         self.prompt_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self.prompt_label)
 
+        # 조작 한 줄 — 전부 보인다. `삭제`만 오른쪽 끝으로 떼어 놓는다.
         actions = QHBoxLayout()
         self.favorite_button = QPushButton()
         self.favorite_button.setCheckable(True)
@@ -103,10 +122,12 @@ class ComboCard(QFrame):
         actions.addWidget(self.copy_button)
         actions.addStretch(1)
         self.delete_button = QPushButton()
+        mark_danger(self.delete_button)
         self.delete_button.clicked.connect(self.delete_requested)
         actions.addWidget(self.delete_button)
         layout.addLayout(actions)
 
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
         self.retranslate()
 
     # ── 내용 ────────────────────────────────────────────────────────────
@@ -140,6 +161,15 @@ class ComboCard(QFrame):
                 return
             logger.debug("cannot load arena image: %s", image_path)
         self.image_label.setText(self._i18n.get_text("arena.card_no_image"))
+
+    def set_select_key(self, key: str, before: bool = True) -> None:
+        """선택 버튼에 단축키를 표시한다 (`←` / `→`). 빈 문자열이면 지운다.
+
+        안내문 한 줄로 "← → 승자"라고 적어 두는 것보다, 누를 버튼 자신이 어떤 키인지
+        말하는 편이 눈이 덜 움직인다.
+        """
+        self._select_key = (key, before)
+        self._apply_select_label()
 
     def set_image_height(self, height: int) -> None:
         """그림 높이(논리 픽셀)를 바꾼다 — 배율 슬라이더가 쓴다.
@@ -176,7 +206,16 @@ class ComboCard(QFrame):
             state = tr("arena.card_settled")
         else:
             state = tr("arena.card_provisional")
-        return tr("arena.card_header").format(combo.generation, tier, round(combo.elo), state)
+        colour = tier_color(self.palette(), tier)
+        shown = tier if colour is None else f'<span style="color:{colour}">{tier}</span>'
+        return tr("arena.card_header").format(combo.generation, shown, round(combo.elo), state)
+
+    def _apply_select_label(self) -> None:
+        text = self._i18n.get_text("arena.card_select")
+        key, before = self._select_key
+        if key:
+            text = f"{key}  {text}" if before else f"{text}  {key}"
+        self.select_button.setText(text)
 
     def _set_enabled(self, enabled: bool) -> None:
         for button in (
@@ -189,13 +228,32 @@ class ComboCard(QFrame):
         ):
             button.setEnabled(enabled)
 
+    # ── 우클릭 메뉴 ─────────────────────────────────────────────────────
+
+    def contextMenuEvent(self, event) -> None:  # noqa: N802 (Qt 콜백 이름)
+        """버튼 줄과 같은 항목 + `크게 보기`. 손이 마우스에 있을 때 더 빠르다."""
+        if self._combo is None:
+            return
+        tr = self._i18n.get_text
+        menu = QMenu(self)
+        for text, signal in (
+            (tr("arena.card_zoom"), self.zoom_requested),
+            (tr("arena.card_reroll"), self.reroll_requested),
+            (tr("arena.card_copy"), self.copy_requested),
+            (tr("arena.card_delete"), self.delete_requested),
+        ):
+            action = QAction(text, menu)
+            action.triggered.connect(signal)
+            menu.addAction(action)
+        menu.exec(event.globalPos())
+
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
         self._draw_image()
 
     def retranslate(self) -> None:
         tr = self._i18n.get_text
-        self.select_button.setText(tr("arena.card_select"))
+        self._apply_select_label()
         self.favorite_button.setText(tr("arena.card_favorite"))
         self.lock_button.setText(tr("arena.card_lock"))
         self.reroll_button.setText(tr("arena.card_reroll"))
@@ -204,6 +262,7 @@ class ComboCard(QFrame):
         self.favorite_button.setToolTip(tr("arena.card_favorite_hint"))
         self.lock_button.setToolTip(tr("arena.card_lock_hint"))
         self.reroll_button.setToolTip(tr("arena.card_reroll_hint"))
+        self.image_label.setToolTip(tr("arena.card_zoom_hint"))
         if self._combo is not None:
             self.header_label.setText(self._header_text(self._combo))
 

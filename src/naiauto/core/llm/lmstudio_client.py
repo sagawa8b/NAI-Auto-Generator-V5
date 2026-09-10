@@ -18,6 +18,7 @@ WD14 태거(`core/wd14_tagger.py`)와 같은 규약을 따른다:
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -394,9 +395,14 @@ class LMStudioPromptGenerator:
         cancelled = should_cancel or (lambda: False)
 
         client = None
+        resolved = ""
         try:
             client = lms.Client(config.host or DEFAULT_HOST)
             model = self._resolve_model(client, config.model)
+            # 설정값이 아니라 **서버가 고른** 이름을 남긴다 — 설정이 비어 있으면 로드된
+            # 첫 모델이 쓰이고, 값이 있어도 부분 일치로 골라질 수 있다. 모델 간 판독
+            # 성능을 견주려면 점수 옆에 정확한 이름이 붙어야 한다.
+            resolved = _model_identifier(model)
             chat = lms.Chat(config.effective_system_prompt())
             # 참조들을 먼저, 후보를 마지막에 — 시스템/사용자 프롬프트가 "마지막이 후보"라고
             # 못박는 순서와 일치시킨다.
@@ -410,7 +416,7 @@ class LMStudioPromptGenerator:
         finally:
             _close_client(client)
 
-        return parse_style_score(raw)
+        return dataclasses.replace(parse_style_score(raw), model=resolved)
 
     # ── 내부 ─────────────────────────────────────────────────
 

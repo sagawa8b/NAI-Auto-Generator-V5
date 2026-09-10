@@ -11,6 +11,18 @@
 블로킹이라 `_JudgeWorker(QThread)` 안에서 돈다 (프롬프트 어시스턴트의 `_LLMWorker`와
 같은 패턴). 연결(host)·타임아웃은 메인 설정(`settings.lmstudio`)을 따르고, 판정용
 모델·참조 상한·즐겨찾기 개수는 `settings.arena`에 따로 둔다.
+
+## 화면
+
+참조·설정과 결과가 세로를 나눠 갖고 있었다. 참조는 왼쪽에 고정하고 랭킹에 오른쪽을
+통째로 준다. 랭킹 표에는 두 가지를 더했다.
+
+- **썸네일** — 점수만 보고는 무엇이 뽑혔는지 알 수 없다.
+- **점수 막대** — 숫자만 늘어놓으면 **90점대에 몰리는 포화**가 눈에 띄지 않는다.
+  판별력이 약한 모델에서 흔한 일이고, 그때가 판독 지시를 손봐야 할 때다.
+
+참조 그림은 끌어다 놓아서도 넣는다 (작가 명단 탭과 같은 동작). 자주 쓰지 않는
+`결과 저장`·`점수 비우기`는 더보기 메뉴로 접었다.
 """
 
 from __future__ import annotations
@@ -20,9 +32,10 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QThread, Signal
-from PySide6.QtGui import QGuiApplication, QIcon, QPixmap
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QGuiApplication, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -30,11 +43,13 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
     QSpinBox,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -64,6 +79,18 @@ logger = logging.getLogger(__name__)
 
 _IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
 _THUMB = 96  # 참조 썸네일 한 변 (논리 픽셀)
+_ROW_THUMB = 44  # 랭킹 표 줄 썸네일 한 변 (논리 픽셀)
+
+#: 좌우 패널 사이의 여백과 처음 뜰 때의 나눔 비율 (논리 픽셀).
+PANEL_GAP = 8
+SPLIT_SIZES = (320, 680)
+
+#: 자주 쓰지 않는 동작을 접어 두는 더보기 버튼의 기호.
+MORE_ICON = "⋯"
+
+#: 판독 점수의 최댓값과 막대 폭 (논리 픽셀).
+JUDGE_SCORE_MAX = 100
+SCORE_BAR_WIDTH = 90
 
 #: LM Studio 예외 클래스명 → 안내 문구 i18n 키. 서비스가 `error_key`로 클래스명을 준다.
 _ERROR_KEYS = {
@@ -138,11 +165,15 @@ class JudgeTab(ArenaTab):
 
     KEY = "judge"
 
-    #: 랭킹 표 컬럼.
-    _COL_RANK = 0
-    _COL_SCORE = 1
-    _COL_COMBO = 2
-    _COL_REASON = 3
+    #: 랭킹 표 컬럼. 썸네일과 점수 막대가 앞에 붙는다 — 점수만 보고는 무엇이
+    #: 뽑혔는지 알 수 없고, 숫자만으로는 90점대 포화가 눈에 띄지 않는다.
+    _COL_THUMBNAIL = 0
+    _COL_RANK = 1
+    _COL_SCORE = 2
+    _COL_BAR = 3
+    _COL_COMBO = 4
+    _COL_REASON = 5
+    _COLUMNS = 6
 
     def __init__(self, i18n, settings, service, parent: QWidget | None = None) -> None:
         super().__init__(i18n, settings, service, parent)
@@ -151,7 +182,15 @@ class JudgeTab(ArenaTab):
         self._judge_service = StyleJudgeService(service.store, service.state, self._generator)
         self._worker: _JudgeWorker | None = None
 
-        layout = QVBoxLayout(self)
+        root = QVBoxLayout(self)
+        # 참조·설정과 결과가 세로를 나눠 갖고 있었다 — 참조는 왼쪽에 고정하고
+        # 랭킹에 오른쪽을 통째로 준다.
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        root.addWidget(self.splitter, 1)
+
+        left = QWidget()
+        layout = QVBoxLayout(left)
+        layout.setContentsMargins(0, 0, PANEL_GAP, 0)
 
         # ── 참조 이미지 ─────────────────────────────────────────────────
         self.ref_label = QLabel()
@@ -160,7 +199,7 @@ class JudgeTab(ArenaTab):
         self.ref_list.setViewMode(QListWidget.ViewMode.IconMode)
         self.ref_list.setIconSize(QSize(_THUMB, _THUMB))
         self.ref_list.setResizeMode(QListWidget.ResizeMode.Adjust)
-        self.ref_list.setFixedHeight(_THUMB + 44)
+        self.ref_list.setMinimumHeight(_THUMB + 44)
         self.ref_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         layout.addWidget(self.ref_list)
 
@@ -216,21 +255,35 @@ class JudgeTab(ArenaTab):
         run_row.addWidget(self.progress, 1)
         layout.addLayout(run_row)
 
+        # 결과 CSV에 판독 조건을 함께 담을지. 모델을 바꿔 가며 견주는 사람에게는
+        # 점수만 있는 CSV가 나중에 "어느 모델로 뽑은 거였지"가 되어 버린다.
+        self.run_info_check = QCheckBox()
+        self.run_info_check.setChecked(self.arena.judge_export_run_info)
+        layout.addWidget(self.run_info_check)
+
         self.status_label = QLabel()
         self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
+        layout.addStretch(1)
+        self.splitter.addWidget(left)
 
-        # ── 랭킹 표 ─────────────────────────────────────────────────────
-        self.table = QTableWidget(0, 4)
+        # ── 오른쪽: 랭킹 ────────────────────────────────────────────────
+        right = QWidget()
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(PANEL_GAP, 0, 0, 0)
+
+        self.table = QTableWidget(0, self._COLUMNS)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(_ROW_THUMB + 8)
+        self.table.setIconSize(QSize(_ROW_THUMB, _ROW_THUMB))
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(self._COL_RANK, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(self._COL_SCORE, QHeaderView.ResizeMode.ResizeToContents)
+        for col in (self._COL_THUMBNAIL, self._COL_RANK, self._COL_SCORE, self._COL_BAR):
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(self._COL_COMBO, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(self._COL_REASON, QHeaderView.ResizeMode.Stretch)
-        layout.addWidget(self.table, 1)
+        right_layout.addWidget(self.table, 1)
 
         # ── 후속 액션 ───────────────────────────────────────────────────
         action_row = QHBoxLayout()
@@ -247,14 +300,32 @@ class JudgeTab(ArenaTab):
         self.send_button.clicked.connect(self._on_send_selected)
         action_row.addWidget(self.send_button)
         action_row.addStretch(1)
-        # 결과 저장(CSV) · 클리어 — 판독 결과를 따로 남기거나, 다시 판독하려고 비운다.
+        # 결과 저장(CSV)과 점수 비우기는 자주 쓰지 않는다 — 늘 자리를 차지하는 대신
+        # 더보기 메뉴로 접는다. 버튼 자체는 그대로라 동작과 검증은 달라지지 않는다.
         self.export_button = QPushButton()
         self.export_button.clicked.connect(self._on_export_csv)
-        action_row.addWidget(self.export_button)
         self.clear_button = QPushButton()
         self.clear_button.clicked.connect(self._on_clear_scores)
-        action_row.addWidget(self.clear_button)
-        layout.addLayout(action_row)
+        self.more_button = QPushButton(MORE_ICON)
+        self.more_menu = QMenu(self)
+        # 메뉴 항목은 숨은 버튼을 대신 누르지 않고 **같은 핸들러를 직접** 부른다.
+        # 버튼은 켜짐/꺼짐 상태를 들고 있는 자리로만 남는다 (꺼진 버튼을 대신 누르면
+        # 아무 일도 일어나지 않으면서 메뉴는 멀쩡해 보인다).
+        self.export_action = self.more_menu.addAction("")
+        self.export_action.triggered.connect(self._on_export_csv)
+        self.clear_action = self.more_menu.addAction("")
+        self.clear_action.triggered.connect(self._on_clear_scores)
+        self.more_button.setMenu(self.more_menu)
+        action_row.addWidget(self.more_button)
+        right_layout.addLayout(action_row)
+        self.splitter.addWidget(right)
+
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes(list(SPLIT_SIZES))
+
+        # 참조도 끌어다 놓아 넣는다 — 작가 명단 탭과 같은 동작.
+        self.setAcceptDrops(True)
 
         # 저장된 커스텀 프롬프트를 복원한다. 값이 있으면 그룹을 펼쳐 바로 보이게 한다.
         saved_prompt = self.arena.judge_system_prompt
@@ -280,6 +351,7 @@ class JudgeTab(ArenaTab):
         self.arena.judge_reference_paths = self._reference_paths()
         self.arena.judge_favorite_top_n = self.top_n_spin.value()
         self.arena.judge_system_prompt = self.prompt_edit.toPlainText().strip()
+        self.arena.judge_export_run_info = self.run_info_check.isChecked()
 
     def retranslate(self) -> None:
         tr = self.tr
@@ -296,6 +368,11 @@ class JudgeTab(ArenaTab):
         self.export_button.setToolTip(tr("arena.judge_export_hint"))
         self.clear_button.setText(tr("arena.judge_clear"))
         self.clear_button.setToolTip(tr("arena.judge_clear_hint"))
+        self.export_action.setText(tr("arena.judge_export"))
+        self.clear_action.setText(tr("arena.judge_clear"))
+        self.more_button.setToolTip(tr("arena.judge_more"))
+        self.run_info_check.setText(tr("arena.judge_export_run_info"))
+        self.run_info_check.setToolTip(tr("arena.judge_export_run_info_hint"))
         self.prompt_group.setTitle(tr("arena.judge_prompt_group"))
         self.prompt_group.setToolTip(tr("arena.judge_prompt_hint"))
         self.prompt_edit.setPlaceholderText(tr("arena.judge_prompt_placeholder"))
@@ -303,8 +380,10 @@ class JudgeTab(ArenaTab):
         self.prompt_reset_button.setText(tr("arena.judge_prompt_reset"))
         self.table.setHorizontalHeaderLabels(
             [
+                "",  # 썸네일 — 머리글을 붙이면 그림보다 글이 넓어진다
                 tr("arena.judge_col_rank"),
                 tr("arena.judge_col_score"),
+                "",  # 점수 막대 — 바로 왼쪽 칸이 이미 `점수`다
                 tr("arena.judge_col_combo"),
                 tr("arena.judge_col_reason"),
             ]
@@ -358,6 +437,45 @@ class JudgeTab(ArenaTab):
         self.ref_list.clear()
         self.commit()
         self._update_buttons()
+
+    # ── 끌어다 놓기 ─────────────────────────────────────────────────────
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:  # noqa: N802 (Qt 콜백 이름)
+        if self._dropped_images(event):
+            event.acceptProposedAction()
+
+    def dropEvent(self, event: QDropEvent) -> None:  # noqa: N802
+        """참조 그림을 끌어다 놓아 넣는다 — 작가 명단 탭과 같은 동작.
+
+        판독 중에는 받지 않는다. 돌고 있는 판독은 시작할 때의 참조 목록을 이미 들고
+        있어, 여기서 바꿔 봐야 이번 판독에는 반영되지 않는다.
+        """
+        paths = self._dropped_images(event)
+        if not paths or self._is_busy():
+            return
+        event.acceptProposedAction()
+        existing = set(self._reference_paths())
+        added = 0
+        for path in paths:
+            if path not in existing:
+                self._add_reference_item(path)
+                existing.add(path)
+                added += 1
+        self.commit()
+        self._update_buttons()
+        self.status_label.setText(self.tr("arena.judge_ref_dropped").format(added))
+
+    @staticmethod
+    def _dropped_images(event) -> list[str]:
+        mime = event.mimeData()
+        if not mime.hasUrls():
+            return []
+        paths = []
+        for url in mime.urls():
+            local = url.toLocalFile()
+            if local and Path(local).suffix.lower() in _IMAGE_SUFFIXES:
+                paths.append(local)
+        return paths
 
     # ── 판독 지시(시스템 프롬프트) ──────────────────────────────────────
 
@@ -454,9 +572,23 @@ class JudgeTab(ArenaTab):
             key = _ERROR_KEYS.get(event.error_key or "", "lmstudio.err_response")
             self.status_label.setText(tr(key, event.error))
         elif event.stopped:
-            self.status_label.setText(tr("arena.judge_stopped").format(event.completed, event.failed))
+            self.status_label.setText(
+                self._with_model(tr("arena.judge_stopped").format(event.completed, event.failed), event.model)
+            )
         else:
-            self.status_label.setText(tr("arena.judge_done").format(event.completed, event.failed))
+            self.status_label.setText(
+                self._with_model(tr("arena.judge_done").format(event.completed, event.failed), event.model)
+            )
+
+    def _with_model(self, text: str, model: str) -> str:
+        """끝난 뒤에는 **어느 모델이 매겼는지**까지 말한다.
+
+        설정에 적어 둔 이름이 아니라 서버가 실제로 고른 이름이다 — 자동 선택이거나
+        부분 일치로 골라졌을 수 있어, 모델을 바꿔 가며 견주는 사람에게는 이쪽이 맞다.
+        """
+        if not model:
+            return text
+        return f"{text} — {self.tr('arena.judge_by_model').format(model)}"
 
     # ── 표 ──────────────────────────────────────────────────────────────
 
@@ -465,8 +597,10 @@ class JudgeTab(ArenaTab):
         use_prefix = self.arena.use_prefix
         self.table.setRowCount(len(ranked))
         for row, combo in enumerate(ranked):
+            self._set_thumbnail(row, combo)
             self._set_cell(row, self._COL_RANK, str(row + 1))
             self._set_cell(row, self._COL_SCORE, str(combo.judge_score))
+            self._set_score_bar(row, combo.judge_score)
             combo_item = self._set_cell(row, self._COL_COMBO, format_artist_block(combo.slots, use_prefix))
             combo_item.setData(Qt.ItemDataRole.UserRole, combo.id)  # 후속 액션이 조합을 찾을 열쇠
             self._set_cell(row, self._COL_REASON, combo.judge_reason)
@@ -475,6 +609,30 @@ class JudgeTab(ArenaTab):
         item = QTableWidgetItem(text)
         self.table.setItem(row, col, item)
         return item
+
+    def _set_thumbnail(self, row: int, combo: Combo) -> None:
+        """줄마다 그 조합의 그림 — 점수만 보고는 무엇이 뽑혔는지 알 수 없다."""
+        item = QTableWidgetItem()
+        path = self._service.store.image_path(combo)
+        if path is not None:
+            pixmap = QPixmap(str(path))
+            if not pixmap.isNull():
+                item.setIcon(QIcon(pixmap))
+        self.table.setItem(row, self._COL_THUMBNAIL, item)
+
+    def _set_score_bar(self, row: int, score: int) -> None:
+        """점수를 막대로도 보여 준다.
+
+        숫자만 늘어놓으면 **90점대에 몰리는 포화**가 눈에 띄지 않는다. 판별력이 약한
+        모델에서 흔한 일이고, 그때가 판독 지시를 손봐야 할 때다 — 막대가 나란히 꽉
+        차 있으면 한눈에 보인다. 숫자는 옆 칸에 그대로 있어 읽거나 복사할 수 있다.
+        """
+        bar = QProgressBar()
+        bar.setRange(0, JUDGE_SCORE_MAX)
+        bar.setValue(max(0, min(JUDGE_SCORE_MAX, score)))
+        bar.setTextVisible(False)
+        bar.setFixedWidth(SCORE_BAR_WIDTH)
+        self.table.setCellWidget(row, self._COL_BAR, bar)
 
     # ── 후속 액션 ───────────────────────────────────────────────────────
 
@@ -519,7 +677,9 @@ class JudgeTab(ArenaTab):
         )
         if not path:
             return
-        text = judge_results_to_csv(self.state, self.arena.use_prefix)
+        text = judge_results_to_csv(
+            self.state, self.arena.use_prefix, include_run=self.run_info_check.isChecked()
+        )
         try:
             # BOM(utf-8-sig)을 붙인다 — Excel이 UTF-8 CSV를 열 때 한글·근거 텍스트가
             # 깨지지 않게 한다. 표준 CSV 리더는 BOM을 무시한다.
@@ -577,8 +737,11 @@ class JudgeTab(ArenaTab):
             self.clear_button,
             self.ref_list,
             self.prompt_group,
+            self.more_button,
+            self.run_info_check,
         ):
             widget.setEnabled(not busy)
+        self._sync_menu_actions()
 
     def _update_buttons(self) -> None:
         has_ref = self.ref_list.count() > 0
@@ -589,6 +752,12 @@ class JudgeTab(ArenaTab):
         self.send_button.setEnabled(has_scores and not self._is_busy())
         self.export_button.setEnabled(has_scores and not self._is_busy())
         self.clear_button.setEnabled(has_scores and not self._is_busy())
+        self._sync_menu_actions()
+
+    def _sync_menu_actions(self) -> None:
+        """더보기 메뉴가 버튼의 켜짐/꺼짐을 그대로 따라간다."""
+        self.export_action.setEnabled(self.export_button.isEnabled())
+        self.clear_action.setEnabled(self.clear_button.isEnabled())
 
     # ── 종료 정리 ───────────────────────────────────────────────────────
 
