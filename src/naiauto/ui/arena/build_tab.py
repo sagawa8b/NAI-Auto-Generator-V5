@@ -29,17 +29,20 @@ from __future__ import annotations
 import dataclasses
 import logging
 
-from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtCore import QPoint, QSize, Qt
+from PySide6.QtGui import QGuiApplication, QIcon, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -57,6 +60,7 @@ from ...core.arena.combos import (
     format_weight,
     generate_combos,
     name_signature,
+    parse_artist_block,
     round_weight,
 )
 from ...core.arena.models import (
@@ -125,6 +129,46 @@ def index_of_data(combo: QComboBox, value) -> int:
         if combo.itemData(index) == value:
             return index
     return -1
+
+
+class _EditComboDialog(QDialog):
+    """조합의 작가 블록을 고치는 작은 창.
+
+    자리(이름+가중치)를 하나씩 만지게 하는 대신, 완성된 프롬프트 문자열을 그대로
+    보여 주고 손보게 한다 — `1.2::artist:a, artist:b::` 같은 가중치 문법에 익숙한
+    사용자에게는 이쪽이 빠르고, 파싱은 `parse_artist_block`이 관대하게 받아 준다.
+    """
+
+    def __init__(self, i18n, text: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        tr = i18n.get_text
+        self.setWindowTitle(tr("arena.queue_edit_title"))
+        layout = QVBoxLayout(self)
+
+        self.label = QLabel(tr("arena.queue_edit_prompt"))
+        self.label.setWordWrap(True)
+        layout.addWidget(self.label)
+
+        self.editor = QPlainTextEdit()
+        self.editor.setPlainText(text)
+        self.editor.setMinimumHeight(120)
+        layout.addWidget(self.editor)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self.resize(480, 240)
+
+    @classmethod
+    def edit(cls, i18n, text: str, parent: QWidget | None = None) -> str | None:
+        """편집 창을 띄운다. 확인이면 새 문자열, 취소면 None."""
+        dialog = cls(i18n, text, parent)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return dialog.editor.toPlainText()
 
 
 class BuildTab(ArenaTab):
@@ -285,6 +329,14 @@ class BuildTab(ArenaTab):
         self.queue_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.queue_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.queue_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        # 우클릭 메뉴로 고른 조합을 고치거나·복사하거나·지운다 (제보: 표에서 바로
+        # 손대고 싶다). 표 스스로 그리게 두면 빈 곳을 눌러도 뜨므로 커스텀으로 건다.
+        self.queue_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.queue_table.customContextMenuRequested.connect(self._show_queue_menu)
+        # F2 수정·Ctrl+C 복사 — 표 위젯이 이 키를 먼저 먹어 keyPressEvent까지 오지
+        # 않으므로, 표에 포커스가 있을 때만 사는 QShortcut으로 가로챈다 (월드컵 탭의
+        # 판정 단축키와 같은 방식).
+        self._queue_shortcuts = self._build_queue_shortcuts()
         header = self.queue_table.horizontalHeader()
         header.setSectionResizeMode(COL_COMBO, QHeaderView.ResizeMode.Stretch)
         for col in (COL_THUMBNAIL, COL_STATE, COL_GENERATION):
@@ -691,6 +743,82 @@ class BuildTab(ArenaTab):
                 seen.add(combo.id)
         return picked
 
+    # ── 우클릭 메뉴 ─────────────────────────────────────────────────────
+
+    def _show_queue_menu(self, pos: QPoint) -> None:
+        """큐 표에서 우클릭 — 고른 조합을 수정·복사·삭제한다.
+
+        빈 곳을 누르면 아무것도 하지 않는다 (골라 둔 줄이 없으면 메뉴를 내지 않는다).
+        `수정`은 조합이 하나일 때만 켠다 — 프롬프트 한 덩어리를 고치는 것이라 여러
+        개를 한꺼번에 편집할 방법이 없다. `삭제`는 생성 중에는 막는다 (뽑고 있는
+        조합을 지우면 방금 쓴 크레딧이 갈 곳을 잃는다 — 버튼과 같은 규칙).
+        """
+        item = self.queue_table.itemAt(pos)
+        if item is None:
+            return
+        row = item.row()
+        # 우클릭한 줄이 선택에 없으면 그 줄만 고른다 — 흔한 파일 탐색기 동작이다.
+        if row not in {sel.row() for sel in self.queue_table.selectedItems()}:
+            self.queue_table.selectRow(row)
+        combos = self.selected_combos()
+        if not combos:
+            return
+
+        tr = self.tr
+        menu = QMenu(self.queue_table)
+        edit_action = menu.addAction(tr("arena.queue_edit"))
+        edit_action.setEnabled(len(combos) == 1)
+        copy_action = menu.addAction(tr("arena.card_copy"))
+        menu.addSeparator()
+        delete_action = menu.addAction(tr("arena.queue_remove"))
+        delete_action.setEnabled(not self._service.is_running)
+
+        chosen = menu.exec(self.queue_table.viewport().mapToGlobal(pos))
+        if chosen is edit_action:
+            self.edit_combo(combos[0])
+        elif chosen is copy_action:
+            self.copy_selected()
+        elif chosen is delete_action:
+            self.remove_selected()
+
+    def copy_selected(self) -> bool:
+        """고른 조합들의 작가 블록을 클립보드로 (여러 개면 줄바꿈으로 잇는다)."""
+        combos = self.selected_combos()
+        if not combos:
+            self.status_message.emit(self.tr("arena.queue_no_selection"))
+            return False
+        blocks = [format_artist_block(combo.slots, self.arena.use_prefix) for combo in combos]
+        QGuiApplication.clipboard().setText("\n".join(block for block in blocks if block))
+        self.status_message.emit(self.tr("arena.copied"))
+        return True
+
+    def edit_combo(self, combo, prompt: str | None = None) -> bool:
+        """조합의 작가 블록을 손으로 고친다.
+
+        조합은 `ComboSlot`(이름+가중치)의 묶음이지만, 사용자에게는 완성 프롬프트
+        문자열이 가장 익숙하다. `format_artist_block`으로 문자열을 만들어 보여 주고,
+        `parse_artist_block`으로 다시 자리 목록으로 되돌린다 — 삭제 흐름과 달리 그림·
+        전적은 건드리지 않는다 (작가 구성만 손보는 것이라 그대로 유효하다).
+
+        `prompt`를 넘기면 편집 창을 띄우지 않고 그 문자열을 바로 적용한다 (테스트용).
+        """
+        original = format_artist_block(combo.slots, self.arena.use_prefix)
+        edited = prompt if prompt is not None else _EditComboDialog.edit(self._i18n, original, self)
+        if edited is None or edited.strip() == original.strip():
+            return False
+        slots, warnings = parse_artist_block(edited)
+        if not slots:
+            self.status_message.emit(self.tr("arena.queue_edit_empty"))
+            return False
+        combo.slots = tuple(slots)
+        self._service.save()
+        if warnings:
+            self.status_message.emit(self.tr("arena.queue_edit_warnings").format(", ".join(warnings)))
+        else:
+            self.status_message.emit(self.tr("arena.queue_edited"))
+        self.state_changed.emit()
+        return True
+
     def remove_selected(self) -> int:
         """고른 조합을 큐에서 지운다. 지운 수를 돌려준다.
 
@@ -757,11 +885,35 @@ class BuildTab(ArenaTab):
         self.arena.delete_images_with_combo = checked
 
     def keyPressEvent(self, event) -> None:  # noqa: N802 (Qt 콜백 이름)
-        """큐 표에서 Delete를 누르면 고른 조합을 지운다."""
+        """큐 표에서 Delete를 누르면 고른 조합을 지운다.
+
+        F2(수정)·Ctrl+C(복사)는 `QShortcut`으로 받는다 — 표 위젯이 그 키를 먼저
+        먹어(F2는 편집 시작, Ctrl+C는 뷰가 가로챈다) 여기까지 오지 않기 때문이다.
+        Delete는 편집 트리거가 없어 표가 소비하지 않으므로 그대로 둔다.
+        """
         if event.key() == Qt.Key.Key_Delete and self.queue_table.hasFocus():
             self.remove_selected()
             return
         super().keyPressEvent(event)
+
+    def _build_queue_shortcuts(self) -> list[QShortcut]:
+        """큐 표에 포커스가 있을 때만 사는 단축키 (F2 수정 · Ctrl+C 복사)."""
+        shortcuts = []
+        for sequence, handler in (
+            (QKeySequence(Qt.Key.Key_F2), self._edit_focused_combo),
+            (QKeySequence.StandardKey.Copy, self.copy_selected),
+        ):
+            shortcut = QShortcut(sequence, self.queue_table)
+            shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            shortcut.activated.connect(handler)
+            shortcuts.append(shortcut)
+        return shortcuts
+
+    def _edit_focused_combo(self) -> None:
+        """F2 단축키 — 하나만 골랐을 때 그 조합을 고친다 (여러 개는 한 덩어리로 못 고친다)."""
+        combos = self.selected_combos()
+        if len(combos) == 1:
+            self.edit_combo(combos[0])
 
     def _combo_summary(self, combo_id: str) -> str:
         """상태줄에 넣을 조합 요약 — 길면 자른다."""

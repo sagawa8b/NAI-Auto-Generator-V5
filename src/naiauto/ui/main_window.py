@@ -487,6 +487,9 @@ class MainWindow(QMainWindow):
 
         # M3: Presets action
         self.arena_action = self.tools_menu.addAction("")
+        # 그림체 아레나를 여는 단축키 (A=Arena). Ctrl+A는 텍스트 전체 선택이 먼저
+        # 먹으므로 Shift를 끼운다.
+        self.arena_action.setShortcut("Ctrl+Shift+A")
         self.arena_action.triggered.connect(self._on_open_arena)
         self.presets_action = self.tools_menu.addAction("")
         self.presets_action.setShortcut("Ctrl+P")

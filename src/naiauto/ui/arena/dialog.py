@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 
 from PySide6.QtCore import QSettings, Qt, Signal
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -126,6 +126,12 @@ class ArenaDialog(QDialog):
             tab.request_prefetch.connect(self.build_tab.start_generation)
             tab.navigate_requested.connect(self.go_to_step)
 
+        # 탭 전환 단축키 — 다섯 탭을 오가는 일이 잦은데(명단→생성→월드컵→…) 그때마다
+        # 마우스로 탭 머리를 눌러야 했다. Ctrl+1~9로 바로 가고, Ctrl+Tab / Ctrl+Shift+Tab
+        # 으로 다음·이전으로 돈다. 창(다이얼로그) 범위라 어느 탭에 포커스가 있든 먹지만,
+        # 월드컵 탭의 방향키 판정과는 겹치지 않는다 (그쪽은 Ctrl 없는 화살표·Space다).
+        self._tab_shortcuts = self._build_tab_shortcuts()
+
         # 상태줄 — 지금 상태와 다음 할 일. **탭 밖에** 둬서 어느 탭을 보고 있든 같은
         # 자리에서 보인다. 메인 창의 상태 표시줄과 같은 쪽(아래)에 두고, 창 버튼과
         # 한 줄을 나눠 쓴다.
@@ -206,6 +212,9 @@ class ArenaDialog(QDialog):
         self.header.retranslate()
         for index, tab in enumerate(self._tabs):
             self.tabs.setTabText(index, tr(f"arena.tab_{tab.KEY}"))
+            # 탭 머리에 단축키를 툴팁으로 알려 준다 — 처음 아홉 탭까지 Ctrl+숫자다.
+            if index < 9:
+                self.tabs.setTabToolTip(index, tr("arena.tab_shortcut_hint").format(index + 1))
             tab.retranslate()
         self.buttons.button(QDialogButtonBox.StandardButton.Close).setText(tr("arena.close"))
         self.reset_size_button.setText(tr("arena.reset_size"))
@@ -216,6 +225,32 @@ class ArenaDialog(QDialog):
     def _on_state_changed(self) -> None:
         """한 탭이 작가·조합을 바꿨다 — 나머지 탭도 같은 상태를 보게 한다."""
         self.refresh()
+
+    # ── 탭 전환 단축키 ──────────────────────────────────────────────────
+
+    def _build_tab_shortcuts(self) -> list[QShortcut]:
+        """Ctrl+숫자로 그 자리의 탭으로, Ctrl+Tab / Ctrl+Shift+Tab으로 다음·이전 탭."""
+        shortcuts: list[QShortcut] = []
+        # Ctrl+1 ~ Ctrl+9 (탭이 아홉 개를 넘으면 넘치는 것은 그냥 안 걸린다).
+        for position in range(min(9, self.tabs.count())):
+            shortcut = QShortcut(QKeySequence(f"Ctrl+{position + 1}"), self)
+            shortcut.activated.connect(lambda index=position: self._go_to_tab(index))
+            shortcuts.append(shortcut)
+        for sequence, step in (("Ctrl+Tab", 1), ("Ctrl+Shift+Tab", -1)):
+            shortcut = QShortcut(QKeySequence(sequence), self)
+            shortcut.activated.connect(lambda delta=step: self._cycle_tab(delta))
+            shortcuts.append(shortcut)
+        return shortcuts
+
+    def _go_to_tab(self, index: int) -> None:
+        if 0 <= index < self.tabs.count():
+            self.tabs.setCurrentIndex(index)
+
+    def _cycle_tab(self, delta: int) -> None:
+        """다음·이전 탭으로 돈다 (양끝에서 반대편으로 넘어간다)."""
+        count = self.tabs.count()
+        if count:
+            self.tabs.setCurrentIndex((self.tabs.currentIndex() + delta) % count)
 
     def _on_arena_event(self, event) -> None:
         self._update_progress(event)

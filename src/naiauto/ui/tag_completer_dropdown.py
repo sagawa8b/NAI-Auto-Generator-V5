@@ -68,6 +68,9 @@ class TagCompleterDropdown:
 
         # Connect signals
         self._text_edit.textChanged.connect(self._on_text_changed)
+        # 커서만 움직여도(방향키·마우스 클릭) 후보를 다시 본다 — 글자를 바꾸지 않으면
+        # textChanged가 안 울려, 커서를 옮긴 자리에 맞지 않는 팝업이 그대로 남았다.
+        self._text_edit.cursorPositionChanged.connect(self._on_cursor_moved)
         self._popup.itemClicked.connect(self._on_item_selected)
         self._popup.itemActivated.connect(self._on_item_selected)
 
@@ -101,6 +104,10 @@ class TagCompleterDropdown:
             self._text_edit.textChanged.disconnect(self._on_text_changed)
         except RuntimeError:
             pass
+        try:
+            self._text_edit.cursorPositionChanged.disconnect(self._on_cursor_moved)
+        except RuntimeError:
+            pass
         self._text_edit.removeEventFilter(self._key_filter)
         self._key_filter.deleteLater()
         self._popup.hide()
@@ -124,6 +131,20 @@ class TagCompleterDropdown:
 
     def _on_text_changed(self) -> None:
         """Handle text changes: extract token and show/hide popup."""
+        self._refresh_popup()
+
+    def _on_cursor_moved(self) -> None:
+        """커서만 움직였을 때(글자 변화 없이) 팝업을 다시 맞춘다.
+
+        팝업이 떠 있지 않으면 아무것도 하지 않는다 — 커서를 움직였다는 것만으로
+        새 팝업을 띄우면, 예전 태그를 클릭해 커서가 그 안으로 들어갈 때마다 후보가
+        따라 떠서 성가시다. 이미 떠 있을 때만, 옮겨 간 자리에 맞는지 다시 본다.
+        """
+        if self._popup.isVisible():
+            self._refresh_popup()
+
+    def _refresh_popup(self) -> None:
+        """커서 앞 토큰으로 후보를 다시 채우거나, 없으면 팝업을 감춘다."""
         cursor = self._text_edit.textCursor()
         token = token_at_cursor(self._text_edit.toPlainText(), cursor.position())
 
@@ -237,7 +258,17 @@ class TagCompleterDropdown:
         from PySide6.QtCore import QEvent
         from PySide6.QtGui import QKeyEvent
 
-        if obj is not self._text_edit or not self._popup.isVisible():
+        if obj is not self._text_edit:
+            return False
+
+        # 입력창이 포커스를 잃거나 숨겨지면(다른 위젯·창으로 이동, 탭 전환 등)
+        # 팝업은 별도의 최상위 창이라 저절로 사라지지 않는다 — 손으로 감춘다.
+        # 이것이 "자동완성창이 계속 남는" 제보의 주 원인이다.
+        if event.type() in (QEvent.Type.FocusOut, QEvent.Type.Hide):
+            self._popup.hide()
+            return False
+
+        if not self._popup.isVisible():
             return False
 
         if not isinstance(event, QKeyEvent):
