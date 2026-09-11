@@ -11,6 +11,7 @@
     result_tab.py  순위표 · 고른 조합 · 교배 · 결산 · 정리 · 기록
     combo_card.py  조합 카드 (월드컵용)
     segment_bar.py 분포 막대 (티어 · 세대)
+    thumbnails.py  조합 그림 로딩 — 경로 → 픽스맵/아이콘 (mtime 캐시, 탭 공용)
 
 로직은 `core/arena/`에, 생성 큐는 `services/arena_service.py`에 있다.
 """

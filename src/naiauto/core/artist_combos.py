@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 # Validation constants
 _MAX_GROUP_NAME_LEN = 64
-_GROUP_NAME_RE = re.compile(r"^[a-zA-Z0-9_]{1,64}$")
+_GROUP_NAME_RE = re.compile(rf"^[a-zA-Z0-9_]{{1,{_MAX_GROUP_NAME_LEN}}}$")
 _MAX_TAGS_PER_GROUP = 500
 _MAX_TAG_LEN = 200
 

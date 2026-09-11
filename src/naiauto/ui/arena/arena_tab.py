@@ -72,6 +72,7 @@ from ..widgets.zoomable_image_view import ZoomableImageView
 from .base import ArenaTab
 from .combo_card import ComboCard
 from .style import mark_danger
+from .thumbnails import combo_pixmap
 
 logger = logging.getLogger(__name__)
 
@@ -303,8 +304,7 @@ class ArenaMatchTab(ArenaTab):
             self.cards_stack.setCurrentWidget(self.empty_state)
             return
         for card, combo in zip((self.left_card, self.right_card), self._pair, strict=True):
-            path = self._service.store.image_path(combo)
-            card.set_combo(combo, str(path) if path else None, use_prefix)
+            card.set_combo(combo, combo_pixmap(self._service.store, combo), use_prefix)
         self._set_actions_enabled(True)
         self.cards_stack.setCurrentWidget(self.cards_page)
 

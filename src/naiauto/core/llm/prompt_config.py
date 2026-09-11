@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -306,15 +306,7 @@ def load_prompt_config(path: str | Path) -> PromptConfig:
         raise PromptConfigError(f"{target} is not valid JSON (line {e.lineno}: {e.msg})") from e
 
     merged = merge_prompt_config(data)
-    return PromptConfig(
-        common_rules=merged.common_rules,
-        styles=merged.styles,
-        assistant_instruction=merged.assistant_instruction,
-        length_hints=merged.length_hints,
-        user_messages=merged.user_messages,
-        name=merged.name,
-        source=target,
-    )
+    return replace(merged, source=target)
 
 
 def load_prompt_config_or_default(path: str | Path | None) -> tuple[PromptConfig, str]:

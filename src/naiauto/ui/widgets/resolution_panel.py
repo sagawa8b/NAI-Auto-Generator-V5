@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QCheckBox,
     QComboBox,
     QGroupBox,
     QLabel,
@@ -155,7 +156,12 @@ class ResolutionPanel(QGroupBox):
         size_row.addWidget(self.height_spin)
         layout.addLayout(size_row)
 
-        # 3행: 경고 / 안내
+        # 3행: 해상도 랜덤 — 해상도를 다루는 위젯이므로 이 패널에 둔다 (생성 바에서 옮겨 옴).
+        # 매 장 등급 안에서 Wide/Square/Portrait 중 하나를 골라 쓴다.
+        self.random_check = QCheckBox()
+        layout.addWidget(self.random_check)
+
+        # 4행: 경고 / 안내
         self.credit_warning_label = QLabel()
         self.credit_warning_label.setWordWrap(True)
         self.credit_warning_label.setStyleSheet("color: #c07a00;")
@@ -172,6 +178,9 @@ class ResolutionPanel(QGroupBox):
 
         self.group_combo.currentIndexChanged.connect(self._on_group_changed)
         self.aspect_selector.selected.connect(self._on_aspect_selected)
+        # 켜고 끄면 배치 진행 중 다음 이미지부터 반영되도록 `changed`로 알린다
+        # (메인 창의 `_on_resolution_changed`가 라이브 반영·저장을 맡는다).
+        self.random_check.toggled.connect(lambda _on: self.changed.emit())
         self.width_spin.valueChanged.connect(self._on_dimension_changed)
         self.height_spin.valueChanged.connect(self._on_dimension_changed)
         self.width_spin.editingFinished.connect(self._on_editing_finished)
@@ -272,6 +281,14 @@ class ResolutionPanel(QGroupBox):
                 sizes.append(item.size)
         return tuple(sizes)
 
+    def random_resolution_enabled(self) -> bool:
+        """해상도 랜덤 체크 상태."""
+        return self.random_check.isChecked()
+
+    def set_random_resolution(self, enabled: bool) -> None:
+        """해상도 랜덤 체크를 설정한다 (설정 복원용)."""
+        self.random_check.setChecked(enabled)
+
     def current_group(self) -> ResolutionGroup | None:
         """콤보에서 선택된 등급. "직접 입력"이면 None.
 
@@ -308,6 +325,8 @@ class ResolutionPanel(QGroupBox):
         self.group_label.setText(tr("resolution.group"))
         self.width_label.setText(tr("resolution.width"))
         self.height_label.setText(tr("resolution.height"))
+        self.random_check.setText(tr("batch.random_resolution"))
+        self.random_check.setToolTip(tr("batch.random_resolution_tooltip"))
         for index in range(self.group_combo.count()):
             data = self.group_combo.itemData(index)
             self.group_combo.setItemText(index, self._group_text(data))

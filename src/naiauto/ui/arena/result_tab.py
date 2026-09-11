@@ -24,7 +24,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QGuiApplication, QIcon, QPixmap
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -78,6 +78,7 @@ from ..widgets.hidpi_image import HiDpiImageLabel
 from .base import ArenaTab
 from .segment_bar import SegmentBar
 from .style import mark_danger, mark_primary, tier_color
+from .thumbnails import combo_icon, combo_pixmap
 
 logger = logging.getLogger(__name__)
 
@@ -567,11 +568,7 @@ class ResultTab(ArenaTab):
     # ── 고른 조합 ───────────────────────────────────────────────────────
 
     def selected_combo(self) -> Combo | None:
-        rows = {index.row() for index in self.sheet.selectedIndexes()}
-        if not rows:
-            return None
-        item = self.sheet.item(min(rows), COL_TIER)
-        return self.state.combo(str(item.data(Qt.ItemDataRole.UserRole))) if item else None
+        return self.selected_combo_in(self.sheet, COL_TIER)
 
     def _refresh_detail(self) -> None:
         """고른 줄의 그림과 프롬프트. 통계 탭에서는 태그 문자열만 보였다."""
@@ -607,11 +604,7 @@ class ResultTab(ArenaTab):
         )
 
     def _pixmap_for(self, combo: Combo) -> QPixmap | None:
-        path = self._service.store.image_path(combo)
-        if path is None:
-            return None
-        pixmap = QPixmap(str(path))
-        return None if pixmap.isNull() else pixmap
+        return combo_pixmap(self._service.store, combo)
 
     def _selected_block(self) -> str:
         combo = self.selected_combo()
@@ -626,11 +619,9 @@ class ResultTab(ArenaTab):
         return True
 
     def copy_selected(self) -> bool:
-        block = self._selected_block()
-        if not block:
+        if not self.copy_block_to_clipboard(self.selected_combo()):
             self.status_message.emit(self.tr("arena.select_a_row"))
             return False
-        QGuiApplication.clipboard().setText(block)
         self.status_message.emit(self.tr("arena.copied"))
         return True
 
@@ -664,13 +655,7 @@ class ResultTab(ArenaTab):
 
     def _thumbnail(self, combo: Combo) -> QIcon | None:
         """부모 후보의 그림 — 태그 문자열만 보고 고르라는 것은 불친절하다."""
-        path = self._service.store.image_path(combo)
-        if path is None:
-            return None
-        pixmap = QPixmap(str(path))
-        if pixmap.isNull():
-            return None
-        return QIcon(pixmap)
+        return combo_icon(self._service.store, combo)
 
     def breed_children(self) -> int:
         """상위 조합을 교배해 다음 세대를 만든다. 만든 수를 돌려준다."""

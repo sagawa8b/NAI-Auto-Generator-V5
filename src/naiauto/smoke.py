@@ -97,8 +97,8 @@ def build_request(args: argparse.Namespace) -> GenerationRequest:
 
     request = GenerationRequest(
         action=action,
-        prompt=args.prompt + spec.quality_tags,
-        negative_prompt=spec.uc_presets.get("heavy", ""),
+        prompt=spec.compose_prompt(args.prompt, quality=True),
+        negative_prompt=spec.compose_negative("heavy", ""),
         model=spec.key,
         width=width,
         height=height,

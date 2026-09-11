@@ -156,13 +156,12 @@ def _apply_character_reference(params: dict, refs: list[CharacterReference]) -> 
 
 def letterbox(image_bytes: bytes) -> bytes:
     """이미지를 NAI 캔버스 크기로 레터박싱 (Character Reference용)."""
-    img = Image.open(io.BytesIO(image_bytes))
-    if img.mode == "RGBA":
-        bg = Image.new("RGB", img.size, (0, 0, 0))
-        bg.paste(img, mask=img)
-        img = bg
-    else:
-        img = img.convert("RGB")
+    with Image.open(io.BytesIO(image_bytes)) as src:
+        if src.mode == "RGBA":
+            img = Image.new("RGB", src.size, (0, 0, 0))
+            img.paste(src, mask=src)
+        else:
+            img = src.convert("RGB")
 
     w, h = img.size
     ratio = w / h
@@ -183,7 +182,8 @@ def letterbox(image_bytes: bytes) -> bytes:
 
 
 def encode_mask(mask_bytes: bytes, scale: int = 8) -> str:
-    img = Image.open(io.BytesIO(mask_bytes)).convert("L")
+    with Image.open(io.BytesIO(mask_bytes)) as src:
+        img = src.convert("L")
     img = img.point(lambda x: 255 if x > 128 else 0, "1")
     w, h = img.size
     img = img.resize((w * scale, h * scale), Image.NEAREST).convert("RGB")

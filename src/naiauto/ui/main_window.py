@@ -69,6 +69,7 @@ from ..core.settings.schema import (
     duplicate_action,
 )
 from ..core.settings.store import ensure_dirs
+from ..core.settings_batch import SettingsBatchController
 from ..core.tag_completer import TagCompleter, resolve_database_path
 from ..core.updates import RELEASES_PAGE, ReleaseInfo, check_for_update
 from ..core.wildcards.catalog import WildcardCatalog
@@ -189,8 +190,9 @@ class MainWindow(QMainWindow):
         self._logged_in = client.session.is_logged_in
 
         self._qsettings = QSettings()
-        #: 세팅별 연속 생성이 순환할 파일 목록 — 비어 있으면 진행 중이 아니다.
-        self._settings_batch_paths: list[str] = []
+        #: 세팅별 연속 생성의 상태·진행 판정 (Qt-free). 파일 선택·잡 시작·상태바는
+        #: 아래 뷰 메서드가 맡고, "다음 파일 자리"와 "계속할지"만 이 컨트롤러가 정한다.
+        self._settings_batch = SettingsBatchController()
         #: 실행 중인 잡의 요청 / 마지막으로 이미지가 나온 요청. 동일 조건 재생성 감지가 쓴다.
         #: 완성된 것만 기억한다 — 실패한 생성을 같은 값으로 다시 시도하는 길을 막으면 안 된다.
         self._running_request: GenerationRequest | None = None
@@ -552,7 +554,6 @@ class MainWindow(QMainWindow):
         self.delay_spin.setMaximumWidth(90)
         self.count_label = QLabel()
         self.delay_label = QLabel()
-        self.random_resolution_check = QCheckBox()
         # 결과 프롬프트 오버레이 — 생성 UI에서 바로 켜고 끈다 (V4도 결과 이미지 옆에 있었다).
         # 보기 메뉴의 같은 항목(F8)과 서로를 따라간다 — 아래 _wire_result_overlay_toggle 참고.
         self.result_overlay_check = QCheckBox()
@@ -571,7 +572,6 @@ class MainWindow(QMainWindow):
         batch_row.addWidget(self.count_spin)
         batch_row.addWidget(self.delay_label)
         batch_row.addWidget(self.delay_spin)
-        batch_row.addWidget(self.random_resolution_check)
         batch_row.addWidget(self.result_overlay_check)
 
         # 퀵 매수 버튼 — 누르면 그 매수로 바로 연속 생성 (V4.5의 Quick Generation)
@@ -1252,13 +1252,9 @@ class MainWindow(QMainWindow):
         if not self._service.is_running:
             return
         spec = self.current_spec()
-        prompt = self.prompt_edit.toPlainText().strip()
-        if self.quality_check.isChecked():
-            prompt += spec.quality_tags
         uc_key = self.uc_preset_combo.currentData() or "none"
-        preset_uc = spec.uc_presets.get(uc_key, "")
-        user_uc = self.negative_edit.toPlainText().strip()
-        negative = ", ".join(part for part in (preset_uc, user_uc) if part)
+        prompt = spec.compose_prompt(self.prompt_edit.toPlainText(), quality=self.quality_check.isChecked())
+        negative = spec.compose_negative(uc_key, self.negative_edit.toPlainText())
         plan = self.enhance_panel.plan()
         if plan is not None and self.enhance_panel.image_bytes is not None:
             prompt += plan.prompt_suffix  # build_job과 같은 조합 규칙을 유지한다
@@ -1326,7 +1322,7 @@ class MainWindow(QMainWindow):
             self.seed_edit.setText(str(g.seed))
         self.count_spin.setValue(self._settings.batch.count)
         self.delay_spin.setValue(self._settings.batch.delay_seconds)
-        self.random_resolution_check.setChecked(self._settings.batch.random_resolution)
+        self.resolution_panel.set_random_resolution(self._settings.batch.random_resolution)
         self._refresh_quick_buttons()
         self.image_source_action.setChecked(
             self._settings.show_image_source and self.image_source_action.isEnabled()
@@ -1404,7 +1400,7 @@ class MainWindow(QMainWindow):
         g.seed = -1 if self.seed_random_check.isChecked() else self._seed_value()
         s.batch.count = self.count_spin.value()
         s.batch.delay_seconds = self.delay_spin.value()
-        s.batch.random_resolution = self.random_resolution_check.isChecked()
+        s.batch.random_resolution = self.resolution_panel.random_resolution_enabled()
         s.show_image_source = self.image_source_action.isChecked()
         s.show_enhance = self.enhance_action.isChecked()
         s.show_result_overlay = self.result_overlay_action.isChecked()
@@ -1758,13 +1754,9 @@ class MainWindow(QMainWindow):
         (프롬프트 꼬리가 두 번 붙는다).
         """
         spec = self.current_spec()
-        prompt = self.prompt_edit.toPlainText().strip()
-        if self.quality_check.isChecked():
-            prompt += spec.quality_tags
         uc_key = self.uc_preset_combo.currentData() or "none"
-        preset_uc = spec.uc_presets.get(uc_key, "")
-        user_uc = self.negative_edit.toPlainText().strip()
-        negative = ", ".join(part for part in (preset_uc, user_uc) if part)
+        prompt = spec.compose_prompt(self.prompt_edit.toPlainText(), quality=self.quality_check.isChecked())
+        negative = spec.compose_negative(uc_key, self.negative_edit.toPlainText())
 
         # i2i/인페인팅은 원본 이미지 크기를 그대로 쓴다 (스모크로 검증된 동작)
         size = self.target_size()
@@ -1773,7 +1765,9 @@ class MainWindow(QMainWindow):
         resolution_choices = (
             self.resolution_panel.random_resolution_choices() if self.locked_size() is None else ()
         )
-        randomize_resolution = self.random_resolution_check.isChecked() and len(resolution_choices) >= 2
+        randomize_resolution = (
+            self.resolution_panel.random_resolution_enabled() and len(resolution_choices) >= 2
+        )
         request = GenerationRequest(
             action=self.image_source.action(),
             prompt=prompt,
@@ -1931,7 +1925,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, tr("errors.title"), tr("errors.duplicate_generation"))
             self.status_label.setText(tr("errors.duplicate_generation"))
             return None
-        # 시드는 서비스의 랜덤 시드와 같은 범위에서 뽑는다 (generation_service._next_request).
+        # 시드는 서비스의 랜덤 시드와 같은 범위에서 뽑는다 (generation_service._prepare_request).
         seed = random.randint(1, 2**32 - 1)
         self.seed_edit.setText(str(seed))  # 화면에도 실제로 쓰인 시드가 남아야 한다
         self.status_label.setText(tr("statusbar.duplicate_seed_changed", seed))
@@ -1949,7 +1943,7 @@ class MainWindow(QMainWindow):
 
     def _on_stop_clicked(self) -> None:
         """세팅별 연속 생성 중이면 이번 이미지를 끝으로 순환도 멈춘다 (V4와 동일)."""
-        self._settings_batch_stop_requested = True
+        self._settings_batch.request_stop()
         self._service.stop()
 
     # ── 세팅별 연속 생성 (V4의 "세팅별 연속 생성") ──────────────
@@ -1972,25 +1966,9 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, tr("errors.warning"), tr("errors.settings_select_min_two"))
             return
 
-        self._settings_batch_paths = paths
-        self._settings_batch_index = -1
-        self._settings_batch_total = self.count_spin.value()
-        self._settings_batch_completed = 0
-        self._settings_batch_stop_requested = False
+        self._settings_batch.start(paths, self.count_spin.value())
         if not self._advance_settings_batch():
-            self._settings_batch_paths = []
-
-    def _next_settings_batch_index(self) -> int:
-        """다음에 쓸 세팅 파일의 자리. 기본은 고른 순서대로, 옵션을 켜면 무작위.
-
-        무작위일 때 같은 파일이 연달아 두 번 나오지는 않게 한다 — 세팅을 여러 개
-        고른 이유가 번갈아 쓰려는 것이기 때문이다 (파일이 2개면 결국 번갈아 돈다).
-        """
-        total = len(self._settings_batch_paths)
-        if not self._settings.batch.random_settings_order or total < 2:
-            return (self._settings_batch_index + 1) % total
-        choices = [i for i in range(total) if i != self._settings_batch_index]
-        return random.choice(choices)
+            self._settings_batch.reset()
 
     def _advance_settings_batch(self) -> bool:
         """다음 세팅 파일을 불러와 적용하고 그 파일로 이미지 1장을 생성한다.
@@ -1999,8 +1977,8 @@ class MainWindow(QMainWindow):
         만들어 시작한다. 성공하면 True, 파일을 읽지 못하거나 이미 실행 중이면 False.
         """
         tr = self._i18n.get_text
-        self._settings_batch_index = self._next_settings_batch_index()
-        path = self._settings_batch_paths[self._settings_batch_index]
+        self._settings_batch.next_index(randomize=self._settings.batch.random_settings_order)
+        path = self._settings_batch.current_path()
 
         defaults = self._get_current_preset_config().model_dump()
         try:
@@ -2022,19 +2000,13 @@ class MainWindow(QMainWindow):
         except RuntimeError:
             return False
         self._set_running(True)
-        if self._settings_batch_total:
+        batch = self._settings_batch
+        if batch.total:
             self.status_label.setText(
-                tr(
-                    "statusbar.by_settings_progress",
-                    self._settings_batch_completed + 1,
-                    self._settings_batch_total,
-                    stem,
-                )
+                tr("statusbar.by_settings_progress", batch.completed + 1, batch.total, stem)
             )
         else:
-            self.status_label.setText(
-                tr("statusbar.by_settings_progress_inf", self._settings_batch_completed + 1, stem)
-            )
+            self.status_label.setText(tr("statusbar.by_settings_progress_inf", batch.completed + 1, stem))
         return True
 
     def _set_running(self, running: bool) -> None:
@@ -2086,23 +2058,15 @@ class MainWindow(QMainWindow):
                 self._gallery_view.append_image(event.path)
         elif isinstance(event, JobFinished):
             continuing = False
-            in_settings_batch = bool(self._settings_batch_paths)
-            if in_settings_batch:
+            if self._settings_batch.active:
                 # 세팅별 연속 생성 도중 — 이 잡은 세팅 파일 하나로 만든 이미지 1장이다.
-                stopped = event.stopped or self._settings_batch_stop_requested
-                if event.error is None and not stopped:
-                    self._settings_batch_completed += 1
-                    more = (
-                        self._settings_batch_total == 0
-                        or self._settings_batch_completed < self._settings_batch_total
-                    )
-                    continuing = more
+                progress = self._settings_batch.job_finished(
+                    error=event.error is not None, stopped=event.stopped
+                )
+                continuing = progress.continuing
                 if not continuing:
-                    self._settings_batch_paths = []
                     # 총 진행량은 이번 잡의 1장이 아니라 순환 전체의 누적 매수다.
-                    event = dataclasses.replace(
-                        event, completed=self._settings_batch_completed, stopped=stopped
-                    )
+                    event = dataclasses.replace(event, completed=progress.completed, stopped=progress.stopped)
 
             if not continuing:
                 self._set_running(False)
@@ -2152,16 +2116,17 @@ class MainWindow(QMainWindow):
         """세팅별 연속 생성 간격 대기 후 호출 — 그사이 중지됐으면 순환을 끝낸다."""
         if not shiboken6.isValid(self):
             return  # 대기 중 창이 닫힌 경우 — QTimer가 죽은 위젯을 참조하면 세그폴트로 이어진다
-        if not self._settings_batch_paths:
+        batch = self._settings_batch
+        if not batch.active:
             return  # 대기 중 중지되었거나 이미 정리된 경우
-        if self._settings_batch_stop_requested or not self._advance_settings_batch():
-            self._settings_batch_paths = []
+        if batch.stop_requested or not self._advance_settings_batch():
+            batch.reset()
             self._set_running(False)
             tr = self._i18n.get_text
-            if self._settings_batch_stop_requested:
-                self.status_label.setText(tr("statusbar.job_stopped", self._settings_batch_completed))
+            if batch.stop_requested:
+                self.status_label.setText(tr("statusbar.job_stopped", batch.completed))
             else:
-                self.status_label.setText(tr("statusbar.job_finished", self._settings_batch_completed))
+                self.status_label.setText(tr("statusbar.job_finished", batch.completed))
 
     # ── 결과 프롬프트 오버레이 (V4의 "프롬프트 결과 표시") ──────
 
@@ -2360,8 +2325,6 @@ class MainWindow(QMainWindow):
         self.generate_group.setTitle(tr("generate.title"))
         self.count_label.setText(tr("batch.count"))
         self.delay_label.setText(tr("batch.delay"))
-        self.random_resolution_check.setText(tr("batch.random_resolution"))
-        self.random_resolution_check.setToolTip(tr("batch.random_resolution_tooltip"))
         self._refresh_quick_buttons()
         self.once_button.setText(tr("generate.once"))
         self.auto_button.setText(tr("generate.auto"))
@@ -2414,10 +2377,3 @@ class MainWindow(QMainWindow):
 
     _job_total: int | None = None
     _is_running: bool = False
-
-    # ── 세팅별 연속 생성 (V4 parity) — `_settings_batch_paths`는 리스트라
-    # 클래스 속성 기본값으로 두면 인스턴스끼리 공유되므로 `__init__`에서 초기화한다.
-    _settings_batch_index: int = -1
-    _settings_batch_total: int = 0
-    _settings_batch_completed: int = 0
-    _settings_batch_stop_requested: bool = False

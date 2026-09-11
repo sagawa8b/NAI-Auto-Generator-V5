@@ -81,14 +81,24 @@ class WildcardApplier:
             logger.error("Error loading wildcards: %s", e)
 
     def create_index_snapshot(self) -> None:
-        """루프카드 인덱스 스냅숏 생성 + 공유 랜덤 캐시 초기화 (사이클 시작)."""
+        """루프카드 인덱스 스냅숏 생성 + 공유 랜덤 캐시 초기화 (사이클 시작).
+
+        와일드카드 사전도 여기서 사이클당 한 번만 다시 읽는다. 이전에는
+        `apply_wildcards_with_snapshot()`이 매 호출마다 폴더 전체를 재로드해,
+        배치 생성 한 장마다 프롬프트·네거티브 각각에 대해 디스크를 다시 훑었다.
+        사이클 안에서는 사전이 불변이라는 스냅숏 프로토콜의 전제에 맞춘다
+        (자매 클래스 `ArtistComboEngine`도 로드를 apply와 분리한다).
+        """
+        self.load_wildcards()
         self._current_snapshot = self._loopcard_indices.copy()
         self._used_keys = set()
         self._shared_random_cache = {}
 
     def apply_wildcards_with_snapshot(self, target_str: str) -> str:
-        """스냅숏된 인덱스로 와일드카드 적용 (인덱스 진행 없음)."""
-        self.load_wildcards()
+        """스냅숏된 인덱스로 와일드카드 적용 (인덱스 진행 없음).
+
+        사전 로드는 `create_index_snapshot()`가 사이클당 한 번 처리한다.
+        """
         result = target_str
 
         for apply_once in (

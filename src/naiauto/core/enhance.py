@@ -330,15 +330,6 @@ def apply_enhance(
     )
 
 
-def unusable_sources(sources: Sequence[EnhanceSource], amount: UpscaleAmount) -> tuple[EnhanceSource, ...]:
-    """대기열에서 그 배율로 강화할 수 없는 항목 (시작 전 확인용).
-
-    "더 키울 수 없음"(already_max)은 여기 넣지 않는다 — 그건 거부가 아니라 같은 크기로
-    디테일만 다시 그리는 정상 처리다 (`plan_enhance` 참고).
-    """
-    return tuple(s for s in sources if unavailable_reason(s.size, amount) not in (None, "already_max"))
-
-
 @dataclass(frozen=True)
 class EnhanceSource:
     """폴더 강화 대기열의 한 항목 — 파일 경로와 그 PNG에서 읽은 생성 설정."""
@@ -346,6 +337,15 @@ class EnhanceSource:
     path: str
     size: tuple[int, int]
     settings: ReusableSettings | None = None
+
+
+def unusable_sources(sources: Sequence[EnhanceSource], amount: UpscaleAmount) -> tuple[EnhanceSource, ...]:
+    """대기열에서 그 배율로 강화할 수 없는 항목 (시작 전 확인용).
+
+    "더 키울 수 없음"(already_max)은 여기 넣지 않는다 — 그건 거부가 아니라 같은 크기로
+    디테일만 다시 그리는 정상 처리다 (`plan_enhance` 참고).
+    """
+    return tuple(s for s in sources if unavailable_reason(s.size, amount) not in (None, "already_max"))
 
 
 def build_enhance_provider(

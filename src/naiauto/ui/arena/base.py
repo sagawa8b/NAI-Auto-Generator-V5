@@ -11,9 +11,11 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QWidget
 
+from ...core.arena.combos import format_artist_block
 from ...core.i18n.manager import I18nManager
 from ...core.settings.schema import AppSettings
 from ...services.arena_service import ArenaService
@@ -60,6 +62,35 @@ class ArenaTab(QWidget):
 
     def on_arena_event(self, event) -> None:
         """아레나 이벤트(생성 진행·완료). 다이얼로그가 모든 탭에 돌린다."""
+
+    # ── 조합 선택·복사 (여러 탭이 공유) ─────────────────────────────────
+
+    def selected_combo_in(self, table, id_col: int):
+        """표에서 처음 고른 줄의 조합. 없으면 None.
+
+        세 탭이 "선택 줄 → 지정 열의 `UserRole`에 담긴 조합 id → `state.combo(id)`"를
+        똑같이 반복했다. `id_col`은 조합 id를 `UserRole`로 심어 둔 열이다.
+        """
+        model = table.selectionModel()
+        rows = model.selectedRows() if model is not None else []
+        if not rows:
+            return None
+        item = table.item(rows[0].row(), id_col)
+        if item is None:
+            return None
+        combo_id = item.data(Qt.ItemDataRole.UserRole)
+        return self.state.combo(str(combo_id)) if combo_id else None
+
+    def copy_block_to_clipboard(self, combo) -> bool:
+        """조합의 작가 블록을 클립보드로. 조합이 없으면 False.
+
+        복사·상태 메시지 처리는 호출부가 각자의 문구로 한다 — 여기서는 클립보드에
+        넣는 것만 공유한다.
+        """
+        if combo is None:
+            return False
+        QGuiApplication.clipboard().setText(format_artist_block(combo.slots, self.arena.use_prefix))
+        return True
 
     # ── 편의 ────────────────────────────────────────────────────────────
 

@@ -32,7 +32,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QThread, Signal
-from PySide6.QtGui import QDragEnterEvent, QDropEvent, QGuiApplication, QIcon, QPixmap
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -74,6 +74,7 @@ from ...services.style_judge_service import (
     load_reference_images,
 )
 from .base import ArenaTab
+from .thumbnails import combo_icon
 
 logger = logging.getLogger(__name__)
 
@@ -613,11 +614,9 @@ class JudgeTab(ArenaTab):
     def _set_thumbnail(self, row: int, combo: Combo) -> None:
         """줄마다 그 조합의 그림 — 점수만 보고는 무엇이 뽑혔는지 알 수 없다."""
         item = QTableWidgetItem()
-        path = self._service.store.image_path(combo)
-        if path is not None:
-            pixmap = QPixmap(str(path))
-            if not pixmap.isNull():
-                item.setIcon(QIcon(pixmap))
+        icon = combo_icon(self._service.store, combo)
+        if icon is not None:
+            item.setIcon(icon)
         self.table.setItem(row, self._COL_THUMBNAIL, item)
 
     def _set_score_bar(self, row: int, score: int) -> None:
@@ -644,23 +643,13 @@ class JudgeTab(ArenaTab):
 
     def _on_send_selected(self) -> None:
         """선택한 조합의 작가 블록을 클립보드로 — 메인 프롬프트에 바로 붙일 수 있게."""
-        combo = self._selected_combo()
-        if combo is None:
+        if not self.copy_block_to_clipboard(self._selected_combo()):
             self.status_label.setText(self.tr("arena.judge_select_row"))
             return
-        block = format_artist_block(combo.slots, self.arena.use_prefix)
-        QGuiApplication.clipboard().setText(block)
         self.status_label.setText(self.tr("arena.judge_copied"))
 
     def _selected_combo(self) -> Combo | None:
-        rows = self.table.selectionModel().selectedRows()
-        if not rows:
-            return None
-        item = self.table.item(rows[0].row(), self._COL_COMBO)
-        if item is None:
-            return None
-        combo_id = item.data(Qt.ItemDataRole.UserRole)
-        return self.state.combo(combo_id) if combo_id else None
+        return self.selected_combo_in(self.table, self._COL_COMBO)
 
     def _on_export_csv(self) -> None:
         """판독 랭킹을 CSV 파일로 저장한다 — 표에 보이는 순서 그대로.

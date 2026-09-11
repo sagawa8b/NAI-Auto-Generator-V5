@@ -59,5 +59,6 @@ def delete_credential(key: str) -> None:
         return
     try:
         keyring.delete_password(_SERVICE, key)
-    except Exception:
-        pass
+    except Exception as e:
+        # 이미 없거나 백엔드 오류 — 삭제는 best-effort이므로 삼키되 흔적은 남긴다.
+        logger.debug("keyring delete failed (%s): %s", key, e)

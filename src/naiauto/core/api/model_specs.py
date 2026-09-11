@@ -102,6 +102,28 @@ class ModelSpec:
     # 옛 PNG 메타데이터 재사용, smoke CLI가 계속 쓰므로 레지스트리에는 남긴다.
     ui_visible: bool = True
 
+    # ── 프롬프트 조립 (quality_tags · uc_presets가 이 스펙의 데이터이므로 여기서 합친다) ──
+
+    def compose_prompt(self, raw_prompt: str, *, quality: bool) -> str:
+        """사용자 프롬프트에 품질 태그를 붙인다 (켜져 있을 때).
+
+        `quality_tags`는 이미 선행 구분자를 포함하므로 그대로 이어 붙인다.
+        강화(1.5x) 꼬리는 여기 넣지 않는다 — 그건 `core/enhance.apply_enhance`가
+        i2i 변환과 함께 붙인다 (붙이는 시점이 달라 섞으면 두 번 붙을 수 있다).
+        """
+        prompt = raw_prompt.strip()
+        if quality:
+            prompt += self.quality_tags
+        return prompt
+
+    def compose_negative(self, uc_key: str, user_uc: str) -> str:
+        """UC 프리셋과 사용자 네거티브를 합친다 (프리셋이 앞, 사용자 입력이 뒤).
+
+        빈 부분은 버리고 `", "`로 잇는다. 모르는 프리셋 키는 빈 문자열로 취급한다.
+        """
+        preset_uc = self.uc_presets.get(uc_key, "")
+        return ", ".join(part for part in (preset_uc, user_uc.strip()) if part)
+
 
 _UC_45F = {
     "heavy": "lowres, artistic error, film grain, scan artifacts, worst quality, bad quality, jpeg artifacts, very displeasing, chromatic aberration, dithering, halftone, screentone, multiple views, logo, too many watermarks, negative space, blank page",

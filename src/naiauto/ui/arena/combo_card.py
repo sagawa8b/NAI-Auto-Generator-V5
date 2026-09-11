@@ -22,8 +22,6 @@
 
 from __future__ import annotations
 
-import logging
-
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QAction, QPixmap
 from PySide6.QtWidgets import (
@@ -42,8 +40,6 @@ from ...core.arena.models import Combo
 from ...core.i18n.manager import I18nManager
 from ..widgets.hidpi_image import HiDpiImageLabel
 from .style import mark_danger, mark_primary, tier_color
-
-logger = logging.getLogger(__name__)
 
 #: 그림 자리가 줄어들 수 있는 하한. 이보다 아래로는 무엇을 보고 고르는지 알 수 없다.
 MIN_IMAGE_HEIGHT = 160
@@ -136,8 +132,12 @@ class ComboCard(QFrame):
     def combo(self) -> Combo | None:
         return self._combo
 
-    def set_combo(self, combo: Combo | None, image_path: str | None, use_prefix: bool = True) -> None:
-        """카드에 조합을 앉힌다. `image_path`가 None이면 그림 자리에 안내를 띄운다."""
+    def set_combo(self, combo: Combo | None, pixmap: QPixmap | None, use_prefix: bool = True) -> None:
+        """카드에 조합을 앉힌다. `pixmap`이 None이면 그림 자리에 안내를 띄운다.
+
+        그림 로딩·캐시는 `arena/thumbnails.combo_pixmap`이 맡는다 — 카드는 받은
+        픽스맵을 그리기만 한다.
+        """
         self._combo = combo
         self._pixmap = None
         if combo is None:
@@ -153,13 +153,10 @@ class ComboCard(QFrame):
         self.favorite_button.setChecked(combo.favorite)
         self.lock_button.setChecked(combo.locked)
 
-        if image_path:
-            pixmap = QPixmap(image_path)
-            if not pixmap.isNull():
-                self._pixmap = pixmap
-                self._draw_image()
-                return
-            logger.debug("cannot load arena image: %s", image_path)
+        if pixmap is not None and not pixmap.isNull():
+            self._pixmap = pixmap
+            self._draw_image()
+            return
         self.image_label.setText(self._i18n.get_text("arena.card_no_image"))
 
     def set_select_key(self, key: str, before: bool = True) -> None:

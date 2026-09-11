@@ -30,7 +30,7 @@ import dataclasses
 import logging
 
 from PySide6.QtCore import QPoint, QSize, Qt
-from PySide6.QtGui import QGuiApplication, QIcon, QKeySequence, QPixmap, QShortcut
+from PySide6.QtGui import QGuiApplication, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -87,6 +87,7 @@ from ...services.arena_service import (
 from ..widgets.collapsible_section import CollapsibleSection
 from .base import ArenaTab
 from .style import mark_primary
+from .thumbnails import combo_icon
 
 logger = logging.getLogger(__name__)
 
@@ -103,10 +104,6 @@ QUEUE_COLUMNS = 4
 
 #: 큐 썸네일 한 변 (논리 픽셀).
 THUMBNAIL_SIZE = 44
-
-#: 썸네일 캐시가 이보다 커지면 통째로 비운다 — 조합을 수백 개 만들어 두고 오래
-#: 띄워 놓는 창이라, 지운 조합의 그림까지 끝없이 붙들고 있지 않게 한다.
-_THUMBNAIL_CACHE_MAX = 400
 
 #: 좌우 패널 사이의 여백과 처음 뜰 때의 나눔 비율 (논리 픽셀).
 PANEL_GAP = 8
@@ -179,9 +176,6 @@ class BuildTab(ArenaTab):
     def __init__(self, i18n, settings, service, request_provider, parent: QWidget | None = None) -> None:
         super().__init__(i18n, settings, service, parent)
         self._request_provider = request_provider
-        #: 큐 표의 썸네일 캐시 — (파일 경로, 수정 시각) → 아이콘. 수정 시각을 키에
-        #: 넣어, 같은 이름으로 다시 뽑은 그림이 옛 썸네일로 남지 않게 한다.
-        self._thumbnails: dict[tuple[str, int], QIcon] = {}
 
         root = QVBoxLayout(self)
         # 폭이 1000px인데 세로로만 쌓아 올려 정작 결과물인 큐가 네댓 줄만 보였다.
@@ -711,23 +705,7 @@ class BuildTab(ArenaTab):
 
     def _thumbnail(self, combo) -> QIcon | None:
         """큐 줄에 붙일 작은 그림. 그림이 없거나 못 읽으면 None (빈 칸이 곧 `대기`다)."""
-        path = self._service.store.image_path(combo)
-        if path is None:
-            return None
-        try:
-            key = (str(path), path.stat().st_mtime_ns)
-        except OSError:  # 방금 지워졌을 수 있다 — 다음 갱신에 맞춰진다
-            return None
-        icon = self._thumbnails.get(key)
-        if icon is None:
-            pixmap = QPixmap(str(path))
-            if pixmap.isNull():
-                return None
-            if len(self._thumbnails) >= _THUMBNAIL_CACHE_MAX:
-                self._thumbnails.clear()
-            icon = QIcon(pixmap)
-            self._thumbnails[key] = icon
-        return icon
+        return combo_icon(self._service.store, combo)
 
     def selected_combos(self) -> list:
         """고른 줄들의 조합 (중복 없이)."""
