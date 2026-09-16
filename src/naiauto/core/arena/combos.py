@@ -33,8 +33,14 @@ _ARTIST_PREFIX = "artist:"
 #: 가중치 블록 `1.2::내용::` (음수 허용, 내용에 `::`는 못 들어간다)
 _BLOCK_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*::((?:(?!::).)*?)::", re.DOTALL)
 
-#: 붙여넣기에서 작가 태그만 골라낼 때 — `artist:이름` (쉼표/`::`/줄바꿈에서 끊긴다)
-_ARTIST_TAG_RE = re.compile(r"artist:\s*([^,:\n\r]+)")
+#: 붙여넣기에서 작가 태그만 골라낼 때 — `artist:이름` (쉼표/`::`/줄바꿈/강조 괄호에서 끊긴다)
+#: V3·V4·V4.5 프롬프트는 강조 문법 `{artist:이름}`·`[artist:이름]`을 쓴다. `}`·`]`를
+#: 끊는 문자에 넣지 않으면 이름 끝에 닫는 괄호가 붙어(`aaa}`) 명단에 그대로 들어간다.
+_ARTIST_TAG_RE = re.compile(r"artist:\s*([^,:\n\r{}\[\]]+)")
+
+#: 이름을 감싸는 강조 괄호 — NovelAI 가중치 문법(강조 `{}`, 약화 `[]`). 이름 안의
+#: 괄호는 `()`뿐(`meiro (yuu)`)이라 `{}`·`[]`만 벗겨도 실제 작가명은 다치지 않는다.
+_EMPHASIS_CHARS = "{}[]"
 
 
 def round_weight(value: float, step: float = WEIGHT_STEP) -> float:
@@ -85,10 +91,15 @@ def normalize_artist_name(raw: str) -> str:
     있어서, 바꾸는 것은 사용자가 명시적으로 누르는 별도 기능(`underscores_to_spaces`)이다.
     """
     text = raw.strip().strip(",").strip()
+    # 강조 괄호(`{`·`[`·`}`·`]`)를 양끝에서 벗긴다 — 중첩(`{{artist:aaa}}`)도 처리한다.
+    # 가중치 껍데기·접두사보다 먼저 바깥 껍질을 벗겨 `{1.5::artist:aaa::}` 같은 형태도 다룬다.
+    text = text.strip(_EMPHASIS_CHARS).strip()
     text = re.sub(r"^-?\d+(?:\.\d+)?\s*::", "", text).strip()
     text = text.rstrip(":").strip()
     if text.lower().startswith(_ARTIST_PREFIX):
         text = text[len(_ARTIST_PREFIX) :].strip()
+    # 접두사·가중치를 벗겨 낸 뒤에도 남은 강조 괄호를 정리한다 (`{artist:aaa}` → `aaa`).
+    text = text.strip(_EMPHASIS_CHARS).strip()
     return re.sub(r"\s+", " ", text)
 
 

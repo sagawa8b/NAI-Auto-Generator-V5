@@ -68,7 +68,8 @@ COLUMN_COUNT = 5
 SORT_NAME = "name"
 SORT_ELO = "elo"
 SORT_USES = "uses"
-SORT_ORDERS = (SORT_ELO, SORT_NAME, SORT_USES)
+SORT_WINRATE = "winrate"
+SORT_ORDERS = (SORT_ELO, SORT_WINRATE, SORT_NAME, SORT_USES)
 
 #: 끌어다 놓기를 받는 확장자. 판독기가 열 수 있는 것만.
 _IMAGE_SUFFIXES = (".png", ".webp", ".jpg", ".jpeg")
@@ -233,6 +234,7 @@ class RosterTab(ArenaTab):
         )
         labels = {
             SORT_ELO: tr("arena.sort_elo"),
+            SORT_WINRATE: tr("arena.sort_winrate"),
             SORT_NAME: tr("arena.sort_name"),
             SORT_USES: tr("arena.sort_uses"),
         }
@@ -265,6 +267,10 @@ class RosterTab(ArenaTab):
             entries.sort(key=lambda e: e.name.casefold())
         elif self._sort == SORT_USES:
             entries.sort(key=lambda e: e.uses, reverse=True)
+        elif self._sort == SORT_WINRATE:
+            # 대결 기록이 없는 작가는 아래로 (0%가 아니라 '모름'이다). 승률이 같으면
+            # 표본이 많은 쪽(대결 수)을 위로 둔다.
+            entries.sort(key=lambda e: (e.matches > 0, e.win_rate, e.matches), reverse=True)
         else:  # SORT_ELO — 대결 기록이 없는 작가는 아래로 (1000점은 실력이 아니라 '모름')
             entries.sort(key=lambda e: (e.matches > 0, e.elo), reverse=True)
         return entries

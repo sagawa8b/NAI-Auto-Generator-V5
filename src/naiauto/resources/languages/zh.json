@@ -841,6 +841,7 @@
       "col_uses": "组合出现",
       "sort_by": "排序",
       "sort_elo": "按评分",
+      "sort_winrate": "按胜率",
       "sort_name": "按名称",
       "sort_uses": "按选中次数",
       "roster_add_placeholder": "用换行或逗号分隔粘贴画师名。也可直接粘贴带权重的完整提示词，只会提取画师标签。",

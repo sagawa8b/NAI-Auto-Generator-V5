@@ -18,9 +18,10 @@ from pathlib import Path
 
 import platformdirs
 import shiboken6
-from PySide6.QtCore import QSettings, Qt, QTimer, QUrl, Signal, SignalInstance
+from PySide6.QtCore import QEvent, QObject, QSettings, Qt, QTimer, QUrl, Signal, SignalInstance
 from PySide6.QtGui import QColor, QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -208,6 +209,12 @@ class MainWindow(QMainWindow):
         self._arena_dialog: ArenaDialog | None = None
 
         self._build_ui()
+        # 이미지를 창 어디에 놓든 이미지 정보를 읽는다 (V4 동작). 기본 위젯(입력칸·콤보 등)은
+        # 파일 URL을 경로 문자열로 붙여 버려서, 프롬프트·캐릭터 슬롯 같은 "정해진 자리"를
+        # 벗어난 드롭이 텍스트가 되곤 했다. 앱 전역 필터로 이미지 드롭을 가로채 해결한다.
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)
         self._resize_handle.restore_height()
         self._restore_splitters()
         self._setup_m3_components()
@@ -1733,14 +1740,46 @@ class MainWindow(QMainWindow):
             event.acceptProposedAction()
             self.open_image_info(path)
 
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802 (Qt 콜백 이름)
+        """메인 창 안 어디에 이미지를 놓아도 이미지 정보를 연다.
+
+        기본 QLineEdit·QComboBox·QPlainTextEdit는 파일 URL을 받으면 경로 문자열을
+        그대로 삽입한다 — "정해진 자리"(프롬프트·캐릭터 슬롯)를 벗어나 시드칸·파일명칸
+        같은 입력 위젯에 놓으면 텍스트가 붙어 버렸다. 여기서 이미지 드롭을 먼저 가로채
+        `open_image_info`로 보내고, 이미지가 아닌 드롭(일반 텍스트)은 원래대로 흘려보낸다.
+
+        메인 창 위젯 트리에 속한 대상만 다룬다 — 별도 창인 아레나 다이얼로그는 드롭을
+        작가 명단으로 쓰는 등 제 나름의 처리를 갖고 있어 건드리면 안 된다.
+        """
+        if event.type() in (QEvent.Type.DragEnter, QEvent.Type.DragMove, QEvent.Type.Drop):
+            if self._is_own_widget(obj) and self._dropped_image(event) is not None:
+                if event.type() == QEvent.Type.Drop:
+                    event.acceptProposedAction()
+                    self.open_image_info(self._dropped_image(event))
+                else:
+                    event.acceptProposedAction()
+                return True
+        return super().eventFilter(obj, event)
+
+    def _is_own_widget(self, obj: QObject) -> bool:
+        """`obj`가 이 메인 창 자체의 위젯인지 — 별개의 최상위 창은 제외한다.
+
+        아레나 다이얼로그·이미지 정보 창은 부모가 메인 창이지만 **별개의 최상위 창**이라
+        `parentWidget()` 체인은 메인 창까지 이어진다. 그래서 부모 체인으로 판별하면
+        아레나에 놓은 드롭(작가만 읽는다)까지 이 필터가 가로채 버렸다. `window()`는
+        위젯이 실제로 속한 최상위 창을 돌려주므로, 그게 메인 창일 때만 손댄다.
+        """
+        widget = obj if isinstance(obj, QWidget) else None
+        return widget is not None and widget.window() is self
+
     @staticmethod
     def _dropped_image(event) -> str | None:
         mime = event.mimeData()
-        if not mime.hasUrls():
+        if mime is None or not mime.hasUrls():
             return None
         for url in mime.urls():
             local = url.toLocalFile()
-            if Path(local).suffix.lower() in (".png", ".webp"):
+            if local and Path(local).suffix.lower() in (".png", ".webp"):
                 return local
         return None
 

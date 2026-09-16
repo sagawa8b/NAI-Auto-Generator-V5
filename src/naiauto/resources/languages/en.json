@@ -841,6 +841,7 @@
       "col_uses": "In combos",
       "sort_by": "Sort",
       "sort_elo": "By rating",
+      "sort_winrate": "By win rate",
       "sort_name": "By name",
       "sort_uses": "By picks",
       "roster_add_placeholder": "Paste artist names separated by newlines or commas. Full weighted prompts work too — only the artist tags are kept.",

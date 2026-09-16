@@ -841,6 +841,7 @@
       "col_uses": "組み合わせ登場",
       "sort_by": "並び替え",
       "sort_elo": "スコア順",
+      "sort_winrate": "勝率順",
       "sort_name": "名前順",
       "sort_uses": "採用順",
       "roster_add_placeholder": "絵師名を改行またはカンマで区切って貼り付けてください。ウェイト付きのプロンプトを丸ごと貼っても絵師タグだけを取り出します。",
