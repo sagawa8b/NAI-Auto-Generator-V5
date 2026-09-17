@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -44,6 +45,7 @@ from PySide6.QtWidgets import (
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -74,7 +76,7 @@ from ...core.arena.finale import (
 )
 from ...core.arena.models import Combo
 from ..widgets.collapsible_section import CollapsibleSection
-from ..widgets.hidpi_image import HiDpiImageLabel
+from ..widgets.zoomable_image_view import ZoomableImageView
 from .base import ArenaTab
 from .segment_bar import SegmentBar
 from .style import mark_danger, mark_primary, tier_color
@@ -100,8 +102,11 @@ SORT_JUDGE = "judge"  # LLM 판독 점수 순
 #: 부모 후보 목록의 썸네일 크기 (논리 픽셀).
 THUMBNAIL_SIZE = 72
 
-#: 고른 조합의 그림을 보여 줄 최대 높이 (논리 픽셀).
+#: 고른 조합의 그림을 보여 줄 처음 높이 (논리 픽셀). 이후엔 스플리터로 조절한다.
 PREVIEW_HEIGHT = 220
+
+#: 오른쪽 패널의 그림 ↔ 아래(프롬프트·섹션)를 나누는 세로 스플리터의 처음 크기.
+DETAIL_SPLIT_SIZES = (PREVIEW_HEIGHT, 300)
 
 #: 좌우 패널 사이의 여백과 처음 뜰 때의 나눔 비율.
 PANEL_GAP = 8
@@ -182,17 +187,14 @@ class ResultTab(ArenaTab):
     def _build_detail_panel(self, i18n) -> QWidget:
         """오른쪽 — 고른 조합과, 그 조합으로 할 수 있는 일들.
 
-        섹션이 다섯이라 좁은 창에서는 넘칠 수 있다 — 스크롤 영역에 담는다.
+        위는 그림, 아래는 프롬프트·전적과 다섯 섹션이다. 둘 사이를 세로 스플리터로
+        나눠(프롬프트↔캐릭터 프롬프트와 같은 방식) 드래그로 그림 영역 크기를 조절하고,
+        아래쪽은 따로 스크롤한다 — 섹션을 여러 개 펴도 그림이 밀려 사라지지 않는다.
         """
+        # 아래쪽 — 프롬프트·전적·다섯 섹션. 좁은 창에서 넘칠 수 있어 스크롤 영역에 담는다.
         inner = QWidget()
         layout = QVBoxLayout(inner)
-        layout.setContentsMargins(PANEL_GAP, 0, 0, 0)
-
-        self.detail_image = HiDpiImageLabel()
-        self.detail_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.detail_image.setMinimumHeight(120)
-        self.detail_image.setMaximumHeight(PREVIEW_HEIGHT)
-        layout.addWidget(self.detail_image)
+        layout.setContentsMargins(0, PANEL_GAP, 0, 0)
 
         self.detail_label = QLabel()
         self.detail_label.setTextFormat(Qt.TextFormat.RichText)
@@ -224,11 +226,82 @@ class ResultTab(ArenaTab):
             layout.addWidget(section)
         layout.addStretch(1)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        scroll.setWidget(inner)
-        return scroll
+        lower_scroll = QScrollArea()
+        lower_scroll.setWidgetResizable(True)
+        lower_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        lower_scroll.setWidget(inner)
+
+        # 그림 ↔ 그 아래를 드래그로 나눈다 (프롬프트↔캐릭터 프롬프트와 같은 세로 스플리터).
+        split = QSplitter(Qt.Orientation.Vertical)
+        split.setChildrenCollapsible(False)
+        split.addWidget(self._build_preview_section())
+        split.addWidget(lower_scroll)
+        split.setStretchFactor(0, 0)
+        split.setStretchFactor(1, 1)
+        split.setSizes(list(DETAIL_SPLIT_SIZES))
+
+        panel = QWidget()
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(PANEL_GAP, 0, 0, 0)
+        panel_layout.addWidget(split)
+        return panel
+
+    def _build_preview_section(self) -> QWidget:
+        """고른 조합의 그림 — 테두리로 아래 섹션들과 구분하고, 확대/축소를 붙인다.
+
+        예전에는 높이가 고정된 라벨에 세로로 긴 그림을 우겨넣어 위아래가 잘렸다.
+        여기서는 뷰포트에 맞춰(비율 유지) 보여 주므로 잘리지 않고, 휠이나 버튼으로
+        확대하면 스크롤바가 생겨 원본 화질로 자세히 볼 수 있다.
+        """
+        frame = QFrame()
+        frame.setFrameShape(QFrame.Shape.StyledPanel)
+        outer = QVBoxLayout(frame)
+        outer.setContentsMargins(4, 4, 4, 4)
+        outer.setSpacing(4)
+
+        # 좁은 min_size — 여기 미리보기는 개선 탭 카드만큼 작아도 된다.
+        # 최소 높이는 낮게 둔다 — 실제 크기는 세로 스플리터로 조절하므로, 여기서 크게
+        # 잡으면 스플리터를 위로 줄여도 그림이 더 안 줄어든다.
+        self.detail_image = ZoomableImageView(min_size=120)
+        self.detail_image.setMinimumHeight(80)
+        outer.addWidget(self.detail_image, 1)
+
+        controls = QHBoxLayout()
+        controls.setContentsMargins(0, 0, 0, 0)
+        controls.addStretch(1)
+        self.zoom_out_button = QToolButton()
+        self.zoom_out_button.setText("\u2212")  # 뺄셈 기호 — 하이픈보다 또렷하다
+        self.zoom_out_button.clicked.connect(self._zoom_preview_out)
+        controls.addWidget(self.zoom_out_button)
+        self.zoom_fit_button = QToolButton()
+        self.zoom_fit_button.clicked.connect(self._zoom_preview_fit)
+        controls.addWidget(self.zoom_fit_button)
+        self.zoom_in_button = QToolButton()
+        self.zoom_in_button.setText("+")
+        self.zoom_in_button.clicked.connect(self._zoom_preview_in)
+        controls.addWidget(self.zoom_in_button)
+        outer.addLayout(controls)
+
+        self._refresh_zoom_controls()
+        return frame
+
+    def _zoom_preview_in(self) -> None:
+        self.detail_image.zoom_in()
+        self._refresh_zoom_controls()
+
+    def _zoom_preview_out(self) -> None:
+        self.detail_image.zoom_out()
+        self._refresh_zoom_controls()
+
+    def _zoom_preview_fit(self) -> None:
+        self.detail_image.fit()
+        self._refresh_zoom_controls()
+
+    def _refresh_zoom_controls(self) -> None:
+        """확대/축소 버튼의 켜짐 여부를 현재 상태에 맞춘다."""
+        self.zoom_in_button.setEnabled(self.detail_image.can_zoom_in())
+        self.zoom_out_button.setEnabled(self.detail_image.can_zoom_out())
+        self.zoom_fit_button.setEnabled(self.detail_image.can_zoom_out())
 
     def _build_breed_section(self, i18n) -> CollapsibleSection:
         body = QWidget()
@@ -453,6 +526,10 @@ class ResultTab(ArenaTab):
         )
         self.send_button.setText(tr("arena.send_to_prompt"))
         self.copy_button.setText(tr("arena.card_copy"))
+        self.zoom_in_button.setToolTip(tr("arena.zoom_in"))
+        self.zoom_out_button.setToolTip(tr("arena.zoom_out"))
+        self.zoom_fit_button.setText(tr("arena.zoom_fit"))
+        self.zoom_fit_button.setToolTip(tr("arena.zoom_fit_tip"))
         self.reset_matches_button.setText(tr("arena.reset_matches"))
         self.cleanup_button.setText(tr("arena.cleanup_orphans"))
         self.reset_stats_button.setText(tr("arena.reset_stats"))
@@ -578,20 +655,22 @@ class ResultTab(ArenaTab):
         self.send_button.setEnabled(enabled)
         self.copy_button.setEnabled(enabled)
         if combo is None:
-            self.detail_image.set_image(None)
             self.detail_image.setText(tr("arena.result_no_selection"))
             self.detail_label.setText("")
             self.detail_prompt.setText("")
+            self._refresh_zoom_controls()
             return
 
         self.detail_label.setText(self._detail_text(combo))
         self.detail_prompt.setText(format_artist_block(combo.slots, self.arena.use_prefix))
         pixmap = self._pixmap_for(combo)
         if pixmap is None:
-            self.detail_image.set_image(None)
             self.detail_image.setText(tr("arena.card_no_image"))
+            self._refresh_zoom_controls()
             return
-        self.detail_image.show_fitted(pixmap, QSize(max(160, self.detail_image.width()), PREVIEW_HEIGHT))
+        # 새 그림은 맞춘 크기에서 시작한다 — 비율을 지켜 넣으므로 위아래가 잘리지 않는다.
+        self.detail_image.setPixmap(pixmap)
+        self._refresh_zoom_controls()
 
     def _detail_text(self, combo: Combo) -> str:
         tr = self.tr

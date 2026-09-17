@@ -29,11 +29,11 @@ class ZoomableImageView(QScrollArea):
     호환되는 이름의 메서드를 제공해, 호출부는 바꾸지 않아도 되게 한다.
     """
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, min_size: int = 320) -> None:
         super().__init__(parent)
         self._label = HiDpiImageLabel()
         self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._label.setMinimumSize(320, 320)
+        self._label.setMinimumSize(min_size, min_size)
         self.setWidget(self._label)
         self.setWidgetResizable(False)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -52,10 +52,18 @@ class ZoomableImageView(QScrollArea):
         """현재 표시 중인 픽스맵 (화면 배율만큼의 실제 픽셀 + devicePixelRatio 태그)."""
         return self._label.image or QPixmap()
 
+    def has_image(self) -> bool:
+        """그림을 들고 있으면 True (텍스트만 보이는 상태와 구분)."""
+        return self._source is not None
+
     def setText(self, text: str) -> None:  # noqa: N802
         self._source = None
         self._label.setText(text)
         self._label.resize(self._label.sizeHint())
+
+    def text(self) -> str:
+        """현재 대체 텍스트 (그림이 없을 때 안내 문구). 그림이 있으면 빈 문자열."""
+        return self._label.text()
 
     def setToolTip(self, text: str) -> None:  # noqa: N802
         self._label.setToolTip(text)
@@ -66,6 +74,29 @@ class ZoomableImageView(QScrollArea):
     def zoom(self) -> float:
         """현재 확대율. 1.0 = 뷰포트에 맞춘 크기."""
         return self._zoom
+
+    def can_zoom_in(self) -> bool:
+        """더 확대할 여지가 있으면 True (버튼 활성화 판단용)."""
+        return self._source is not None and self._zoom < _MAX_ZOOM
+
+    def can_zoom_out(self) -> bool:
+        """맞춘 크기보다 더 커져 있어 축소할 여지가 있으면 True."""
+        return self._source is not None and self._zoom > _MIN_ZOOM
+
+    def zoom_in(self) -> None:
+        """뷰포트 중심을 기준으로 한 칸 확대한다 (버튼용)."""
+        self._zoom_at(self._viewport_center(), _ZOOM_STEP)
+
+    def zoom_out(self) -> None:
+        """뷰포트 중심을 기준으로 한 칸 축소한다 (버튼용)."""
+        self._zoom_at(self._viewport_center(), 1.0 / _ZOOM_STEP)
+
+    def fit(self) -> None:
+        """맞춘 크기(확대율 1.0)로 되돌린다."""
+        if self._source is None or self._zoom == _MIN_ZOOM:
+            return
+        self._zoom = _MIN_ZOOM
+        self._relayout()
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
@@ -80,14 +111,25 @@ class ZoomableImageView(QScrollArea):
         notches = event.angleDelta().y() / 120.0
         if notches == 0:
             return
-        old_zoom = self._zoom
-        new_zoom = max(_MIN_ZOOM, min(_MAX_ZOOM, old_zoom * (_ZOOM_STEP**notches)))
-        if new_zoom == old_zoom:
+        if self._zoom_at(event.position().toPoint(), _ZOOM_STEP**notches):
             event.accept()
-            return
 
-        # 커서 아래의 이미지 지점이 확대 후에도 같은 화면 위치에 남도록 스크롤을 보정한다.
-        anchor = event.position().toPoint()
+    def _viewport_center(self):
+        rect = self.viewport().rect()
+        return rect.center()
+
+    def _zoom_at(self, anchor, factor: float) -> bool:
+        """`anchor`(뷰포트 좌표) 아래의 이미지 지점이 제자리에 남도록 배율을 곱한다.
+
+        실제로 배율이 바뀌었으면 True.
+        """
+        if self._source is None:
+            return False
+        old_zoom = self._zoom
+        new_zoom = max(_MIN_ZOOM, min(_MAX_ZOOM, old_zoom * factor))
+        if new_zoom == old_zoom:
+            return False
+
         h_bar, v_bar = self.horizontalScrollBar(), self.verticalScrollBar()
         content_x = h_bar.value() + anchor.x()
         content_y = v_bar.value() + anchor.y()
@@ -98,7 +140,7 @@ class ZoomableImageView(QScrollArea):
 
         h_bar.setValue(round(content_x * ratio - anchor.x()))
         v_bar.setValue(round(content_y * ratio - anchor.y()))
-        event.accept()
+        return True
 
     def _relayout(self) -> None:
         if self._source is None:
