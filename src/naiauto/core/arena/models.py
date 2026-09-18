@@ -131,6 +131,9 @@ class ArtistEntry:
     matches: int = 0  # 이 작가가 낀 조합이 치른 대결 수
     wins: int = 0
     uses: int = 0  # 조합에 뽑힌 횟수 (검출수)
+    #: 사용자가 작가별로 남기는 자유 메모 (예: "선화 위주", "이 작가는 배경이 약함").
+    #: 점수·조합에는 영향을 주지 않고, 명단에서 보고 편집만 한다.
+    note: str = ""
 
     @property
     def win_rate(self) -> float:
@@ -145,6 +148,7 @@ class ArtistEntry:
             "matches": self.matches,
             "wins": self.wins,
             "uses": self.uses,
+            "note": self.note,
         }
 
     @classmethod
@@ -162,6 +166,7 @@ class ArtistEntry:
             matches=_as_int(data.get("matches"), 0, minimum=0),
             wins=_as_int(data.get("wins"), 0, minimum=0),
             uses=_as_int(data.get("uses"), 0, minimum=0),
+            note=_as_str(data.get("note")),
         )
 
 

@@ -9,11 +9,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent
-from PySide6.QtWidgets import QPlainTextEdit, QTabWidget, QWidget
+from PySide6.QtWidgets import QPlainTextEdit, QTabWidget, QToolButton, QWidget
 
 from ...core.i18n.manager import I18nManager
+from ...core.prompt_cleanup import clean_prompt
 from .prompt_highlighter import PromptHighlighter
 
 # 이미지 정보를 읽을 수 있는 확장자. 이 파일들은 텍스트로 붙이지 않고 시그널로 넘긴다.
@@ -95,12 +96,41 @@ class PromptTabs(QTabWidget):
         self.addTab(self.negative_edit, "")
         self.negative_edit.textChanged.connect(self._refresh_negative_title)
 
+        # `태그 정리` — 지금 보이는 탭의 가중치 문법·공백을 표준 표기로 다듬는다.
+        # 탭바 모서리에 둬서 프롬프트·네거티브 어느 쪽이든 같은 버튼으로 정리한다.
+        self.cleanup_button = QToolButton()
+        self.cleanup_button.clicked.connect(self.cleanup_current)
+        self.setCornerWidget(self.cleanup_button, Qt.Corner.TopRightCorner)
+
         self.retranslate()
 
     # ── 상태 ─────────────────────────────────────────────
 
     def texts(self) -> tuple[str, str]:
         return self.prompt_edit.toPlainText(), self.negative_edit.toPlainText()
+
+    def prompt(self) -> str:
+        """메인 프롬프트 텍스트 (네거티브가 아니라 항상 프롬프트 탭)."""
+        return self.prompt_edit.toPlainText()
+
+    def set_prompt(self, text: str) -> None:
+        """메인 프롬프트 텍스트를 갈아 끼운다."""
+        self.prompt_edit.setPlainText(text)
+
+    def _current_edit(self) -> PromptTextEdit:
+        """지금 보이는 탭의 입력창 (프롬프트 또는 네거티브)."""
+        return self.negative_edit if self.currentIndex() == 1 else self.prompt_edit
+
+    def cleanup_current(self) -> None:
+        """지금 보이는 입력창의 텍스트를 `clean_prompt`로 다듬는다.
+
+        바뀐 게 없으면 손대지 않는다 — 커서·실행취소 이력을 괜히 흔들지 않는다.
+        """
+        edit = self._current_edit()
+        original = edit.toPlainText()
+        cleaned = clean_prompt(original)
+        if cleaned != original:
+            edit.setPlainText(cleaned)
 
     def set_emphasis_colors(self, high_color: QColor | None, low_color: QColor | None) -> None:
         """가중치 강조(>1.0)/약화(<1.0) 색을 두 편집기 모두에 적용한다. None이면 기본 고정색."""
@@ -123,6 +153,8 @@ class PromptTabs(QTabWidget):
         self.setTabText(0, tr("ui.prompt"))
         self.prompt_edit.setPlaceholderText(tr(self._prompt_placeholder))
         self.negative_edit.setPlaceholderText(tr(self._negative_placeholder))
+        self.cleanup_button.setText(tr("ui.tag_cleanup"))
+        self.cleanup_button.setToolTip(tr("ui.tag_cleanup_tooltip"))
         self._refresh_negative_title()
 
 

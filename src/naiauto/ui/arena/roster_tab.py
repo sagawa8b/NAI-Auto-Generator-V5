@@ -63,7 +63,8 @@ COL_LOCK = 1
 COL_ELO = 2
 COL_WINRATE = 3
 COL_USES = 4
-COLUMN_COUNT = 5
+COL_NOTE = 5  # 사용자 메모 (편집 가능) — 맨 오른쪽에 둬서 기존 열 인덱스를 안 흔든다
+COLUMN_COUNT = 6
 
 SORT_NAME = "name"
 SORT_ELO = "elo"
@@ -148,6 +149,7 @@ class RosterTab(ArenaTab):
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(COL_NAME, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(COL_NOTE, QHeaderView.ResizeMode.Stretch)
         for col in (COL_LOCK, COL_ELO, COL_WINRATE, COL_USES):
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         self.table.itemChanged.connect(self._on_item_changed)
@@ -230,6 +232,7 @@ class RosterTab(ArenaTab):
                 tr("arena.col_elo"),
                 tr("arena.col_winrate"),
                 tr("arena.col_uses"),
+                tr("arena.col_note"),
             ]
         )
         labels = {
@@ -286,6 +289,12 @@ class RosterTab(ArenaTab):
         lock_item.setToolTip(self.tr("arena.locked_weight_hint"))
         self.table.setItem(row, COL_LOCK, lock_item)
 
+        # 메모 — 편집 가능. 셀이 좁을 때 잘리므로 전체 내용을 툴팁에도 담는다.
+        note_item = QTableWidgetItem(entry.note)
+        if entry.note:
+            note_item.setToolTip(entry.note)
+        self.table.setItem(row, COL_NOTE, note_item)
+
         for col, text in (
             (COL_ELO, f"{entry.elo:.0f}" if entry.matches else "-"),
             (
@@ -318,6 +327,8 @@ class RosterTab(ArenaTab):
             self._rename(entry, item.text())
         elif item.column() == COL_LOCK:
             self._set_locked_weight(entry, item.text())
+        elif item.column() == COL_NOTE:
+            self._set_note(entry, item.text())
 
     def _rename(self, entry: ArtistEntry, raw: str) -> None:
         """표에서 이름을 고친다. 빈 이름이나 중복은 되돌린다."""
@@ -344,6 +355,14 @@ class RosterTab(ArenaTab):
                 self.status_message.emit(self.tr("arena.roster_bad_weight").format(text))
                 self.refresh()
                 return
+        self._changed()
+
+    def _set_note(self, entry: ArtistEntry, raw: str) -> None:
+        """작가 메모를 저장한다. 앞뒤 공백만 다듬고 내용은 그대로 둔다."""
+        note = raw.strip()
+        if note == entry.note:
+            return
+        entry.note = note
         self._changed()
 
     # ── 동작 ────────────────────────────────────────────────────────────

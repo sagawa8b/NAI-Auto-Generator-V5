@@ -74,7 +74,7 @@ from ...core.arena.finale import (
     finale_total,
     judge_leaderboard_combos,
 )
-from ...core.arena.models import Combo
+from ...core.arena.models import INSERT_POSITIONS, Combo
 from ..widgets.collapsible_section import CollapsibleSection
 from ..widgets.zoomable_image_view import ZoomableImageView
 from .base import ArenaTab
@@ -376,6 +376,20 @@ class ResultTab(ArenaTab):
         self.finale_judge_check.toggled.connect(self._on_finale_judge_toggled)
         layout.addWidget(self.finale_judge_check)
 
+        # 작가를 프롬프트 어디에 끼울지 — 조합 생성 탭과 같은 옵션이다. 여기서 고른 값이
+        # `arena.insert_position`으로 저장돼 결산 생성에도 그대로 쓰인다 (예전엔 늘 맨 앞).
+        place_row = QHBoxLayout()
+        self.finale_insert_label = QLabel()
+        place_row.addWidget(self.finale_insert_label)
+        self.finale_insert_combo = QComboBox()
+        for position in INSERT_POSITIONS:
+            self.finale_insert_combo.addItem("", position)
+        place_row.addWidget(self.finale_insert_combo)
+        self.finale_prefix_check = QCheckBox()
+        place_row.addWidget(self.finale_prefix_check)
+        place_row.addStretch(1)
+        layout.addLayout(place_row)
+
         self.finale_button = QPushButton()
         self.finale_button.clicked.connect(self.start_finale)
         layout.addWidget(self.finale_button)
@@ -499,6 +513,8 @@ class ResultTab(ArenaTab):
         arena.finale_per_combo = self.finale_per_spin.value()
         arena.finale_include_unrated = self.finale_unrated_check.isChecked()
         arena.finale_by_judge = self.finale_judge_check.isChecked()
+        arena.insert_position = self.finale_insert_combo.currentData()
+        arena.use_prefix = self.finale_prefix_check.isChecked()
         arena.children_per_run = self.children_spin.value()
         arena.parent_pool = self.pool_spin.value()
         arena.mutation_rate = self.mutation_spin.value()
@@ -545,6 +561,11 @@ class ResultTab(ArenaTab):
         self.finale_unrated_check.setText(tr("arena.finale_include_unrated"))
         self.finale_judge_check.setText(tr("arena.finale_by_judge"))
         self.finale_judge_check.setToolTip(tr("arena.finale_by_judge_hint"))
+        self.finale_insert_label.setText(tr("arena.insert_position"))
+        for index in range(self.finale_insert_combo.count()):
+            key = self.finale_insert_combo.itemData(index)
+            self.finale_insert_combo.setItemText(index, tr(f"arena.insert_{key}"))
+        self.finale_prefix_check.setText(tr("arena.use_prefix"))
         self.finale_button.setText(tr("arena.finale_start"))
         self.finale_button.setToolTip(tr("arena.finale_start_hint"))
         self.children_label.setText(tr("arena.children_per_run"))
@@ -1016,6 +1037,10 @@ class ResultTab(ArenaTab):
         self.finale_per_spin.setValue(max(1, min(MAX_PER_COMBO, arena.finale_per_combo)))
         self.finale_unrated_check.setChecked(arena.finale_include_unrated)
         self.finale_judge_check.setChecked(arena.finale_by_judge)
+        index = self.finale_insert_combo.findData(arena.insert_position)
+        if index >= 0:
+            self.finale_insert_combo.setCurrentIndex(index)
+        self.finale_prefix_check.setChecked(arena.use_prefix)
         self._sync_finale_checks()
         self.children_spin.setValue(arena.children_per_run)
         self.pool_spin.setValue(arena.parent_pool)

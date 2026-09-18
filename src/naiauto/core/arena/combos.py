@@ -79,6 +79,10 @@ def fix_trailing_digit(tag: str) -> str:
 
     공백 없이 `1.5::artist:matrix16::`이 되면 NovelAI가 `16::`을 가중치 문법으로
     잘못 읽는다. V4에서 실제로 물렸던 문제라 그대로 가져왔다.
+
+    지금은 `format_artist_block()`이 닫는 `::` 앞에 늘 공백을 넣으므로(NovelAI 공식
+    문서의 표기 방식) 이 함수의 역할은 대부분 겹친다. 다른 곳에서 태그 하나를 닫을
+    때를 대비해 남겨 둔다.
     """
     return tag + " " if tag and tag[-1].isdigit() else tag
 
@@ -138,9 +142,12 @@ def format_artist_block(slots: tuple[ComboSlot, ...] | list[ComboSlot], use_pref
     """조합을 NovelAI 가중치 프롬프트로 바꾼다.
 
     - 자리 순서를 지키면서 **연속된 같은 가중치**를 한 블록으로 묶는다
-      (`0.8::artist:a, artist:b::`) — 프롬프트가 짧아지고 읽기 쉬워진다.
+      (`0.8::artist:a, artist:b ::`) — 프롬프트가 짧아지고 읽기 쉬워진다.
     - 가중치 1.0은 래퍼 없이 태그만 낸다. 굳이 `1.0::...::`로 감싸면 의도치 않은
       강조가 섞인다는 지적이 있었다.
+    - 닫는 `::` 앞에는 늘 공백을 하나 둔다 — NovelAI 공식 문서가 `1.5::rain, night ::`,
+      `0.5::coat ::`처럼 쓰는 방식이다. 이름이 숫자로 끝날 때(`matrix16`) `16::`을
+      가중치로 오독하는 것도 이 공백이 함께 막는다.
     """
     valid = [slot for slot in slots if slot.name.strip()]
     if not valid:
@@ -160,8 +167,9 @@ def format_artist_block(slots: tuple[ComboSlot, ...] | list[ComboSlot], use_pref
         if weight == 1.0:
             parts.extend(tags)
         else:
-            joined = ", ".join(tags[:-1] + [fix_trailing_digit(tags[-1])])
-            parts.append(f"{format_weight(weight)}::{joined}::")
+            # 닫는 `::` 앞에 공백 하나 — NovelAI 문서의 표기(`0.8::artist:a ::`).
+            joined = ", ".join(tags)
+            parts.append(f"{format_weight(weight)}::{joined} ::")
     return ", ".join(parts)
 
 

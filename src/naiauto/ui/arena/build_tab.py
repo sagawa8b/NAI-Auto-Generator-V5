@@ -60,6 +60,7 @@ from ...core.arena.combos import (
     format_weight,
     generate_combos,
     name_signature,
+    normalize_weight,
     parse_artist_block,
     round_weight,
 )
@@ -70,6 +71,8 @@ from ...core.arena.models import (
     MIN_WEIGHT_STEP,
     WEIGHT_MODE_CURVE,
     WEIGHT_MODES,
+    Combo,
+    ComboSlot,
 )
 from ...services.arena_service import (
     ArenaBatchFinished,
@@ -292,6 +295,37 @@ class BuildTab(ArenaTab):
         self.batch_group.set_content(batch_body)
         layout.addWidget(self.batch_group)
 
+        # ── 수동 추가 ────────────────────────────────────────────────────
+        # 무작위 생성 말고, 원하는 작가·가중치로 조합 하나를 직접 만든다. 명단에
+        # 없는 작가도 그대로 쓸 수 있다 (편집 창과 같은 `1.2::artist:이름 ::` 문법).
+        manual_body = QWidget()
+        manual_layout = QVBoxLayout(manual_body)
+        manual_layout.setContentsMargins(0, 0, 0, 0)
+        self.manual_hint = QLabel()
+        self.manual_hint.setWordWrap(True)
+        self.manual_hint.setStyleSheet("color: palette(mid);")
+        manual_layout.addWidget(self.manual_hint)
+        self.manual_edit = QPlainTextEdit()
+        self.manual_edit.setMinimumHeight(60)
+        manual_layout.addWidget(self.manual_edit)
+        manual_row = QHBoxLayout()
+        self.manual_weight_label = QLabel()
+        manual_row.addWidget(self.manual_weight_label)
+        self.manual_weight_spin = QDoubleSpinBox()
+        self.manual_weight_spin.setRange(-2.0, 3.0)
+        self.manual_weight_spin.setSingleStep(0.05)
+        self.manual_weight_spin.setDecimals(2)
+        self.manual_weight_spin.setValue(1.0)
+        manual_row.addWidget(self.manual_weight_spin)
+        manual_row.addStretch(1)
+        self.manual_add_button = QPushButton()
+        self.manual_add_button.clicked.connect(self.add_manual_combo)
+        manual_row.addWidget(self.manual_add_button)
+        manual_layout.addLayout(manual_row)
+        self.manual_group = CollapsibleSection(i18n, "arena.manual_group")
+        self.manual_group.set_content(manual_body)
+        layout.addWidget(self.manual_group)
+
         # ── 기본 프롬프트 (읽기 전용) ────────────────────────────────────
         self.prompt_view = QPlainTextEdit()
         self.prompt_view.setReadOnly(True)
@@ -378,6 +412,7 @@ class BuildTab(ArenaTab):
         # 본문 위젯이 다 생긴 뒤에야 요약을 만들 수 있다.
         self.rules_group.set_summary_provider(self._rules_summary)
         self.batch_group.set_summary_provider(self._batch_summary)
+        self.manual_group.set_summary_provider(lambda: self.tr("arena.manual_summary"))
         self.prompt_group.set_summary_provider(self._prompt_summary)
 
         self._load_settings()
@@ -422,9 +457,13 @@ class BuildTab(ArenaTab):
 
     def retranslate(self) -> None:
         tr = self.tr
-        for section in (self.rules_group, self.batch_group, self.prompt_group):
+        for section in (self.rules_group, self.batch_group, self.manual_group, self.prompt_group):
             section.retranslate()
         self.count_label.setText(tr("arena.artist_count"))
+        self.manual_hint.setText(tr("arena.manual_hint"))
+        self.manual_weight_label.setText(tr("arena.manual_weight"))
+        self.manual_edit.setPlaceholderText(tr("arena.manual_placeholder"))
+        self.manual_add_button.setText(tr("arena.manual_add"))
         self.weight_label.setText(tr("arena.weight"))
         self.wmin_label.setText(tr("arena.weight_min"))
         self.wmax_label.setText(tr("arena.weight_max"))
@@ -629,7 +668,7 @@ class BuildTab(ArenaTab):
         ready = len(ready_combos(self.state))
         self.summary_label.setText(self.tr("arena.build_summary").format(total, ready, total - ready))
         self._refresh_generate_label()
-        for section in (self.rules_group, self.batch_group, self.prompt_group):
+        for section in (self.rules_group, self.batch_group, self.manual_group, self.prompt_group):
             section.refresh_summary()
 
     def _refresh_generate_label(self) -> None:
@@ -910,6 +949,41 @@ class BuildTab(ArenaTab):
             self.status_message.emit(self.tr("arena.generation_done").format(event.completed))
 
     # ── 동작 ────────────────────────────────────────────────────────────
+
+    def add_manual_combo(self) -> bool:
+        """입력한 작가·가중치로 조합 하나를 직접 만든다. 만들었으면 True.
+
+        편집 창과 같은 `1.2::artist:이름 ::` 문법을 받는다. 가중치 껍데기 없이 이름만
+        적은 작가에게는 옆의 `기본 가중치` 값을 준다 — 하나하나 `1.0::`을 적지 않아도
+        된다. 명단에 없는 작가도 그대로 쓸 수 있다. 이미 같은 작가 구성이 있으면
+        (가중치만 달라도) 중복으로 보고 막는다 — 무작위 생성과 같은 규칙이다.
+        """
+        text = self.manual_edit.toPlainText().strip()
+        if not text:
+            self.status_message.emit(self.tr("arena.manual_empty"))
+            return False
+        slots, warnings = parse_artist_block(text)
+        if not slots:
+            self.status_message.emit(self.tr("arena.manual_empty"))
+            return False
+        # 가중치 껍데기 없이 적힌 작가는 1.0으로 파싱된다 — 그 자리에 기본 가중치를 준다.
+        default_weight = normalize_weight(self.manual_weight_spin.value())
+        slots = tuple(
+            slot if slot.weight != 1.0 else ComboSlot(name=slot.name, weight=default_weight) for slot in slots
+        )
+        signature = name_signature(slots)
+        if any(name_signature(combo.slots) == signature for combo in self.state.combos):
+            self.status_message.emit(self.tr("arena.manual_duplicate"))
+            return False
+        self.state.combos.append(Combo(slots=slots, generation=1))
+        self._service.save()
+        self.manual_edit.clear()
+        if warnings:
+            self.status_message.emit(self.tr("arena.queue_edit_warnings").format(", ".join(warnings)))
+        else:
+            self.status_message.emit(self.tr("arena.manual_added").format(len(slots)))
+        self.state_changed.emit()
+        return True
 
     def make_combos(self) -> int:
         """무작위 조합을 `batch_size`개 만든다. 실제로 만든 수를 돌려준다."""
