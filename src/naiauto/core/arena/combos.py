@@ -173,12 +173,13 @@ def format_artist_block(slots: tuple[ComboSlot, ...] | list[ComboSlot], use_pref
     return ", ".join(parts)
 
 
-def parse_artist_block(text: str) -> tuple[list[ComboSlot], list[str]]:
+def parse_artist_block(text: str, bare_weight: float = 1.0) -> tuple[list[ComboSlot], list[str]]:
     """`format_artist_block()`의 역방향 — 프롬프트 문자열을 자리 목록으로.
 
-    가중치 블록과 맨 태그가 섞여 있어도 처리한다. 블록 밖의 태그는 가중치 1.0으로
-    본다. 읽지 못한 조각은 두 번째 값(경고 목록)으로 돌려준다 — 조용히 버리면
-    사용자는 태그가 왜 사라졌는지 알 수 없다.
+    가중치 블록과 맨 태그가 섞여 있어도 처리한다. 블록 밖의 태그는 가중치
+    `bare_weight`(기본 1.0)로 본다 — 직접 적은 `1.0::`과 구별된다. 읽지 못한 조각은
+    두 번째 값(경고 목록)으로 돌려준다 — 조용히 버리면 사용자는 태그가 왜 사라졌는지
+    알 수 없다.
     """
     slots: list[ComboSlot] = []
     warnings: list[str] = []
@@ -191,7 +192,7 @@ def parse_artist_block(text: str) -> tuple[list[ComboSlot], list[str]]:
 
     pos = 0
     for match in _BLOCK_RE.finditer(text):
-        add(text[pos : match.start()], 1.0)
+        add(text[pos : match.start()], bare_weight)
         try:
             weight = normalize_weight(float(match.group(1)))
         except ValueError:  # 정규식이 통과시킨 형태라 실질적으로 오지 않는다
@@ -205,7 +206,7 @@ def parse_artist_block(text: str) -> tuple[list[ComboSlot], list[str]]:
     if "::" in remainder:  # 닫히지 않은 블록 — 통째로 버리지 말고 알린다
         warnings.append(remainder.strip(" ,\t\n"))
     else:
-        add(remainder, 1.0)
+        add(remainder, bare_weight)
 
     return slots, warnings
 

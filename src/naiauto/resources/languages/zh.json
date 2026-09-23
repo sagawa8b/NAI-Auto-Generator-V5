@@ -900,6 +900,7 @@
       "manual_add": "添加组合",
       "manual_added": "已添加包含 {}位画师的组合。",
       "manual_empty": "请输入要添加的画师。",
+      "manual_unreadable": "有无法读取的部分，未添加组合：{}",
       "manual_duplicate": "已存在相同画师构成的组合。",
       "need_artists": "请先在画师名单中添加画师。",
       "nothing_pending": "所有组合都已有图片。请先生成新的组合。",

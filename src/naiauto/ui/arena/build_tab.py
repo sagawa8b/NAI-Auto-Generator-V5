@@ -261,6 +261,10 @@ class BuildTab(ArenaTab):
         place_row.addWidget(self.insert_combo)
         self.prefix_check = QCheckBox()
         place_row.addWidget(self.prefix_check)
+        # 결산 탭과 같은 설정을 공유하므로 `commit()`을 기다리지 않고 바로 쓴다 —
+        # 두 탭이 commit 때 저마다 옛 값을 되쓰면 나중에 도는 쪽이 이겨 버린다.
+        self.insert_combo.currentIndexChanged.connect(self._on_insert_changed)
+        self.prefix_check.toggled.connect(self._on_prefix_toggled)
         place_row.addStretch(1)
         self.insert_label = QLabel()
         rules.addRow(self.insert_label, place_row)
@@ -447,8 +451,7 @@ class BuildTab(ArenaTab):
         arena.weight_min = self.wmin_spin.value()
         arena.weight_max = self.wmax_spin.value()
         arena.weight_step = self.step_spin.value()
-        arena.insert_position = self.insert_combo.currentData()
-        arena.use_prefix = self.prefix_check.isChecked()
+        # insert_position·use_prefix는 바뀌는 즉시 저장한다 (`_on_insert_changed`).
         arena.batch_size = self.batch_spin.value()
         arena.prefetch_threshold = self.threshold_spin.value()
         arena.delete_images_with_combo = self.delete_images_check.isChecked()
@@ -539,6 +542,21 @@ class BuildTab(ArenaTab):
 
     # ── 값 싣기 ─────────────────────────────────────────────────────────
 
+    def showEvent(self, event) -> None:  # noqa: N802 (Qt 콜백 이름)
+        # 결산 탭에서 바꾼 위치·접두사를 다시 보여 준다 (같은 설정을 공유한다).
+        self._load_placement()
+        super().showEvent(event)
+
+    def _on_insert_changed(self) -> None:
+        self.arena.insert_position = self.insert_combo.currentData()
+
+    def _on_prefix_toggled(self, checked: bool) -> None:
+        self.arena.use_prefix = checked
+
+    def _load_placement(self) -> None:
+        self._select(self.insert_combo, self.arena.insert_position)
+        self.prefix_check.setChecked(self.arena.use_prefix)
+
     def _load_settings(self) -> None:
         arena = self.arena
         self.min_spin.setValue(arena.min_artists)
@@ -549,8 +567,7 @@ class BuildTab(ArenaTab):
         self.wmin_spin.setValue(arena.weight_min)
         self.wmax_spin.setValue(arena.weight_max)
         self._on_step_changed()
-        self._select(self.insert_combo, arena.insert_position)
-        self.prefix_check.setChecked(arena.use_prefix)
+        self._load_placement()
         self.batch_spin.setValue(arena.batch_size)
         self.threshold_spin.setValue(arena.prefetch_threshold)
         self.delete_images_check.setChecked(arena.delete_images_with_combo)
@@ -962,15 +979,18 @@ class BuildTab(ArenaTab):
         if not text:
             self.status_message.emit(self.tr("arena.manual_empty"))
             return False
-        slots, warnings = parse_artist_block(text)
-        if not slots:
-            self.status_message.emit(self.tr("arena.manual_empty"))
-            return False
-        # 가중치 껍데기 없이 적힌 작가는 1.0으로 파싱된다 — 그 자리에 기본 가중치를 준다.
+        # 가중치 껍데기 없이 적힌 작가에만 기본 가중치를 준다 — 직접 적은 `1.0::`은 그대로.
         default_weight = normalize_weight(self.manual_weight_spin.value())
-        slots = tuple(
-            slot if slot.weight != 1.0 else ComboSlot(name=slot.name, weight=default_weight) for slot in slots
-        )
+        parsed, warnings = parse_artist_block(text, bare_weight=default_weight)
+        if not parsed:
+            key = "arena.manual_unreadable" if warnings else "arena.manual_empty"
+            self.status_message.emit(self.tr(key).format(", ".join(warnings)))
+            return False
+        # 같은 작가를 두 번 적었으면 처음 것만 남긴다.
+        unique: dict[str, ComboSlot] = {}
+        for slot in parsed:
+            unique.setdefault(slot.name, slot)
+        slots = tuple(unique.values())
         signature = name_signature(slots)
         if any(name_signature(combo.slots) == signature for combo in self.state.combos):
             self.status_message.emit(self.tr("arena.manual_duplicate"))

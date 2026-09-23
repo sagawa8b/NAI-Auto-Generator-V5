@@ -28,6 +28,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -350,7 +351,10 @@ class RosterTab(ArenaTab):
             entry.locked_weight = None
         else:
             try:
-                entry.locked_weight = float(text)
+                weight = float(text)
+                if not math.isfinite(weight):  # `nan`·`inf`는 float()가 받아 준다
+                    raise ValueError(text)
+                entry.locked_weight = weight
             except ValueError:
                 self.status_message.emit(self.tr("arena.roster_bad_weight").format(text))
                 self.refresh()

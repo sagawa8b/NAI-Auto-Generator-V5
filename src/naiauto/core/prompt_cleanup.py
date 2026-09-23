@@ -25,9 +25,15 @@ from __future__ import annotations
 
 import re
 
+#: 여는 `숫자`는 태그 경계에서만 시작한다 — 글자·숫자·`.`·`-` 뒤나 콜론 하나(`artist:`)
+#: 뒤의 숫자는 태그 이름의 일부다 (`artist:matrix16 ::`, `no.6`, `artist:2`). 닫는 `::`
+#: 바로 뒤(`AAA::0.8::`)는 새 블록이 맞으므로 콜론 두 개 뒤는 허용한다.
+_NUMBER = r"(?<![\w.\-])(?<![^:]:)-?\d+(?:\.\d+)?"
+
 #: 가중치 표기 토큰. `숫자::`(여는), `숫자:`(오타 — 여는으로 승격), 숫자 없는 `::`(닫는).
-#: `\s*::`는 여는 뒤 공백까지 삼켜, 우리가 붙이는 표준 표기로 다시 쓴다.
-_MARKER_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*(::?)|(::)")
+#: `\s*::`는 여는 뒤 공백까지 삼켜, 우리가 붙이는 표준 표기로 다시 쓴다. 콜론 하나
+#: 뒤에 숫자가 오면(`16:9`, `12:30`) 비율·시각이지 가중치 오타가 아니다.
+_MARKER_RE = re.compile(rf"({_NUMBER})\s*(::|:(?!\d))|(::)")
 
 #: 겹친 쉼표(사이에 공백만) → 하나.
 _DUP_COMMA_RE = re.compile(r"(?:\s*,\s*){2,}")
@@ -89,9 +95,9 @@ def clean_prompt(text: str) -> str:
 
 def _tidy_spacing(text: str) -> str:
     """여는 `::` 뒤 군더더기 공백, 닫는 `::` 앞 공백, 겹친 쉼표·공백을 표준으로."""
-    text = re.sub(r"(-?\d+(?:\.\d+)?::)\s+", r"\1", text)  # 여는 `::` 뒤 공백 제거
+    text = re.sub(rf"({_NUMBER}::)\s+", r"\1", text)  # 여는 `::` 뒤 공백 제거
     text = re.sub(r"\s*::", " ::", text)  # 닫는 `::` 앞은 공백 하나
-    text = re.sub(r"(-?\d+(?:\.\d+)?) ::", r"\1::", text)  # 단, 여는 `숫자 ::`는 붙인다
+    text = re.sub(rf"({_NUMBER}) ::", r"\1::", text)  # 단, 여는 `숫자 ::`는 붙인다
     text = _DUP_COMMA_RE.sub(", ", text)
     text = re.sub(r"[ \t]{2,}", " ", text)
     text = re.sub(r"\s+,", ",", text)  # 쉼표 앞 공백 제거

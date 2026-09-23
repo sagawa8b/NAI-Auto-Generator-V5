@@ -387,6 +387,10 @@ class ResultTab(ArenaTab):
         place_row.addWidget(self.finale_insert_combo)
         self.finale_prefix_check = QCheckBox()
         place_row.addWidget(self.finale_prefix_check)
+        # 조합 생성 탭과 같은 설정이라 바뀌는 즉시 쓴다 (`commit()` 순서에 따라 옛 값이
+        # 되써지지 않게).
+        self.finale_insert_combo.currentIndexChanged.connect(self._on_finale_insert_changed)
+        self.finale_prefix_check.toggled.connect(self._on_finale_prefix_toggled)
         place_row.addStretch(1)
         layout.addLayout(place_row)
 
@@ -513,8 +517,7 @@ class ResultTab(ArenaTab):
         arena.finale_per_combo = self.finale_per_spin.value()
         arena.finale_include_unrated = self.finale_unrated_check.isChecked()
         arena.finale_by_judge = self.finale_judge_check.isChecked()
-        arena.insert_position = self.finale_insert_combo.currentData()
-        arena.use_prefix = self.finale_prefix_check.isChecked()
+        # insert_position·use_prefix는 바뀌는 즉시 저장한다 (`_on_finale_insert_changed`).
         arena.children_per_run = self.children_spin.value()
         arena.parent_pool = self.pool_spin.value()
         arena.mutation_rate = self.mutation_spin.value()
@@ -1031,16 +1034,30 @@ class ResultTab(ArenaTab):
 
     # ── 설정 ────────────────────────────────────────────────────────────
 
+    def showEvent(self, event) -> None:  # noqa: N802 (Qt 콜백 이름)
+        # 조합 생성 탭에서 바꾼 위치·접두사를 다시 보여 준다 (같은 설정을 공유한다).
+        self._load_placement()
+        super().showEvent(event)
+
+    def _on_finale_insert_changed(self) -> None:
+        self.arena.insert_position = self.finale_insert_combo.currentData()
+
+    def _on_finale_prefix_toggled(self, checked: bool) -> None:
+        self.arena.use_prefix = checked
+
+    def _load_placement(self) -> None:
+        index = self.finale_insert_combo.findData(self.arena.insert_position)
+        if index >= 0:
+            self.finale_insert_combo.setCurrentIndex(index)
+        self.finale_prefix_check.setChecked(self.arena.use_prefix)
+
     def _load_settings(self) -> None:
         arena = self.arena
         self.finale_top_spin.setValue(max(1, min(MAX_TOP_N, arena.finale_top_n)))
         self.finale_per_spin.setValue(max(1, min(MAX_PER_COMBO, arena.finale_per_combo)))
         self.finale_unrated_check.setChecked(arena.finale_include_unrated)
         self.finale_judge_check.setChecked(arena.finale_by_judge)
-        index = self.finale_insert_combo.findData(arena.insert_position)
-        if index >= 0:
-            self.finale_insert_combo.setCurrentIndex(index)
-        self.finale_prefix_check.setChecked(arena.use_prefix)
+        self._load_placement()
         self._sync_finale_checks()
         self.children_spin.setValue(arena.children_per_run)
         self.pool_spin.setValue(arena.parent_pool)

@@ -900,6 +900,7 @@
       "manual_add": "조합 추가",
       "manual_added": "작가 {}명으로 조합을 추가했습니다.",
       "manual_empty": "추가할 작가를 입력하세요.",
+      "manual_unreadable": "읽지 못한 부분이 있어 조합을 만들지 않았습니다: {}",
       "manual_duplicate": "같은 작가 구성의 조합이 이미 있습니다.",
       "need_artists": "먼저 작가 명단에 작가를 넣으세요.",
       "nothing_pending": "그림이 없는 조합이 없습니다. 먼저 조합을 만드세요.",

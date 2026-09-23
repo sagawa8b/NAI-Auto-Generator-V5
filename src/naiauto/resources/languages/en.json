@@ -900,6 +900,7 @@
       "manual_add": "Add combo",
       "manual_added": "Added a combo with {} artists.",
       "manual_empty": "Enter the artists to add.",
+      "manual_unreadable": "Couldn't read part of the input, so no combo was added: {}",
       "manual_duplicate": "A combo with the same artists already exists.",
       "need_artists": "Add artists to the roster first.",
       "nothing_pending": "Every combination already has an image. Make more combos first.",

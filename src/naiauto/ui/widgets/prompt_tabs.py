@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent
+from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QTextCursor
 from PySide6.QtWidgets import QPlainTextEdit, QTabWidget, QToolButton, QWidget
 
 from ...core.i18n.manager import I18nManager
@@ -130,7 +130,13 @@ class PromptTabs(QTabWidget):
         original = edit.toPlainText()
         cleaned = clean_prompt(original)
         if cleaned != original:
-            edit.setPlainText(cleaned)
+            # `setPlainText`는 실행취소 이력을 지운다 — 커서로 통째 갈아 끼워 Ctrl+Z 한 번에
+            # 되돌릴 수 있게 한다.
+            cursor = edit.textCursor()
+            cursor.beginEditBlock()
+            cursor.select(QTextCursor.SelectionType.Document)
+            cursor.insertText(cleaned)
+            cursor.endEditBlock()
 
     def set_emphasis_colors(self, high_color: QColor | None, low_color: QColor | None) -> None:
         """가중치 강조(>1.0)/약화(<1.0) 색을 두 편집기 모두에 적용한다. None이면 기본 고정색."""
