@@ -110,6 +110,7 @@ class ArenaDialog(QDialog):
         self.match_tab = ArenaMatchTab(i18n, settings, service, self)
         self.judge_tab = JudgeTab(i18n, settings, service, self)
         self.result_tab = ResultTab(i18n, settings, service, self)
+        self.roster_tab.make_combos_requested.connect(self.build_tab.make_combos)
         self.result_tab.prompt_selected.connect(self.prompt_selected)
         self.result_tab.finale_requested.connect(self.finale_requested)
         self._tabs: list[ArenaTab] = [

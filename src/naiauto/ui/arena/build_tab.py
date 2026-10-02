@@ -394,7 +394,7 @@ class BuildTab(ArenaTab):
         # ── 동작 ────────────────────────────────────────────────────────
         actions = QHBoxLayout()
         self.make_button = QPushButton()
-        self.make_button.clicked.connect(self.make_combos)
+        self.make_button.clicked.connect(lambda: self.make_combos())
         actions.addWidget(self.make_button, 1)
         # 앱에서 **크레딧을 쓰는 유일한 버튼**이다. 주 동작으로 칠하고, 몇 장을
         # 뽑을지 라벨에 적는다 — 누르기 전에 알 수 있어야 한다.
@@ -1005,17 +1005,28 @@ class BuildTab(ArenaTab):
         self.state_changed.emit()
         return True
 
-    def make_combos(self) -> int:
-        """무작위 조합을 `batch_size`개 만든다. 실제로 만든 수를 돌려준다."""
+    def make_combos(self, names: list[str] | None = None) -> int:
+        """무작위 조합을 `batch_size`개 만든다. 실제로 만든 수를 돌려준다.
+
+        `names`를 주면 명단 중 **그 작가들만** 풀로 삼는다 (작가 명단 탭에서 고른 작가).
+        규칙은 이 탭의 화면 값을 그대로 쓴다 — 아직 저장 전인 값도 반영되게 먼저 commit.
+        """
         self.commit()
-        if not self.state.artists:
+        pool = list(self.state.artists)
+        if names is not None:
+            wanted = set(names)
+            pool = [entry for entry in pool if entry.name in wanted]
+        if not pool:
             self.status_message.emit(self.tr("arena.need_artists"))
             return 0
         existing = {name_signature(combo.slots) for combo in self.state.combos}
-        made = generate_combos(self.state.artists, self.arena.combo_params(), self.arena.batch_size, existing)
+        made = generate_combos(pool, self.arena.combo_params(), self.arena.batch_size, existing)
         self.state.combos.extend(made)
         self._service.save()
-        self.status_message.emit(self.tr("arena.combos_made").format(len(made)))
+        if names is None:
+            self.status_message.emit(self.tr("arena.combos_made").format(len(made)))
+        else:
+            self.status_message.emit(self.tr("arena.combos_made_selected").format(len(pool), len(made)))
         self.state_changed.emit()
         return len(made)
 

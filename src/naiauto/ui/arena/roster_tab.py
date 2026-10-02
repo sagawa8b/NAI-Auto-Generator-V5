@@ -23,6 +23,16 @@
   창 전체 드롭도 그대로 받는다 — 과녁을 정확히 겨눌 필요는 없다.
 - 후보가 수백 명이 되면 눈으로 못 찾는다 — **이름 검색**을 붙였다.
 - 되돌릴 수 없는 `명단 비우기`는 `선택 삭제`와 떼어 놓고 위험 등급을 준다.
+
+## 고른 작가만으로 조합을 만든다
+
+조합 생성 탭의 `랜덤 조합 만들기`는 명단 전체에서 뽑는다. 명단이 커지면 "이 몇 명끼리만
+섞어 보고 싶다"가 생기는데, 그러려면 수동 추가 칸에 이름을 하나하나 옮겨 적어야 했다.
+
+- 표에서 Ctrl/Shift로 고른 작가를 오른쪽 `선택한 작가` 칸에 그대로 보여 준다.
+- `선택한 작가로 랜덤 조합`은 **그 작가들만 풀로 삼아** 조합 생성 탭의 규칙(작가 수·
+  가중치·만들 개수)대로 무작위 조합을 만든다. 규칙은 조합 생성 탭이 들고 있으므로
+  만드는 일은 그 탭에 맡긴다 (`make_combos_requested` → `BuildTab.make_combos`).
 """
 
 from __future__ import annotations
@@ -31,7 +41,7 @@ import logging
 import math
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -40,6 +50,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QListWidget,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -110,6 +121,9 @@ class RosterTab(ArenaTab):
 
     KEY = "roster"
 
+    #: 고른 작가만으로 랜덤 조합을 만들어 달라 — 다이얼로그가 조합 생성 탭에 넘긴다.
+    make_combos_requested = Signal(list)
+
     def __init__(self, i18n, settings, service, parent: QWidget | None = None) -> None:
         super().__init__(i18n, settings, service, parent)
         self._updating = False  # 표를 다시 그리는 동안 itemChanged 재진입 방지
@@ -154,6 +168,7 @@ class RosterTab(ArenaTab):
         for col in (COL_LOCK, COL_ELO, COL_WINRATE, COL_USES):
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         self.table.itemChanged.connect(self._on_item_changed)
+        self.table.itemSelectionChanged.connect(self._refresh_selection)
         layout.addWidget(self.table, 1)
 
         row_actions = QHBoxLayout()
@@ -190,7 +205,19 @@ class RosterTab(ArenaTab):
         self.add_button.clicked.connect(self._on_add)
         right_layout.addWidget(self.add_button)
 
-        right_layout.addStretch(1)
+        # 고른 작가 — 표에서 Ctrl/Shift로 고른 줄을 모아 보여 주고, 그 작가들만으로
+        # 랜덤 조합을 만든다.
+        self.selection_label = QLabel()
+        right_layout.addWidget(self.selection_label)
+        self.selection_list = QListWidget()
+        self.selection_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.selection_list.setMinimumHeight(72)
+        right_layout.addWidget(self.selection_list, 1)
+        self.make_selected_button = QPushButton()
+        self.make_selected_button.clicked.connect(self.make_combos_from_selection)
+        right_layout.addWidget(self.make_selected_button)
+
+        right_layout.addSpacing(PANEL_GAP)
         # 되돌릴 수 없다 — 표 옆의 `선택 삭제`와 떼어 놓고 위험 등급을 준다.
         self.clear_button = QPushButton()
         mark_danger(self.clear_button)
@@ -223,6 +250,7 @@ class RosterTab(ArenaTab):
         else:
             # 걸러 놓고 "N명"만 보이면 나머지가 지워진 줄 안다.
             self.count_label.setText(self.tr("arena.roster_count_filtered").format(len(entries), total))
+        self._refresh_selection()
 
     def retranslate(self) -> None:
         tr = self.tr
@@ -253,6 +281,8 @@ class RosterTab(ArenaTab):
         self.normalize_button.setToolTip(tr("arena.roster_normalize_hint"))
         self.clear_button.setText(tr("arena.roster_clear"))
         self.drop_zone.setText(tr("arena.roster_drop_hint"))
+        self.make_selected_button.setText(tr("arena.roster_make_selected"))
+        self.make_selected_button.setToolTip(tr("arena.roster_make_selected_hint"))
         self.refresh()
 
     # ── 표 ──────────────────────────────────────────────────────────────
@@ -396,6 +426,22 @@ class RosterTab(ArenaTab):
             if entry is not None and entry.name not in names:
                 names.append(entry.name)
         return names
+
+    def _refresh_selection(self) -> None:
+        """오른쪽 `선택한 작가` 칸을 표의 선택과 맞춘다."""
+        names = self.selected_names()
+        self.selection_list.clear()
+        self.selection_list.addItems(names)
+        self.selection_label.setText(self.tr("arena.roster_selected").format(len(names)))
+        self.make_selected_button.setEnabled(bool(names))
+
+    def make_combos_from_selection(self) -> None:
+        """고른 작가만으로 랜덤 조합을 만들어 달라고 알린다 (만드는 것은 조합 생성 탭)."""
+        names = self.selected_names()
+        if not names:
+            self.status_message.emit(self.tr("arena.roster_select_for_combo"))
+            return
+        self.make_combos_requested.emit(names)
 
     def remove_selected(self) -> None:
         names = self.selected_names()
