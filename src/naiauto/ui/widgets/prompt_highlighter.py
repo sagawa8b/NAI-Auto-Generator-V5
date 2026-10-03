@@ -7,6 +7,7 @@ V4.5는 `QTextEdit.ExtraSelection`으로 칠했지만 V5의 입력창은 `QPlain
     0.5::feet::       가중치 < 1 → 회색
     ::artist:name::   숫자 없는 강조 → 파랑
     (               짝이 없는 괄호 → 빨강
+    <lock>...</lock>  잠금 구간 → 호박색 배경 (core/prompt_lock.py, 줄을 넘어도 이어진다)
 
 기본 색은 팔레트와 무관한 고정색이다 (V4.5와 같은 값. 어두운 테마에서도 읽히는 채도라
 테마별 분기를 두지 않는다). 강조/약화 색은 `set_colors()`로 바꿀 수 있다 (V4의
@@ -29,6 +30,11 @@ COLOR_HIGH = QColor(100, 149, 237)  # 강조(>1.0)
 COLOR_LOW = QColor(169, 169, 169)  # 약화(<1.0)
 COLOR_MARKER = QColor(128, 0, 128)  # 가중치 숫자와 "::"
 COLOR_UNMATCHED = QColor(255, 0, 0)  # 짝 없는 괄호
+COLOR_LOCK = QColor(255, 193, 7, 70)  # 잠금 구간 배경 — 반투명이라 밝은·어두운 테마 모두 읽힌다
+
+#: 잠금 표식 (core/prompt_lock.py와 같은 표기). 그룹 1이 `/`면 닫는 쪽.
+_LOCK_MARKER_RE = re.compile(r"<(/?)lock>", re.IGNORECASE)
+_STATE_IN_LOCK = 1
 
 _BRACKET_PAIRS = {"(": ")", "{": "}", "[": "]", "<": ">"}
 _CLOSERS = {close: open_ for open_, close in _BRACKET_PAIRS.items()}
@@ -71,6 +77,7 @@ class PromptHighlighter(QSyntaxHighlighter):
         super().__init__(document)
         self._marker_format = _format(COLOR_MARKER, bold=True)
         self._unmatched_format = _format(COLOR_UNMATCHED, bold=True)
+        self._lock_marker_format = _format(COLOR_MARKER, bold=True)
         self._high_color = high_color or COLOR_HIGH
         self._low_format = _format(low_color or COLOR_LOW)
 
@@ -103,6 +110,38 @@ class PromptHighlighter(QSyntaxHighlighter):
         for position in unmatched_bracket_positions(text):
             self.setFormat(position, 1, self._unmatched_format)
 
+        self._highlight_locks(text)
+
+    def _highlight_locks(self, text: str) -> None:
+        """잠금 구간에 배경을 얹는다 — 앞서 칠한 글자색·굵기는 그대로 둔다.
+
+        구간이 줄을 넘을 수 있으므로 "잠금 안에서 줄이 끝났다"를 블록 상태로 넘긴다.
+        """
+        in_lock = self.previousBlockState() == _STATE_IN_LOCK
+        spans: list[tuple[int, int]] = []
+        markers: list[tuple[int, int]] = []
+        span_start = 0
+        for match in _LOCK_MARKER_RE.finditer(text):
+            closing = bool(match.group(1))
+            if not closing and not in_lock:
+                in_lock, span_start = True, match.start()
+                markers.append(match.span())
+            elif closing and in_lock:
+                spans.append((span_start, match.end()))
+                markers.append(match.span())
+                in_lock = False
+        if in_lock:
+            spans.append((span_start, len(text)))
+        self.setCurrentBlockState(_STATE_IN_LOCK if in_lock else 0)
+
+        for start, end in markers:
+            self.setFormat(start, end - start, self._lock_marker_format)
+        for start, end in spans:
+            for position in range(start, end):
+                fmt = self.format(position)
+                fmt.setBackground(COLOR_LOCK)
+                self.setFormat(position, 1, fmt)
+
     def _emphasis_format(self, weight: float) -> QTextCharFormat:
         """가중치가 클수록 굵게 (V4.5와 같은 계산), 1.0 미만은 회색."""
         if weight < 1.0:
@@ -115,6 +154,7 @@ class PromptHighlighter(QSyntaxHighlighter):
 
 __all__ = [
     "COLOR_HIGH",
+    "COLOR_LOCK",
     "COLOR_LOW",
     "COLOR_MARKER",
     "COLOR_UNMATCHED",

@@ -59,6 +59,7 @@ from ..core.logging_setup import configure_logging, crash_log_path, log_path
 from ..core.metadata.reuse import ReusableSettings
 from ..core.presets import CharacterPromptPreset, GenerationPreset, PresetError, PresetStore
 from ..core.prompt_dynamics import has_dynamic_syntax
+from ..core.prompt_lock import apply_locked, apply_locked_characters
 from ..core.resolution_catalog import ResolutionCatalog, parse_group
 from ..core.result_summary import ResultLabels, compose_result_summary
 from ..core.settings import accounts, credentials
@@ -1043,23 +1044,39 @@ class MainWindow(QMainWindow):
             self.uc_preset_combo.setCurrentIndex(uc_idx)
         self.quality_check.setChecked(preset.quality_tags)
 
-        # Prompts
+        # Prompts — `<lock>` 구간은 불러온 값 앞에 남는다 (core/prompt_lock.py)
         if preset.prompt:
-            self.prompt_edit.setPlainText(preset.prompt)
+            self.prompt_edit.setPlainText(apply_locked(self.prompt_edit.toPlainText(), preset.prompt))
         if preset.negative_prompt:
-            self.negative_edit.setPlainText(preset.negative_prompt)
+            self.negative_edit.setPlainText(
+                apply_locked(self.negative_edit.toPlainText(), preset.negative_prompt)
+            )
 
         # Characters (Bug fix: 프리셋에 캐릭터 프롬프트가 없으면 기존 캐릭터도 정리한다 — 원자적 적용)
-        self.character_prompts.load_captions(
-            tuple(
-                CharacterCaption(prompt=c.prompt, uc=c.uc, center_x=c.center_x, center_y=c.center_y)
-                for c in preset.characters
-            )
-        )
+        self.character_prompts.load_captions(self._locked_characters(preset.characters))
         self.character_prompts.set_use_coords(preset.use_coords)
         self.character_prompts.set_manual_position_override(preset.manual_position_override)
 
         self.status_label.setText(self._i18n.get_text("menu.preset_applied"))
+
+    def _locked_characters(self, loaded: list[CharacterPromptPreset]) -> tuple[CharacterCaption, ...]:
+        """불러온 캐릭터 목록에 지금 슬롯들의 잠금 구간을 슬롯 번호끼리 얹는다.
+
+        불러온 설정에 없는 자리의 잠긴 슬롯은 지금 슬롯의 위치를 그대로 쓴다.
+        """
+        slots = self.character_prompts.slots
+        merged = apply_locked_characters(
+            [(slot.prompt_edit.toPlainText(), slot.uc_edit.toPlainText()) for slot in slots],
+            [(c.prompt, c.uc) for c in loaded],
+        )
+        captions = []
+        for index, (prompt, uc) in enumerate(merged):
+            if index < len(loaded):
+                center_x, center_y = loaded[index].center_x, loaded[index].center_y
+            else:
+                center_x, center_y = slots[index].center
+            captions.append(CharacterCaption(prompt=prompt, uc=uc, center_x=center_x, center_y=center_y))
+        return tuple(captions)
 
     # ── M3: Credit Gauge 업데이트 ────────────────────────
 

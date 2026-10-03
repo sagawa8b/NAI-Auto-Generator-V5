@@ -31,6 +31,7 @@ from ..core.credit_estimator import CreditObservation
 from ..core.metadata.save import save_raw_png
 from ..core.pipe_characters import split_pipe_characters
 from ..core.prompt_choices import resolve_prompt_choices
+from ..core.prompt_lock import strip_lock_markers
 from ..core.resolution_catalog import Aspect, classify_aspect
 from ..core.resolution_directive import extract_resolution_directive
 from ..core.wildcards.applier import WildcardApplier
@@ -372,6 +373,16 @@ class GenerationService:
             req = dataclasses.replace(
                 req, prompt=prompt, negative_prompt=negative, characters=characters, use_coords=use_coords
             )
+        # 잠금 표식(`<lock>...</lock>`)은 편집기에서만 의미가 있다 — 내용만 남기고 지운다.
+        req = dataclasses.replace(
+            req,
+            prompt=strip_lock_markers(req.prompt),
+            negative_prompt=strip_lock_markers(req.negative_prompt),
+            characters=tuple(
+                dataclasses.replace(c, prompt=strip_lock_markers(c.prompt), uc=strip_lock_markers(c.uc))
+                for c in req.characters
+            ),
+        )
         if self._wildcards is not None:
             self._wildcards.create_index_snapshot()
             prompt = self._wildcards.apply_wildcards_with_snapshot(req.prompt)

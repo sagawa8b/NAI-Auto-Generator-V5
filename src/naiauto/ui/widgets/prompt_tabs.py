@@ -9,12 +9,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QTextCursor
-from PySide6.QtWidgets import QPlainTextEdit, QTabWidget, QToolButton, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QPlainTextEdit, QTabWidget, QToolButton, QWidget
 
 from ...core.i18n.manager import I18nManager
 from ...core.prompt_cleanup import clean_prompt
+from ...core.prompt_lock import toggle_lock
 from .prompt_highlighter import PromptHighlighter
 
 # 이미지 정보를 읽을 수 있는 확장자. 이 파일들은 텍스트로 붙이지 않고 시그널로 넘긴다.
@@ -100,7 +101,24 @@ class PromptTabs(QTabWidget):
         # 탭바 모서리에 둬서 프롬프트·네거티브 어느 쪽이든 같은 버튼으로 정리한다.
         self.cleanup_button = QToolButton()
         self.cleanup_button.clicked.connect(self.cleanup_current)
-        self.setCornerWidget(self.cleanup_button, Qt.Corner.TopRightCorner)
+        # `잠금` — 선택 영역을 `<lock>...</lock>`으로 감싸거나 커서가 있는 잠금을 푼다.
+        # 잠긴 구간은 설정을 불러와도 불러온 프롬프트 앞에 남는다 (core/prompt_lock.py).
+        self.lock_button = QToolButton()
+        self.lock_button.clicked.connect(self.toggle_lock_current)
+        corner = QWidget()
+        corner_layout = QHBoxLayout(corner)
+        corner_layout.setContentsMargins(0, 0, 0, 0)
+        corner_layout.setSpacing(2)
+        corner_layout.addWidget(self.lock_button)
+        corner_layout.addWidget(self.cleanup_button)
+        self.setCornerWidget(corner, Qt.Corner.TopRightCorner)
+
+        # 우클릭 메뉴에도 같은 동작을 둔다 (표준 메뉴 + 잠금 항목)
+        for edit in (self.prompt_edit, self.negative_edit):
+            edit.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            edit.customContextMenuRequested.connect(
+                lambda pos, target=edit: self._show_context_menu(target, pos)
+            )
 
         self.retranslate()
 
@@ -138,6 +156,33 @@ class PromptTabs(QTabWidget):
             cursor.insertText(cleaned)
             cursor.endEditBlock()
 
+    def toggle_lock_current(self) -> None:
+        """지금 보이는 입력창에서 선택 영역을 잠그거나, 커서가 있는 잠금 구간을 푼다."""
+        self.toggle_lock(self._current_edit())
+
+    def toggle_lock(self, edit: QPlainTextEdit) -> None:
+        cursor = edit.textCursor()
+        result = toggle_lock(edit.toPlainText(), cursor.selectionStart(), cursor.selectionEnd())
+        if result is None:
+            return
+        new_text, start, end = result
+        # 실행취소 한 번에 되돌릴 수 있게 커서로 통째 갈아 끼운다 (`cleanup_current`와 같은 방식)
+        cursor.beginEditBlock()
+        cursor.select(QTextCursor.SelectionType.Document)
+        cursor.insertText(new_text)
+        cursor.endEditBlock()
+        cursor.setPosition(start)
+        cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+        edit.setTextCursor(cursor)
+
+    def _show_context_menu(self, edit: PromptTextEdit, pos: QPoint) -> None:
+        menu = edit.createStandardContextMenu()
+        menu.addSeparator()
+        action = menu.addAction(self._i18n.get_text("ui.prompt_lock_toggle"))
+        action.triggered.connect(lambda: self.toggle_lock(edit))
+        menu.exec(edit.mapToGlobal(pos))
+        menu.deleteLater()
+
     def set_emphasis_colors(self, high_color: QColor | None, low_color: QColor | None) -> None:
         """가중치 강조(>1.0)/약화(<1.0) 색을 두 편집기 모두에 적용한다. None이면 기본 고정색."""
         for highlighter in self._highlighters:
@@ -161,6 +206,8 @@ class PromptTabs(QTabWidget):
         self.negative_edit.setPlaceholderText(tr(self._negative_placeholder))
         self.cleanup_button.setText(tr("ui.tag_cleanup"))
         self.cleanup_button.setToolTip(tr("ui.tag_cleanup_tooltip"))
+        self.lock_button.setText(tr("ui.prompt_lock"))
+        self.lock_button.setToolTip(tr("ui.prompt_lock_tooltip"))
         self._refresh_negative_title()
 
 
