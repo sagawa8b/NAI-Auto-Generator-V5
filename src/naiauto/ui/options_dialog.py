@@ -97,6 +97,8 @@ OWNED_FIELDS: tuple[str, ...] = (
     "tag_database_path",
     "tag_autocomplete_enabled",
     "wildcard_autocomplete_enabled",
+    "wildcard_tag_autocomplete_enabled",
+    "wildcard_tag_sources",
     "prompt_font",
     "filename_template",
     "image_format",

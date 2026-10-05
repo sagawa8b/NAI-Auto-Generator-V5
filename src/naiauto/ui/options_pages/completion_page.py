@@ -15,6 +15,10 @@ v0.7.8 이전에는 이 화면 이름이 `태그 자동완성`이었고 WD14 태
 (Req 7.3). 시험 로드가 실패해도 저장은 막지 않는다: 상태 문구만 비활성으로 바뀌고 나머지 항목은
 그대로 반영된다 (Req 7.5).
 
+세 번째 묶음 `등록 와일드카드 자동완성`은 고른 와일드카드 파일의 **줄**을 태그 후보에 섞는다
+(`core.wildcards.line_source`). 목록 순서가 곧 우선순위이자 색 순서라, 드롭다운과 같은 색으로
+이름을 칠해 둔다. 추가할 이름은 와일드카드 폴더(드래프트의 `wildcards_dir`)에서 고른다.
+
 시험 로드 결과는 `_status`에 상태로 저장하고 문구 생성은 `retranslate`가 담당한다. 언어가 바뀔
 때마다 태그 DB를 다시 읽지 않기 위해서다 (파일이 수십만 행일 수 있다).
 """
@@ -26,12 +30,18 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -40,6 +50,9 @@ from PySide6.QtWidgets import (
 from ...core.i18n.manager import I18nManager
 from ...core.settings.schema import AppSettings
 from ...core.tag_completer import TagCompleter, resolve_database_path
+from ...core.wildcards.catalog import scan_wildcard_names
+from ...core.wildcards.line_source import WildcardLineSource
+from ..tag_completer_dropdown import source_color
 from . import OptionsPage, register_page
 
 logger = logging.getLogger(__name__)
@@ -76,6 +89,8 @@ class CompletionPage(OptionsPage):
         self._status: tuple[str, int] = (STATUS_EMPTY_KEY, 0)
         #: 시험 로드를 두 번 하지 않기 위한 직전 입력값.
         self._probed_text: str | None = None
+        #: 추가할 이름을 고를 와일드카드 폴더 (`load`에서 드래프트 값으로 채운다).
+        self._wildcards_dir = ""
 
         layout = QVBoxLayout(self)
 
@@ -116,6 +131,42 @@ class CompletionPage(OptionsPage):
         self.wildcard_autocomplete_hint.setEnabled(False)  # 읽기 전용 안내
         layout.addWidget(self.wildcard_autocomplete_hint)
 
+        # ── 등록 와일드카드 줄 자동완성 (고른 와일드카드 파일을 읽는다) ──
+        layout.addSpacing(12)
+        self.wildcard_tags_title = QLabel(self)
+        self.wildcard_tags_title.setStyleSheet("font-weight: bold;")
+        layout.addWidget(self.wildcard_tags_title)
+
+        self.wildcard_tags_check = QCheckBox(self)
+        layout.addWidget(self.wildcard_tags_check)
+        self.wildcard_tags_hint = QLabel(self)
+        self.wildcard_tags_hint.setWordWrap(True)
+        self.wildcard_tags_hint.setEnabled(False)  # 읽기 전용 안내
+        layout.addWidget(self.wildcard_tags_hint)
+
+        sources_row = QHBoxLayout()
+        self.wildcard_tags_list = QListWidget(self)
+        self.wildcard_tags_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        # 끌어서 순서를 바꾼다 — 순서가 후보 우선순위이자 색 순서다
+        self.wildcard_tags_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.wildcard_tags_list.setMaximumHeight(120)
+        self.wildcard_tags_list.model().rowsMoved.connect(self._refresh_sources)
+        sources_row.addWidget(self.wildcard_tags_list, 1)
+        sources_buttons = QVBoxLayout()
+        self.wildcard_tags_add_button = QPushButton(self)
+        self.wildcard_tags_add_button.clicked.connect(self._add_sources)
+        self.wildcard_tags_remove_button = QPushButton(self)
+        self.wildcard_tags_remove_button.clicked.connect(self._remove_sources)
+        sources_buttons.addWidget(self.wildcard_tags_add_button)
+        sources_buttons.addWidget(self.wildcard_tags_remove_button)
+        sources_buttons.addStretch(1)
+        sources_row.addLayout(sources_buttons)
+        layout.addLayout(sources_row)
+
+        self.wildcard_tags_status = QLabel(self)
+        self.wildcard_tags_status.setWordWrap(True)
+        layout.addWidget(self.wildcard_tags_status)
+
         layout.addStretch(1)
 
         # 경로가 바뀔 때마다 시험 로드로 상태 문구를 갱신한다 (Req 7.4–7.6).
@@ -129,6 +180,9 @@ class CompletionPage(OptionsPage):
         self.enabled_check.setChecked(draft.tag_autocomplete_enabled)
         self.path_edit.setText(draft.tag_database_path)
         self.wildcard_autocomplete_check.setChecked(draft.wildcard_autocomplete_enabled)
+        self.wildcard_tags_check.setChecked(draft.wildcard_tag_autocomplete_enabled)
+        self._wildcards_dir = draft.wildcards_dir
+        self._set_sources(draft.wildcard_tag_sources)
         # 값이 그대로면 textChanged가 오지 않으므로 직접 갱신한다.
         self._refresh_status()
 
@@ -137,6 +191,8 @@ class CompletionPage(OptionsPage):
         draft.tag_autocomplete_enabled = self.enabled_check.isChecked()
         draft.tag_database_path = self.path_edit.text().strip()
         draft.wildcard_autocomplete_enabled = self.wildcard_autocomplete_check.isChecked()
+        draft.wildcard_tag_autocomplete_enabled = self.wildcard_tags_check.isChecked()
+        draft.wildcard_tag_sources = self.sources()
 
     def retranslate(self) -> None:
         tr = self._i18n.get_text
@@ -151,6 +207,99 @@ class CompletionPage(OptionsPage):
         self.wildcards_title.setText(tr("options.wildcards_title"))
         self.wildcard_autocomplete_check.setText(tr("options.wildcards_autocomplete_enabled"))
         self.wildcard_autocomplete_hint.setText(tr("options.wildcards_autocomplete_hint"))
+        self.wildcard_tags_title.setText(tr("options.wildcard_tags_title"))
+        self.wildcard_tags_check.setText(tr("options.wildcard_tags_enabled"))
+        self.wildcard_tags_hint.setText(tr("options.wildcard_tags_hint"))
+        self.wildcard_tags_add_button.setText(tr("options.wildcard_tags_add"))
+        self.wildcard_tags_remove_button.setText(tr("options.wildcard_tags_remove"))
+        self._refresh_sources_status()
+
+    # ── 등록 와일드카드 ─────────────────────────────────────────────────
+
+    def sources(self) -> list[str]:
+        """목록에 보이는 순서 그대로의 등록 이름."""
+        return [self.wildcard_tags_list.item(i).text() for i in range(self.wildcard_tags_list.count())]
+
+    def _set_sources(self, names: list[str]) -> None:
+        self.wildcard_tags_list.clear()
+        for name in names:
+            if name not in self.sources():
+                self.wildcard_tags_list.addItem(QListWidgetItem(name))
+        self._refresh_sources()
+
+    def _add_sources(self) -> None:
+        """와일드카드 폴더에서 아직 등록하지 않은 이름을 골라 뒤에 붙인다."""
+        taken = set(self.sources())
+        available = [name for name in scan_wildcard_names(self._wildcards_dir) if name not in taken]
+        if not available:
+            QMessageBox.information(
+                self,
+                self._i18n.get_text("options.wildcard_tags_title"),
+                self._i18n.get_text("options.wildcard_tags_no_files"),
+            )
+            return
+        chosen = self._pick_sources(available)
+        if chosen:
+            self._set_sources(self.sources() + chosen)
+
+    def _remove_sources(self) -> None:
+        selected = {item.text() for item in self.wildcard_tags_list.selectedItems()}
+        if selected:
+            self._set_sources([name for name in self.sources() if name not in selected])
+
+    def _pick_sources(self, available: list[str]) -> list[str]:
+        """체크 목록 대화상자로 여러 개를 고른다 (테스트는 이 메서드를 바꿔 끼운다)."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle(self._i18n.get_text("options.wildcard_tags_pick_title"))
+        box = QVBoxLayout(dialog)
+        picker = QListWidget(dialog)
+        for name in available:
+            item = QListWidgetItem(name)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Unchecked)
+            picker.addItem(item)
+        # 이름을 눌러도 체크가 바뀌게 — 작은 체크 상자만 노리지 않아도 된다
+        picker.itemClicked.connect(
+            lambda item: item.setCheckState(
+                Qt.CheckState.Unchecked
+                if item.checkState() == Qt.CheckState.Checked
+                else Qt.CheckState.Checked
+            )
+        )
+        box.addWidget(picker)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        box.addWidget(buttons)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return []
+        return [
+            picker.item(i).text()
+            for i in range(picker.count())
+            if picker.item(i).checkState() == Qt.CheckState.Checked
+        ]
+
+    def _refresh_sources(self, *_args) -> None:
+        """이름을 드롭다운과 같은 색으로 칠하고 상태 문구를 다시 만든다."""
+        for i in range(self.wildcard_tags_list.count()):
+            self.wildcard_tags_list.item(i).setForeground(source_color(i))
+        self._refresh_sources_status()
+
+    def _refresh_sources_status(self) -> None:
+        """등록 개수·줄 개수, 폴더에 없는 이름을 알린다 (파일은 작아서 매번 읽어도 된다)."""
+        tr = self._i18n.get_text
+        names = self.sources()
+        if not names:
+            self.wildcard_tags_status.setText(tr("options.wildcard_tags_none"))
+            return
+        probe = WildcardLineSource(self._wildcards_dir, names)
+        text = tr("options.wildcard_tags_status", len(names), probe.line_count())
+        missing = probe.missing()
+        if missing:
+            text += "\n" + tr("options.wildcard_tags_missing", ", ".join(missing))
+        self.wildcard_tags_status.setText(text)
 
     # ── 내부 ────────────────────────────────────────────────────────────
 

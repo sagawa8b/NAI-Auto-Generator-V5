@@ -75,6 +75,7 @@ from ..core.settings_batch import SettingsBatchController
 from ..core.tag_completer import TagCompleter, resolve_database_path
 from ..core.updates import RELEASES_PAGE, ReleaseInfo, check_for_update
 from ..core.wildcards.catalog import WildcardCatalog
+from ..core.wildcards.line_source import WildcardLineSource
 from ..services.arena_service import ArenaService, build_finale_provider
 from ..services.events import (
     GenerationEvent,
@@ -647,6 +648,10 @@ class MainWindow(QMainWindow):
         """
         self._tag_completer = TagCompleter(resolve_database_path(self._settings.tag_database_path))
         self._tag_completer.load()
+        # 등록 와일드카드 줄 — 폴더는 이름 카탈로그와 같은 것을 쓴다 (전개 엔진과 같은 폴더).
+        self._wildcard_lines = WildcardLineSource(
+            self._wildcard_catalog.directory, self._settings.wildcard_tag_sources
+        )
         for dropdown in list(self._completer_dropdowns.values()):
             dropdown.detach()
         self._completer_dropdowns = {}
@@ -665,9 +670,14 @@ class MainWindow(QMainWindow):
         """
         tags = self._tag_completer if self._settings.tag_autocomplete_enabled else None
         wildcards = self._wildcard_catalog if self._settings.wildcard_autocomplete_enabled else None
-        if tags is None and wildcards is None:
+        lines = self._wildcard_lines if self._settings.wildcard_tag_autocomplete_enabled else None
+        if lines is not None and not lines.names:
+            lines = None  # 등록한 와일드카드가 없으면 켜져 있어도 뜰 것이 없다
+        if tags is None and wildcards is None and lines is None:
             return
-        self._completer_dropdowns[edit] = TagCompleterDropdown(edit, tags, wildcards)
+        self._completer_dropdowns[edit] = TagCompleterDropdown(
+            edit, tags, wildcards, lines, settings=self._qsettings
+        )
 
     def _attach_slot_completers(self, slot: CharacterSlot) -> None:
         """새로 추가된 캐릭터 슬롯의 프롬프트/UC 입력창에도 자동완성을 붙인다."""

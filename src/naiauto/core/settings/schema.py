@@ -352,6 +352,12 @@ class AppSettings(BaseModel):
     #: 읽는 곳이 다르기 때문이다 — 태그는 `tag_database_path`의 DB 파일, 와일드카드는
     #: `wildcards_dir` 폴더다. 한쪽을 꺼도 다른 쪽은 그대로 뜬다.
     wildcard_autocomplete_enabled: bool = True
+    #: 등록한 와일드카드 파일의 **줄**을 태그 후보에 섞어 보여 줄지 (`core/wildcards/line_source.py`).
+    #: 고르면 `__이름__`이 아니라 줄 원문이 들어간다 — 캐릭터 태그 묶음 같은 고정 문구용이다.
+    wildcard_tag_autocomplete_enabled: bool = True
+    #: 줄 자동완성에 쓸 와일드카드 이름 (`__이름__`에 쓰는 표기, `하위폴더/이름`). 순서가 곧
+    #: 후보 우선순위이자 색 배정 순서다.
+    wildcard_tag_sources: list[str] = Field(default_factory=list)
     filename_template: str = "{datetime}_{seed}"
     #: 생성 이미지 저장 형식. "png"(기본, 원본 그대로) 또는 "webp"(무손실, 메타데이터는
     #: EXIF로 옮겨 재사용 가능 — core/metadata/save.py 참고).
