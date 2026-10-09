@@ -120,6 +120,8 @@ def _normalize_mask(mask_bytes: bytes, size: tuple[int, int]) -> bytes:
 
 def build_payload_v5(req: GenerationRequest, spec: ModelSpec) -> dict:
     _reject_unreleased(req, spec)
+    # Medium Effort처럼 서버가 고정한 값은 요청이 무엇을 담았든 덮어쓴다 (client도 하지만 멱등)
+    req = spec.apply_fixed(req)
 
     params = _build_base_parameters(req, spec)
     model_name = spec.api_name
@@ -243,6 +245,10 @@ def _build_base_parameters(req: GenerationRequest, spec: ModelSpec) -> dict:
         "noise_schedule": req.scheduler,
         "image_format": "png",
     }
+
+    if not spec.supports_cfg_rescale:
+        # Medium Effort: novelai.net 요청에도 cfg_rescale 키가 없다 (모델 capability에서 빠짐)
+        del params["cfg_rescale"]
 
     if req.var_plus and spec.var_plus_sigma is not None:
         # V5의 Variety+ 시그마 값은 미확인 — spec에 값이 채워지기 전에는 전송되지 않는다

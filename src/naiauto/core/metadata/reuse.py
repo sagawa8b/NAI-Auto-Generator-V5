@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from ..api.model_specs import spec_for_source
 from ..api.models import CharacterCaption, GenerationRequest
 
 
@@ -28,6 +29,8 @@ class ReusableSettings:
     width: int | None = None
     height: int | None = None
     characters: tuple[CharacterCaption, ...] = field(default_factory=tuple)
+    #: 모델 해시로 알아낸 레지스트리 키 (예: "naid5f_medium"). 모르는 해시면 None.
+    model: str | None = None
 
     @property
     def is_empty(self) -> bool:
@@ -164,7 +167,17 @@ def extract_reusable(metadata: dict | None) -> ReusableSettings:
         width=_as_int(comment.get("width")),
         height=_as_int(comment.get("height")),
         characters=_characters(comment),
+        model=_model_key(metadata, comment),
     )
+
+
+def _model_key(metadata: dict, comment: dict) -> str | None:
+    """Source("NovelAI Diffusion V5 70AB5786") 또는 comment.model_hash에서 모델 키를 찾는다."""
+    for source in (_as_str(comment.get("model_hash")), _as_str(metadata.get("model"))):
+        spec = spec_for_source(source)
+        if spec is not None:
+            return spec.key
+    return None
 
 
 def apply_to_request(request: GenerationRequest, settings: ReusableSettings) -> GenerationRequest:

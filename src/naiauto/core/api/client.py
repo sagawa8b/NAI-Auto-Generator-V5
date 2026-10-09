@@ -48,6 +48,8 @@ class NAIClient:
 
     def generate(self, req: GenerationRequest) -> GenerationResult:
         req = _normalize_single_character(req)
+        # 모델이 고정한 값(Medium Effort의 스텝·샘플러·UC)을 검증 전에 적용한다
+        req = get_spec(req.model).apply_fixed(req)
         errors = validate_request(req)
         if errors:
             raise RequestValidationError(errors)

@@ -14,7 +14,7 @@ from __future__ import annotations
 import io
 import zipfile
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .errors import ResponseDecodeError
@@ -97,6 +97,17 @@ class ModelSpec:
         frozenset()
     )  # {"v4_prompt","characters","vibe","char_ref","inpaint","var_plus"}
     var_plus_sigma: float | None = None
+    # 서버가 고정한 값 — 요청이 무엇을 담고 있든 이 값으로 덮어 보낸다 ("steps"·"sampler"만 쓴다).
+    # V5 Full의 Medium Effort(절약 모드)가 14 스텝 · Euler Ancestral로 고정이다.
+    fixed_params: Mapping[str, Any] = field(default_factory=dict)
+    # 설정되면 사용자 네거티브(캐릭터 UC 포함)를 쓰지 않고 이 UC 프리셋 텍스트만 보낸다.
+    # Medium Effort는 커스텀 Undesired Content와 프리셋 변경을 막고 Heavy로 고정한다.
+    fixed_uc_preset: str | None = None
+    # False면 payload에서 cfg_rescale 키를 아예 뺀다 (Medium Effort는 Rescale 미지원)
+    supports_cfg_rescale: bool = True
+    # PNG 메타데이터 Source("NovelAI Diffusion V5 70AB5786")·comment.model_hash에 찍히는
+    # 모델 해시. V5는 Full/Curated/Medium 모두 model_name이 같아 해시로만 구분된다.
+    source_hashes: frozenset[str] = frozenset()
     incomplete: bool = False  # True면 스펙 캡처 대기 중 (UI에서 경고 표시)
     # False면 메인 윈도우 모델 콤보에 넣지 않는다. V4 계열은 payload 골든 테스트,
     # 옛 PNG 메타데이터 재사용, smoke CLI가 계속 쓰므로 레지스트리에는 남긴다.
@@ -121,8 +132,34 @@ class ModelSpec:
 
         빈 부분은 버리고 `", "`로 잇는다. 모르는 프리셋 키는 빈 문자열로 취급한다.
         """
+        if self.fixed_uc_preset is not None:
+            return self.uc_presets.get(self.fixed_uc_preset, "")
         preset_uc = self.uc_presets.get(uc_key, "")
         return ", ".join(part for part in (preset_uc, user_uc.strip()) if part)
+
+    # ── 고정 설정 (Medium Effort 등) ──
+
+    @property
+    def has_fixed_settings(self) -> bool:
+        return bool(self.fixed_params) or self.fixed_uc_preset is not None or not self.supports_cfg_rescale
+
+    def apply_fixed(self, req: GenerationRequest) -> GenerationRequest:
+        """이 모델이 고정한 값으로 요청을 덮어쓴다. 고정 값이 없으면 그대로 돌려준다.
+
+        UI가 막아 두더라도 아레나·설정 일괄·메타데이터 재사용 같은 다른 경로가 같은 모델로
+        요청을 만들 수 있으므로, 전송 직전(client)과 payload 빌더에서 한 번 더 강제한다.
+        멱등이라 여러 번 불러도 결과가 같다.
+        """
+        if not self.has_fixed_settings:
+            return req
+        updates: dict[str, Any] = {k: v for k, v in self.fixed_params.items() if k in ("steps", "sampler")}
+        if self.fixed_uc_preset is not None:
+            updates["uc_preset_id"] = self.fixed_uc_preset
+            updates["negative_prompt"] = self.compose_negative(self.fixed_uc_preset, "")
+            updates["characters"] = tuple(replace(c, uc="") for c in req.characters)
+        if not self.supports_cfg_rescale:
+            updates["cfg_rescale"] = 0.0
+        return replace(req, **updates)
 
 
 _UC_45F = {
@@ -208,7 +245,7 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
     # (V4.5F heavy와 동일 텍스트), noise_schedule=karras, autoSmea=false.
     # 미확정: i2i/inpaint/vibe/char_ref payload, Variety+ 시그마(var_plus_sigma=None
     # → 전송 안 함), 샘플러 전체 목록(캡처는 k_euler_ancestral만 — V4 목록 가정),
-    # curated의 api_name(전례 기반 추정 → incomplete=True 유지).
+    # curated의 api_name은 전례 기반 추정이었으나 2026-10-09 실생성으로 확인됐다.
     "naid5f": ModelSpec(
         key="naid5f",
         api_name="nai-diffusion-5-full",
@@ -229,6 +266,9 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
         # vibe / char_ref는 NovelAI 미출시라 넣지 않는다.
         supports=frozenset({"v4_prompt", "characters", "img2img", "inpaint"}),
         var_plus_sigma=None,
+        # 0ADF9AB7은 실생성 PNG로 확인(2026-10-09), 657484A5는 서드파티 자료
+        # (zer0thgear/zer0-novel-utillities PR #11)
+        source_hashes=frozenset({"657484A5", "0ADF9AB7"}),
     ),
     "naid5c": ModelSpec(
         key="naid5c",
@@ -249,9 +289,63 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
         # Curated Inpainting은 출시 공지의 "Still In Progress" 항목이라 제외
         supports=frozenset({"v4_prompt", "characters", "img2img"}),
         var_plus_sigma=None,
-        incomplete=True,
+        # 실생성 PNG로 확인(2026-10-09)
+        source_hashes=frozenset({"DB276663"}),
+    ),
+    # ── V5 Full Medium Effort (절약 모드) ──────────────────────
+    # 2026-10-08 공지 (journal.novelai.net "novelai-diffusion-v5-full-effort-toggle"):
+    # V5 Full을 14 스텝으로 증류한 저비용 모델. 스텝 14 고정, 샘플러 Euler Ancestral 고정,
+    # 커스텀 UC·UC 프리셋 변경 불가, Prompt Guidance(CFG)는 조절 가능하나 Rescale 미지원.
+    # 인페인팅도 지원한다.
+    # API 쪽은 공지에 없어 서드파티 캡처(zer0thgear/zer0-novel-utillities PR #11 — novelai.net
+    # 요청을 캡처해 필드 단위로 대조)를 근거로 했다: 웹 UI의 Effort 토글은 파라미터가 아니라
+    # **모델을 바꾼다** — "nai-diffusion-5-full-medium" (인페인팅은 "-medium-inpainting").
+    # ucPresetId="heavy" + tag_hint_uc_preset=2, UC는 Heavy 프리셋 텍스트만(캐릭터 UC도 빈 값),
+    # cfg_rescale 키는 보내지 않고 noise_schedule은 그대로 보낸다.
+    # 2026-10-09 이 앱으로 실생성 확인: 결과 PNG 메타데이터가 model_hash=70AB5786,
+    # steps=14, sampler=k_euler_ancestral, uc=Heavy 텍스트, 캐릭터 UC 빈 값,
+    # tag_hint_uc_preset=2, cfg_rescale=0(서버 기본값)으로 위 규칙과 일치했다.
+    "naid5f_medium": ModelSpec(
+        key="naid5f_medium",
+        api_name="nai-diffusion-5-full-medium",
+        params_version=4,
+        request_format="multipart",
+        build_payload=build_payload_v5,
+        build_binary_parts=build_binary_parts_v5,
+        samplers=("k_euler_ancestral",),
+        defaults={
+            "steps": 14,
+            "cfg_scale": 5.0,
+            "cfg_rescale": 0.0,
+            "sampler": "k_euler_ancestral",
+            "scheduler": "karras",
+        },
+        quality_tags=", very aesthetic, masterpiece, no text",
+        uc_presets=_UC_5,
+        supports=frozenset({"v4_prompt", "characters", "img2img", "inpaint"}),
+        var_plus_sigma=None,
+        fixed_params={"steps": 14, "sampler": "k_euler_ancestral"},
+        fixed_uc_preset="heavy",
+        supports_cfg_rescale=False,
+        # 70AB5786은 실생성으로 확인, 93F4BD30은 서드파티 자료(위 PR #11)
+        source_hashes=frozenset({"70AB5786", "93F4BD30"}),
     ),
 }
+
+
+def spec_for_source(source: str | None) -> ModelSpec | None:
+    """PNG 메타데이터의 Source/model_hash 문자열에서 모델을 알아낸다. 모르면 None.
+
+    V5는 Full·Curated·Medium의 Source 이름이 모두 "NovelAI Diffusion V5"라서
+    뒤에 붙은 8자리 해시만이 모델을 가른다.
+    """
+    if not source:
+        return None
+    tokens = {token.strip("()[],").upper() for token in source.split()}
+    for spec in MODEL_REGISTRY.values():
+        if spec.source_hashes & tokens:
+            return spec
+    return None
 
 
 def get_spec(model_key: str) -> ModelSpec:

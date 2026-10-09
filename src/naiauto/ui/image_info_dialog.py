@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..core.api.model_specs import get_spec
 from ..core.i18n.manager import I18nManager
 from ..core.metadata.naiinfo import read_metadata
 from ..core.metadata.reuse import ReusableSettings, extract_reusable
@@ -50,6 +51,8 @@ _FIELD_TARGETS: dict[str, tuple[str, ...]] = {
     "sampler": ("sampler", "scheduler"),
     "size": ("width", "height"),
     "characters": ("characters",),
+    # 모델 해시로 알아낸 모델 (모르는 해시면 줄 자체가 숨는다)
+    "model": ("model",),
 }
 
 # 긴 값은 체크박스 밑에 읽기 전용 상자로 따로 보여 준다 (V4의 이미지 정보 확인기와 같다)
@@ -185,6 +188,7 @@ class ImageInfoDialog(QDialog):
             ("scale", "image_info.field_scale"),
             ("sampler", "image_info.field_sampler"),
             ("size", "image_info.field_size"),
+            ("model", "image_info.field_model"),
         ]
         for field_name, i18n_key in fields:
             row = QWidget()
@@ -365,6 +369,7 @@ class ImageInfoDialog(QDialog):
         _row("sampler", "image_info.field_sampler", settings.sampler)
         size = f"{settings.width}x{settings.height}" if settings.width and settings.height else None
         _row("size", "image_info.field_size", size)
+        _row("model", "image_info.field_model", get_spec(settings.model).api_name if settings.model else None)
 
     def _format_summary(self, metadata: dict | None, settings: ReusableSettings) -> str:
         tr = self._i18n.get_text

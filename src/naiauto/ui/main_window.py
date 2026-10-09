@@ -683,6 +683,9 @@ class MainWindow(QMainWindow):
         """새로 추가된 캐릭터 슬롯의 프롬프트/UC 입력창에도 자동완성을 붙인다."""
         self._attach_completer(slot.prompt_edit)
         self._attach_completer(slot.uc_edit)
+        if self.current_spec().fixed_uc_preset is not None:  # 절약 모드에서 새로 생긴 슬롯도 잠근다
+            slot.uc_edit.setReadOnly(True)
+            slot.uc_edit.setToolTip(self._i18n.get_text("ui.negative_ignored_by_model"))
 
     def _detach_slot_completers(self, slot: CharacterSlot) -> None:
         """슬롯이 사라지기 전에 드롭다운을 떼어 낸다 (삭제된 편집기 참조 방지)."""
@@ -1066,6 +1069,7 @@ class MainWindow(QMainWindow):
         self.character_prompts.load_captions(self._locked_characters(preset.characters))
         self.character_prompts.set_use_coords(preset.use_coords)
         self.character_prompts.set_manual_position_override(preset.manual_position_override)
+        self._lock_fixed_settings()
 
         self.status_label.setText(self._i18n.get_text("menu.preset_applied"))
 
@@ -1105,9 +1109,24 @@ class MainWindow(QMainWindow):
         for key, spec in MODEL_REGISTRY.items():
             if not spec.ui_visible:  # V4 계열은 레지스트리에만 남기고 UI에서는 감춘다
                 continue
-            label = spec.api_name + (" ⚠" if spec.incomplete else "")
-            self.model_combo.addItem(label, userData=key)
+            self.model_combo.addItem("", userData=key)
+        self._refresh_model_labels()
         self.model_combo.blockSignals(False)
+
+    def _refresh_model_labels(self) -> None:
+        """모델 콤보 항목 이름·툴팁 (고정 설정 모델은 번역된 '절약 모드' 표시가 붙는다)."""
+        tr = self._i18n.get_text
+        for i in range(self.model_combo.count()):
+            spec = get_spec(self.model_combo.itemData(i))
+            label = spec.api_name
+            tooltip = ""
+            if spec.has_fixed_settings:
+                label += f" — {tr('ui.model_medium_label')}"
+                tooltip = tr("ui.model_medium_tooltip")
+            if spec.incomplete:
+                label += " ⚠"
+            self.model_combo.setItemText(i, label)
+            self.model_combo.setItemData(i, tooltip, Qt.ItemDataRole.ToolTipRole)
 
     def current_spec(self) -> ModelSpec:
         return get_spec(self.model_combo.currentData())
@@ -1331,6 +1350,43 @@ class MainWindow(QMainWindow):
         self.steps_spin.setValue(int(defaults.get("steps", 28)))
         self.cfg_spin.setValue(float(defaults.get("cfg_scale", 5.0)))
         self.rescale_spin.setValue(float(defaults.get("cfg_rescale", 0.0)))
+        self._lock_fixed_settings()
+
+    def _lock_fixed_settings(self) -> None:
+        """모델이 고정한 값(Medium Effort: 스텝·샘플러·Rescale·네거티브)을 위젯에 반영하고 잠근다.
+
+        값을 덮어쓴 다른 경로(설정·프리셋·메타데이터 불러오기) 뒤에도 다시 불러 화면이 실제
+        전송값과 어긋나지 않게 한다. 네거티브 입력란은 지우지 않고 읽기 전용으로만 둔다 —
+        다른 모델로 돌아가면 사용자가 쓴 내용이 그대로 살아난다. 전송값의 최종 강제는
+        `ModelSpec.apply_fixed`가 한다.
+        """
+        spec = self.current_spec()
+        tr = self._i18n.get_text
+        fixed = spec.fixed_params
+        fixed_tip = tr("ui.fixed_by_model")
+        if "steps" in fixed:
+            self.steps_spin.setValue(int(fixed["steps"]))
+        if "sampler" in fixed:
+            self.sampler_combo.setCurrentText(str(fixed["sampler"]))
+        if not spec.supports_cfg_rescale:
+            self.rescale_spin.setValue(0.0)
+        if spec.fixed_uc_preset is not None:
+            index = self.uc_preset_combo.findData(spec.fixed_uc_preset)
+            if index >= 0:
+                self.uc_preset_combo.setCurrentIndex(index)
+        for widget, locked in (
+            (self.steps_spin, "steps" in fixed),
+            (self.sampler_combo, "sampler" in fixed),
+            (self.rescale_spin, not spec.supports_cfg_rescale),
+            (self.uc_preset_combo, spec.fixed_uc_preset is not None),
+        ):
+            widget.setEnabled(not locked)
+            widget.setToolTip(fixed_tip if locked else "")
+        uc_locked = spec.fixed_uc_preset is not None
+        uc_tip = tr("ui.negative_ignored_by_model") if uc_locked else ""
+        for edit in [self.negative_edit, *(slot.uc_edit for slot in self.character_prompts.slots)]:
+            edit.setReadOnly(uc_locked)
+            edit.setToolTip(uc_tip)
 
     # ── 설정 적용/수집 ────────────────────────────────────
 
@@ -1365,6 +1421,7 @@ class MainWindow(QMainWindow):
         self.result_overlay_action.setChecked(self._settings.show_result_overlay)
         self.measure_credit_action.setChecked(self._settings.measure_credit)
         self._apply_prompts()
+        self._lock_fixed_settings()
         self._apply_prompt_font()
         self._sync_position_aspect()
         self._apply_section_states()  # Req 12.2
@@ -1710,6 +1767,11 @@ class MainWindow(QMainWindow):
 
     def apply_reusable(self, s: ReusableSettings) -> None:
         """메타데이터에서 복원한 값만 위젯에 반영한다 (None인 필드는 현재 값 유지)."""
+        if s.model is not None:
+            # 모델을 먼저 바꾼다 — 모델 변경이 스텝·샘플러를 기본값으로 되돌리므로 아래 값이 그 위에 얹힌다
+            index = self.model_combo.findData(s.model)
+            if index >= 0:
+                self.model_combo.setCurrentIndex(index)
         if s.prompt is not None:
             self.prompt_edit.setPlainText(s.prompt)
         if s.negative_prompt is not None:
@@ -1740,6 +1802,7 @@ class MainWindow(QMainWindow):
             self._select_resolution(s.width, s.height)
         if s.characters:
             self.character_prompts.load_captions(s.characters)
+        self._lock_fixed_settings()
         self.status_label.setText(self._i18n.get_text("image_info.applied"))
 
     # ── 창 닫기 ──────────────────────────────────────────
@@ -2377,6 +2440,8 @@ class MainWindow(QMainWindow):
         self.prompt_group.setTitle(tr("ui.prompt_group"))
         self.prompt_tabs.retranslate()
         self.model_label.setText(tr("ui.model"))
+        self._refresh_model_labels()
+        self._lock_fixed_settings()  # 잠금 툴팁도 번역한다
         self.resolution_panel.retranslate()
         self.ai_section.retranslate()
         self.sampler_label.setText(tr("image_options.sampler"))
