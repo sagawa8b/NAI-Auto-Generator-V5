@@ -624,6 +624,10 @@ class MainWindow(QMainWindow):
         # 이미지 정보 창 — 모드리스라 하나만 띄워 두고 파일만 갈아 끼운다
         self._image_info_dialog: ImageInfoDialog | None = None
 
+        # 절약 모드처럼 UC 프리셋을 고정하는 모델로 들어가기 전의 사용자 선택.
+        # 고정이 풀리면(다른 모델로 돌아가면) 이 값으로 되돌린다. 고정 중이 아니면 None.
+        self._uc_preset_before_lock: str | None = None
+
         # 프롬프트 어시스턴트 창 — 역시 모드리스다. 떠 있는 동안에도 프롬프트를 고치고
         # 생성을 돌릴 수 있어야 해서, 열려 있으면 앞으로 가져오기만 한다.
         # (형이 `AssistantDialog`이 아니라 `QDialog`인 이유: 그 클래스는 LLM 모듈까지
@@ -1327,9 +1331,14 @@ class MainWindow(QMainWindow):
             if current in values:
                 combo.setCurrentText(current)
         self._rebuild_resolution_catalog()
+        # 모델을 바꿔도 고른 UC 프리셋은 유지한다 (새 모델에 같은 키가 있을 때)
+        previous_uc = self.uc_preset_combo.currentData()
         self.uc_preset_combo.clear()
         for preset_key in spec.uc_presets:
             self.uc_preset_combo.addItem(preset_key, userData=preset_key)
+        previous_index = self.uc_preset_combo.findData(previous_uc)
+        if previous_index >= 0:
+            self.uc_preset_combo.setCurrentIndex(previous_index)
         # 모델이 지원하지 않는 기능은 UI가 선제적으로 막는다 (엔진 검증은 최후 방어선)
         self.character_prompts.setEnabled("characters" in spec.supports)
         supports_i2i = "img2img" in spec.supports
@@ -1370,10 +1379,7 @@ class MainWindow(QMainWindow):
             self.sampler_combo.setCurrentText(str(fixed["sampler"]))
         if not spec.supports_cfg_rescale:
             self.rescale_spin.setValue(0.0)
-        if spec.fixed_uc_preset is not None:
-            index = self.uc_preset_combo.findData(spec.fixed_uc_preset)
-            if index >= 0:
-                self.uc_preset_combo.setCurrentIndex(index)
+        self._sync_uc_preset_lock(spec.fixed_uc_preset)
         for widget, locked in (
             (self.steps_spin, "steps" in fixed),
             (self.sampler_combo, "sampler" in fixed),
@@ -1387,6 +1393,31 @@ class MainWindow(QMainWindow):
         for edit in [self.negative_edit, *(slot.uc_edit for slot in self.character_prompts.slots)]:
             edit.setReadOnly(uc_locked)
             edit.setToolTip(uc_tip)
+
+    def _sync_uc_preset_lock(self, fixed_uc: str | None) -> None:
+        """UC 프리셋 고정을 걸거나 풀고, 고정 전 사용자 선택을 기억했다가 되돌린다.
+
+        V5 Full에서는 프리셋을 none으로 두고 네거티브를 직접 쓰는 경우가 많은데, 절약 모드가
+        Heavy로 고정한 값이 Full로 돌아와서도 남으면 의도치 않게 Heavy가 붙는다.
+        고정 중에 다른 값이 들어오면(설정·프리셋·메타데이터 불러오기) 그 값을 새로 기억한다.
+        """
+        current = self.uc_preset_combo.currentData()
+        if fixed_uc is not None:
+            if self._uc_preset_before_lock is None or current != fixed_uc:
+                self._uc_preset_before_lock = current
+            target = fixed_uc
+        else:
+            target, self._uc_preset_before_lock = self._uc_preset_before_lock, None
+        if target is not None:
+            index = self.uc_preset_combo.findData(target)
+            if index >= 0:
+                self.uc_preset_combo.setCurrentIndex(index)
+
+    def _user_uc_preset(self) -> str:
+        """저장할 UC 프리셋 — 고정 중이면 화면의 고정값이 아니라 사용자가 고른 값."""
+        if self._uc_preset_before_lock is not None:
+            return self._uc_preset_before_lock
+        return self.uc_preset_combo.currentData() or "heavy"
 
     # ── 설정 적용/수집 ────────────────────────────────────
 
@@ -1487,7 +1518,7 @@ class MainWindow(QMainWindow):
         g.cfg_scale = self.cfg_spin.value()
         g.cfg_rescale = self.rescale_spin.value()
         g.quality_tags = self.quality_check.isChecked()
-        g.uc_preset = self.uc_preset_combo.currentData() or "heavy"
+        g.uc_preset = self._user_uc_preset()
         g.seed = -1 if self.seed_random_check.isChecked() else self._seed_value()
         s.batch.count = self.count_spin.value()
         s.batch.delay_seconds = self.delay_spin.value()
