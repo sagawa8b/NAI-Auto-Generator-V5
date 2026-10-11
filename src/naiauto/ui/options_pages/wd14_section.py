@@ -38,6 +38,7 @@ from ...core.wd14_tagger import (
     WD14Error,
     download_model,
     installed_models,
+    model_spec,
     runtime_error,
 )
 
@@ -225,7 +226,9 @@ class WD14ModelSection(QWidget):
         elif installed:
             self.wd14_status_label.setText(tr("options.wd14_installed", name))
         else:
-            self.wd14_status_label.setText(tr("options.wd14_not_installed"))
+            spec = model_spec(name)
+            size = f"{spec.size_mb:,}" if spec is not None else "?"
+            self.wd14_status_label.setText(tr("options.wd14_not_installed", size))
         self.wd14_download_button.setEnabled(
             bool(name) and not installed and not busy and name in KNOWN_MODELS
         )

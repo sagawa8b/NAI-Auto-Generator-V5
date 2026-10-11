@@ -4,6 +4,18 @@
 SmilingWolf의 WD 태거는 **BGR · 0–255 · 정사각 패딩** 입력을 받는다. 여기서 그
 규칙을 지키지 않으면 모델은 돌지만 결과 태그가 엉뚱해진다.
 
+WD 말고도 같은 "ONNX + 태그 CSV" 모양인 태거를 쓸 수 있다 (v0.12.0). 이 모델들은
+입력 규칙이 다르다 — **RGB · NCHW · (x/255 − 0.5)/0.5 · 비율 유지 리사이즈 + 패딩**:
+
+- PixAI Tagger v1.0 (`pixai-labs`) — 1008×1008, 검은 패딩. 공식 저장소에는 safetensors뿐이라
+  ONNX 변환본(`Mexes/pixai-tagger-v1.0-onnx-fp32-fp16-int8`, FP32)을 받는다.
+- OppaiOracle V1.1 (`Grio43`) — 448×448, 회색(114) 패딩, 패딩 위치를 알려 주는
+  `padding_mask` 입력이 하나 더 있다.
+
+어느 규칙을 쓸지는 **모델의 입력 모양**으로 정한다 (채널이 앞에 있으면 NCHW 계열). 그래서
+목록에 없는 변환본을 폴더에 직접 넣어도 돈다. 패딩 색처럼 모양으로 알 수 없는 값만
+`ModelSpec`에서 가져온다.
+
 onnxruntime과 numpy는 이 기능에서만 쓴다. 모듈을 import하는 것만으로 numpy를
 요구하지 않도록(옵션 창은 모델 목록만 보려고 이 모듈을 읽는다) 무거운 import는
 함수 안에서 한다.
@@ -13,7 +25,7 @@ from __future__ import annotations
 
 import csv
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -28,27 +40,148 @@ logger = logging.getLogger(__name__)
 #: 모델이 입력 크기를 알려 주지 않을 때 쓰는 값 (WD14 계열은 모두 448이다).
 DEFAULT_MODEL_INPUT_SIZE = 448
 
-#: 옵션 창에서 고르고 내려받을 수 있는 모델 (V4의 `LIST_MODEL`과 같은 목록, 최신순).
-KNOWN_MODELS: tuple[str, ...] = (
-    "wd-swinv2-tagger-v3",
-    "wd-v1-4-moat-tagger-v2",
-    "wd-v1-4-convnextv2-tagger-v2",
-    "wd-v1-4-convnext-tagger-v2",
-    "wd-v1-4-vit-tagger-v2",
-    "wd-v1-4-convnext-tagger",
+#: 모델 파일은 HuggingFace에서 받는다. `{repo}`는 저장소, `{file}`은 그 안의 경로.
+DOWNLOAD_URL = "https://huggingface.co/{repo}/resolve/main/{file}"
+
+#: 출력 길이(short|medium|long) → 일반 태그 임계값. SmilingWolf의 wd-tagger 데모처럼
+#: 임계값을 낮추면 더 많은 태그가 통과(길게), 높이면 적게 통과(짧게)한다. "중간"은 기존
+#: 기본값 0.35다 (V4·기존 동작과 같다).
+_WD_THRESHOLDS = {"short": 0.5, "medium": 0.35, "long": 0.25}
+
+
+@dataclass(frozen=True)
+class ModelSpec:
+    """내려받을 수 있는 태거 모델 한 종류.
+
+    Attributes
+    ----------
+    name : str
+        옵션에 보이는 이름이자 폴더에 저장할 파일 이름(`<name>.onnx` + `<name>.csv`).
+    repo : str
+        HuggingFace 저장소 (`owner/repo`).
+    model_file, tags_file : str
+        저장소 안의 ONNX 모델·태그 CSV 경로.
+    size_mb : int
+        모델 파일 크기 (안내 문구용, 대략).
+    thresholds : dict[str, float]
+        출력 길이 → 일반 태그 임계값. 모델마다 점수 분포가 달라 같은 0.35가 어떤 모델에선
+        태그 몇 개, 어떤 모델에선 수십 개가 된다 — 그래서 모델별로 둔다.
+    character_threshold : float
+        캐릭터·작품(copyright) 태그 임계값.
+    pad_rgb : tuple[int, int, int]
+        NCHW 계열 모델에서 정사각형을 채울 색 (학습 때 쓴 색과 같아야 한다).
+    """
+
+    name: str
+    repo: str
+    model_file: str = "model.onnx"
+    tags_file: str = "selected_tags.csv"
+    size_mb: int = 0
+    thresholds: dict[str, float] = field(default_factory=lambda: dict(_WD_THRESHOLDS))
+    character_threshold: float = 0.85
+    pad_rgb: tuple[int, int, int] = (0, 0, 0)
+
+
+def _wd(name: str, size_mb: int) -> ModelSpec:
+    return ModelSpec(name=name, repo=f"SmilingWolf/{name}", size_mb=size_mb)
+
+
+#: 옵션 창에서 고르고 내려받을 수 있는 모델. WD 목록은 V4의 `LIST_MODEL`과 같다 (최신순).
+MODEL_SPECS: tuple[ModelSpec, ...] = (
+    _wd("wd-swinv2-tagger-v3", 470),
+    _wd("wd-v1-4-moat-tagger-v2", 330),
+    _wd("wd-v1-4-convnextv2-tagger-v2", 390),
+    _wd("wd-v1-4-convnext-tagger-v2", 390),
+    _wd("wd-v1-4-vit-tagger-v2", 370),
+    _wd("wd-v1-4-convnext-tagger", 380),
+    # PixAI Tagger v1.0 — 원본 카드의 권장값(일반 0.17 · 캐릭터 0.27 · 작품 0.24)을 "중간"으로.
+    ModelSpec(
+        name="pixai-tagger-v1.0",
+        repo="Mexes/pixai-tagger-v1.0-onnx-fp32-fp16-int8",
+        size_mb=1900,
+        thresholds={"short": 0.3, "medium": 0.17, "long": 0.12},
+        character_threshold=0.27,
+        pad_rgb=(0, 0, 0),
+    ),
+    # OppaiOracle V1.1 — 점수가 전반적으로 높게 나오는 모델이다. 실제 이미지로 재 보니 0.35에선
+    # 수백 개가 통과했고, 카드의 P=R 지점(0.79)이 WD의 0.35와 비슷한 분량을 냈다. 태그 CSV에
+    # 분류가 없어(전부 0) 캐릭터 임계값은 쓰이지 않는다.
+    ModelSpec(
+        name="oppai-oracle-v1.1",
+        repo="Grio43/OppaiOracle",
+        model_file="V1.1_onnx/model.onnx",
+        tags_file="V1.1_onnx/selected_tags.csv",
+        size_mb=950,
+        thresholds={"short": 0.88, "medium": 0.79, "long": 0.74},
+        character_threshold=0.85,
+        pad_rgb=(114, 114, 114),
+    ),
 )
 
-#: 모델 파일은 HuggingFace의 SmilingWolf 저장소에서 받는다 (V4와 같은 주소).
-DOWNLOAD_URL = "https://huggingface.co/SmilingWolf/{model}/resolve/main/{file}"
+#: 모델 이름만 (옵션 창 목록 순서).
+KNOWN_MODELS: tuple[str, ...] = tuple(spec.name for spec in MODEL_SPECS)
+
+
+def model_spec(name: str) -> ModelSpec | None:
+    """이름(`.onnx`가 붙어 있어도 된다)에 해당하는 모델 정보. 목록에 없으면 None."""
+    stem = name[:-5] if name.endswith(".onnx") else name
+    return next((spec for spec in MODEL_SPECS if spec.name == stem), None)
+
 
 #: 폴더에서 먼저 찾아보는 관습적인 파일 이름.
 _PREFERRED_MODEL_NAME = "model.onnx"
 _PREFERRED_TAGS_NAMES = ("selected_tags.csv", "tags.csv")
 
-#: selected_tags.csv의 category 열 값.
+#: selected_tags.csv의 category 열 값 (WD·PixAI 공통 — 단부루의 분류 번호를 따른다).
 _CATEGORY_GENERAL = "0"
+_CATEGORY_ARTIST = "1"  # PixAI는 "style"이라 부르지만 실제로는 작가 이름이다
+_CATEGORY_COPYRIGHT = "3"
 _CATEGORY_CHARACTER = "4"
+_CATEGORY_META = "5"  # highres, absurdres, official_art 같은 게시물 정보
 _CATEGORY_RATING = "9"
+
+#: 프롬프트에 넣지 않는 분류. 작가 태그는 NAI에서 `artist:` 문법으로 따로 쓰는 것이라
+#: 이름만 섞여 들어가면 엉뚱하게 작용한다 (WD 태거는 애초에 작가를 내지 않는다).
+_SKIPPED_CATEGORIES = frozenset({_CATEGORY_ARTIST, _CATEGORY_META, _CATEGORY_RATING})
+
+#: 분류가 없는 CSV에서도 걸러야 하는 태그. OppaiOracle은 전부 category 0이고 그 안에
+#: 자리표시 토큰과 `rating:*` 태그가 섞여 있다.
+_SPECIAL_TOKENS = frozenset({"<PAD>", "<UNK>"})
+_RATING_PREFIX = "rating:"
+
+#: 분류가 없는 CSV에서 메타 태그를 대신 거르는 목록 (밑줄은 공백으로 바꾼 형태). 게시물
+#: 정보일 뿐 그림 내용이 아닌 것만 둔다 — `watercolor (medium)`처럼 화풍을 말하는 메타
+#: 태그는 프롬프트에 쓸모가 있어 남긴다.
+_META_TAGS = frozenset(
+    {
+        "highres",
+        "absurdres",
+        "incredibly absurdres",
+        "lowres",
+        "commentary",
+        "commentary request",
+        "english commentary",
+        "translated",
+        "check translation",
+        "translation request",
+        "second-party source",
+        "skeb commission",
+        "pixel-perfect duplicate",
+        "duplicate",
+        "md5 mismatch",
+        "resolution mismatch",
+        "bad id",
+        "bad pixiv id",
+        "bad twitter id",
+        "protected link",
+        "inactive account",
+        "alt text",
+        "making-of available",
+        "photoshop (medium)",
+        "clip studio paint (medium)",
+        "painttool sai (medium)",
+    }
+)
 
 _DOWNLOAD_CHUNK = 1 << 16
 _DOWNLOAD_TIMEOUT = 60
@@ -177,7 +310,7 @@ def download_model(
     Parameters
     ----------
     name : str
-        `KNOWN_MODELS`에 있는 모델 이름.
+        `KNOWN_MODELS`에 있는 모델 이름. 받을 저장소·파일은 `MODEL_SPECS`가 정한다.
     directory : Path
         받을 폴더. 없으면 만든다.
     on_progress : Callable[[int, int], None] | None
@@ -190,7 +323,8 @@ def download_model(
     tuple[Path, Path]
         (모델 경로, 태그 CSV 경로).
     """
-    if name not in KNOWN_MODELS:
+    spec = model_spec(name) if name in KNOWN_MODELS else None
+    if spec is None:
         raise WD14Error(f"Unknown model: {name}")
 
     try:
@@ -199,8 +333,10 @@ def download_model(
         raise WD14Error(f"Cannot create model folder: {exc}") from exc
 
     model_path, tags_path = model_files(directory, name)
-    _download_file(DOWNLOAD_URL.format(model=name, file="selected_tags.csv"), tags_path, None, should_cancel)
-    _download_file(DOWNLOAD_URL.format(model=name, file="model.onnx"), model_path, on_progress, should_cancel)
+    _download_file(DOWNLOAD_URL.format(repo=spec.repo, file=spec.tags_file), tags_path, None, should_cancel)
+    _download_file(
+        DOWNLOAD_URL.format(repo=spec.repo, file=spec.model_file), model_path, on_progress, should_cancel
+    )
     logger.info("downloaded WD14 model %s to %s", name, directory)
     return model_path, tags_path
 
@@ -237,22 +373,19 @@ def _download_file(url: str, destination: Path, on_progress, should_cancel) -> N
         raise WD14Error(f"Cannot save {destination.name}: {exc}") from exc
 
 
-#: 출력 길이 → 일반 태그 임계값 (General Tags Threshold). SmilingWolf의 wd-tagger 데모처럼
-#: 임계값을 낮추면 더 많은 태그가 통과(길게), 높이면 적게 통과(짧게)한다. "중간"은 기존
-#: 기본값 0.35다 (V4·기존 동작과 같다).
-_LENGTH_THRESHOLDS = {
-    "short": 0.5,
-    "medium": 0.35,
-    "long": 0.25,
-}
-
-#: 기본 일반 태그 임계값 (길이 "중간"과 같다).
+#: 기본 일반 태그 임계값 (WD 모델의 길이 "중간"과 같다).
 DEFAULT_TAG_THRESHOLD = 0.35
 
 
-def threshold_for_length(length: str) -> float:
-    """출력 길이(short|medium|long)에 해당하는 일반 태그 임계값. 알 수 없으면 중간값."""
-    return _LENGTH_THRESHOLDS.get(length, DEFAULT_TAG_THRESHOLD)
+def threshold_for_length(length: str, model: str = "") -> float:
+    """출력 길이(short|medium|long)에 해당하는 일반 태그 임계값. 알 수 없으면 중간값.
+
+    `model`(모델 이름 또는 파일 이름)이 `MODEL_SPECS`에 있으면 그 모델의 값을, 아니면
+    WD 기준값을 쓴다.
+    """
+    spec = model_spec(model) if model else None
+    thresholds = spec.thresholds if spec is not None else _WD_THRESHOLDS
+    return thresholds.get(length, thresholds["medium"])
 
 
 def append_tags_to_prompt(current_prompt: str, tags: list[str]) -> str:
@@ -292,11 +425,14 @@ class WD14Tagger:
     tags_path : Path
         태그 CSV 경로. SmilingWolf의 `selected_tags.csv`(tag_id,name,category,count)를
         쓰지만, category 열이 없는 CSV도 읽는다 (그때는 전부 일반 태그로 본다).
+
+    모델 파일 이름이 `MODEL_SPECS`에 있으면 그 모델의 패딩 색·캐릭터 임계값을 쓴다.
     """
 
     def __init__(self, model_path: Path, tags_path: Path) -> None:
         self._model_path = model_path
         self._tags_path = tags_path
+        self._spec = model_spec(model_path.stem)
         self._session = None  # lazy-loaded ONNX InferenceSession
         self._tags: list[str] = []
         self._categories: list[str] = []
@@ -309,6 +445,11 @@ class WD14Tagger:
     def model_path(self) -> Path:
         """쓰고 있는 모델 파일 경로 (UI가 안내 문구에 그대로 보여 준다)."""
         return self._model_path
+
+    @property
+    def model_name(self) -> str:
+        """모델 파일 이름(확장자 뺀 것) — `threshold_for_length`에 그대로 넘긴다."""
+        return self._model_path.stem
 
     @property
     def has_model(self) -> bool:
@@ -324,12 +465,12 @@ class WD14Tagger:
         image: Image.Image,
         threshold: float = 0.35,
         max_tags: int = 100,
-        character_threshold: float = 0.85,
+        character_threshold: float | None = None,
     ) -> list[TagPrediction]:
         """이미지에서 태그를 예측한다 (V4와 같은 기준).
 
-        일반 태그는 `threshold`, 캐릭터 태그는 `character_threshold`를 넘어야 하고,
-        등급(rating) 태그는 프롬프트에 쓸 것이 아니므로 아예 제외한다.
+        일반 태그는 `threshold`, 캐릭터·작품 태그는 `character_threshold`를 넘어야 하고,
+        등급(rating)·작가·메타 태그는 프롬프트에 쓸 것이 아니므로 아예 제외한다.
 
         Parameters
         ----------
@@ -339,8 +480,8 @@ class WD14Tagger:
             일반 태그 최소 확률 (0.01–1.0).
         max_tags : int
             돌려줄 최대 개수.
-        character_threshold : float
-            캐릭터 태그 최소 확률.
+        character_threshold : float | None
+            캐릭터·작품 태그 최소 확률. None이면 모델별 기본값 (WD는 0.85).
 
         Returns
         -------
@@ -352,6 +493,8 @@ class WD14Tagger:
         WD14Error
             모델 손상, 추론 실패 등.
         """
+        if character_threshold is None:
+            character_threshold = self._spec.character_threshold if self._spec else 0.85
         threshold = max(0.01, min(1.0, threshold))
         character_threshold = max(0.01, min(1.0, character_threshold))
 
@@ -359,22 +502,37 @@ class WD14Tagger:
         if not self._tags:
             self._load_tags()
 
-        input_meta = self._session.get_inputs()[0]
-        input_array = self.preprocess(image, self.input_size())
+        inputs = self._session.get_inputs()
+        size = self.input_size()
+        if self.channels_first():
+            pixels, padding = self.preprocess_nchw(image, size)
+            feed = {inputs[0].name: pixels}
+            if len(inputs) > 1:
+                # OppaiOracle: 패딩한 자리를 True로 알려 주는 두 번째 입력
+                feed[inputs[1].name] = padding
+        else:
+            feed = {inputs[0].name: self.preprocess(image, size)}
 
         try:
             output_name = self._session.get_outputs()[0].name
-            results = self._session.run([output_name], {input_meta.name: input_array})
+            results = self._session.run([output_name], feed)
         except Exception as exc:
             raise WD14Error(f"Inference failed: {exc}") from exc
 
         return self._parse_output(results[0], threshold, max_tags, character_threshold)
 
+    def channels_first(self) -> bool:
+        """입력이 NCHW(`[N, 3, H, W]`)인가. WD는 NHWC(`[N, H, W, 3]`)다."""
+        self._ensure_session()
+        shape = self._session.get_inputs()[0].shape
+        return len(shape) == 4 and shape[1] == 3 and shape[3] != 3
+
     def input_size(self) -> int:
         """모델이 요구하는 한 변 크기. 모델이 알려 주지 않으면 448."""
         self._ensure_session()
         shape = self._session.get_inputs()[0].shape
-        size = shape[1] if len(shape) > 1 else None
+        index = 2 if self.channels_first() else 1
+        size = shape[index] if len(shape) > index else None
         return size if isinstance(size, int) and size > 0 else DEFAULT_MODEL_INPUT_SIZE
 
     def preprocess(self, image: Image.Image, target_size: int = DEFAULT_MODEL_INPUT_SIZE) -> np.ndarray:
@@ -397,14 +555,7 @@ class WD14Tagger:
         """
         import numpy as np
 
-        if image.mode == "RGBA":
-            # 투명 부분은 흰색 위에 합성한다 (그냥 convert하면 검게 깔린다)
-            canvas = Image.new("RGBA", image.size, (255, 255, 255, 255))
-            canvas.alpha_composite(image)
-            image = canvas.convert("RGB")
-        elif image.mode != "RGB":
-            image = image.convert("RGB")
-
+        image = _flatten_onto_white(image)
         width, height = image.size
         side = max(width, height)
         square = Image.new("RGB", (side, side), (255, 255, 255))
@@ -414,6 +565,41 @@ class WD14Tagger:
         array = np.asarray(square, dtype=np.float32)
         array = array[:, :, ::-1]  # RGB → BGR
         return np.expand_dims(array, axis=0)
+
+    def preprocess_nchw(
+        self, image: Image.Image, target_size: int = DEFAULT_MODEL_INPUT_SIZE
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """PixAI·OppaiOracle 계열이 받는 형태로 변환한다.
+
+        투명은 흰색 위에 합성 → 긴 변을 `target_size`에 맞춰 BICUBIC 리사이즈(비율 유지) →
+        패딩 색 캔버스 가운데에 붙임 → RGB, (x/255 − 0.5)/0.5 → NCHW.
+
+        Returns
+        -------
+        tuple[np.ndarray, np.ndarray]
+            ((1, 3, S, S) float32 −1–1, (1, S, S) bool — 패딩한 자리가 True).
+        """
+        import numpy as np
+
+        image = _flatten_onto_white(image)
+        width, height = image.size
+        scale = target_size / max(width, height)
+        new_w = max(1, min(target_size, round(width * scale)))
+        new_h = max(1, min(target_size, round(height * scale)))
+        resized = image.resize((new_w, new_h), Image.BICUBIC)
+
+        pad = self._spec.pad_rgb if self._spec else (0, 0, 0)
+        canvas = Image.new("RGB", (target_size, target_size), pad)
+        left, top = (target_size - new_w) // 2, (target_size - new_h) // 2
+        canvas.paste(resized, (left, top))
+
+        array = np.asarray(canvas, dtype=np.float32) / 255.0
+        array = (array - 0.5) / 0.5
+        pixels = np.expand_dims(array.transpose(2, 0, 1), axis=0)
+
+        padding = np.ones((1, target_size, target_size), dtype=bool)
+        padding[0, top : top + new_h, left : left + new_w] = False
+        return np.ascontiguousarray(pixels, dtype=np.float32), padding
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -509,15 +695,29 @@ class WD14Tagger:
         predictions: list[TagPrediction] = []
         for i in range(num_scores):
             category = self._categories[i] if i < len(self._categories) else _CATEGORY_GENERAL
-            if category == _CATEGORY_RATING:
+            if category in _SKIPPED_CATEGORIES:
                 continue  # 등급 태그는 프롬프트에 넣을 것이 아니다 (V4와 같다)
-            limit = character_threshold if category == _CATEGORY_CHARACTER else threshold
+            tag = self._tags[i]
+            if tag in _SPECIAL_TOKENS or tag in _META_TAGS or tag.startswith(_RATING_PREFIX):
+                continue
+            strict = category in (_CATEGORY_CHARACTER, _CATEGORY_COPYRIGHT)
+            limit = character_threshold if strict else threshold
             confidence = float(scores[i])
             if confidence >= limit:
-                predictions.append(TagPrediction(tag=self._tags[i], confidence=confidence))
+                predictions.append(TagPrediction(tag=tag, confidence=confidence))
 
         predictions.sort(key=lambda p: p.confidence, reverse=True)
         return predictions[:max_tags]
+
+
+def _flatten_onto_white(image: Image.Image) -> Image.Image:
+    """RGB로 맞춘다. 투명 부분은 흰색 위에 합성한다 (그냥 convert하면 검게 깔린다)."""
+    if image.mode in ("RGBA", "LA", "PA") or (image.mode == "P" and "transparency" in image.info):
+        rgba = image.convert("RGBA")
+        canvas = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+        canvas.alpha_composite(rgba)
+        return canvas.convert("RGB")
+    return image if image.mode == "RGB" else image.convert("RGB")
 
 
 def _normalize_tag(raw: str) -> str:

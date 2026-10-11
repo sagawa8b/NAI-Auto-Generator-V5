@@ -68,7 +68,9 @@ logger = logging.getLogger(__name__)
 
 _PREVIEW_SIZE = 200  # 미리보기 한 변 (논리 픽셀)
 _IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
-_WD_INFERENCE_TIMEOUT = 30  # WD14 추론 타임아웃 (초)
+#: WD14 추론 타임아웃 (초). 첫 생성은 모델 적재까지 포함한다 — PixAI v1.0(1008px, 1.9GB)은
+#: CPU에서 적재 10초대 + 추론 수십 초가 걸릴 수 있어 넉넉히 둔다.
+_WD_INFERENCE_TIMEOUT = 180
 
 #: 모드 식별자 (설정·라디오와 공유).
 MODE_WD = "wd_tagger"
@@ -182,7 +184,9 @@ class _WDWorker(QThread):
 
     def _on_timeout(self) -> None:
         self._timed_out = True
-        self.failed.emit("wd14.error", "WD14 inference timed out (exceeded 30 seconds).")
+        self.failed.emit(
+            "wd14.error", f"WD14 inference timed out (exceeded {_WD_INFERENCE_TIMEOUT} seconds)."
+        )
 
 
 class AssistantDialog(QDialog):
@@ -196,8 +200,13 @@ class AssistantDialog(QDialog):
     config : LMStudioConfig
         LM Studio 연결·타임아웃·시스템 프롬프트 (MainWindow가 설정에서 만든다).
     i18n : I18nManager
-    wd_tagger_factory : Callable[[], WD14Tagger] | None
-        WD 모드에서 호출해 태거를 만든다. None이면 WD 모드는 잠긴다 (모델/런타임 부재).
+    wd_tagger_factory : Callable[[str], WD14Tagger] | None
+        WD 모드에서 고른 모델 이름으로 호출해 태거를 만든다. None이면 WD 모드는 잠긴다
+        (모델/런타임 부재).
+    wd_models : Sequence[str]
+        WD 모드의 모델 콤보에 넣을 이름 (모델 폴더에 설치된 것).
+    wd_model : str
+        처음 고를 WD 모델 이름 (목록에 없으면 첫 번째).
     wd_unavailable_reason : str
         WD를 쓸 수 없을 때 상태 문구로 보여줄 이유 (모델 없음/런타임 없음).
     default_apply_mode / default_style / default_mode : 기본 선택값.
@@ -205,6 +214,8 @@ class AssistantDialog(QDialog):
 
     #: (prompt, negative_prompt, mode) — mode ∈ {"append", "replace"}.
     prompt_ready = Signal(str, str, str)
+    #: WD 모델 콤보에서 다른 모델을 골랐다 (모델 이름). 메인 창이 설정에 저장한다.
+    wd_model_changed = Signal(str)
 
     def __init__(
         self,
@@ -212,6 +223,8 @@ class AssistantDialog(QDialog):
         i18n: I18nManager,
         wd_tagger_factory=None,
         wd_unavailable_reason: str = "",
+        wd_models=(),
+        wd_model: str = "",
         default_apply_mode: str = "append",
         default_style: str = STYLE_NATURAL,
         default_mode: str = MODE_LLM_TAGGER,
@@ -223,6 +236,12 @@ class AssistantDialog(QDialog):
         self._i18n = i18n
         self._wd_tagger_factory = wd_tagger_factory
         self._wd_unavailable_reason = wd_unavailable_reason
+        self._wd_models = list(wd_models)
+        self._wd_model = wd_model
+        #: 마지막으로 만든 WD 태거 (모델 이름, 태거). 같은 모델이면 다시 쓴다 — 큰 모델은
+        #: 불러오는 데만 십여 초가 걸려, 생성할 때마다 새로 만들면 매번 그만큼 기다린다.
+        #: 하나만 들고 있는 것은 모델 하나가 메모리를 GB 단위로 쓰기 때문이다.
+        self._wd_tagger_cache: tuple[str, WD14Tagger] | None = None
         self._default_apply_mode = default_apply_mode
         self._default_style = default_style
         self._default_length = default_length
@@ -309,6 +328,19 @@ class AssistantDialog(QDialog):
         model_row.addWidget(self._model_combo, 1)
         model_row.addWidget(self._refresh_btn)
         layout.addLayout(model_row)
+
+        # WD 모델 — WD 모드에서만 LM Studio 모델 줄 대신 보인다. 폴더에 설치된 모델만 넣는다
+        # (내려받기는 옵션 → 폴더 경로에서). 태거는 생성할 때마다 고른 모델로 만든다.
+        self._wd_model_label = QLabel(tr("assistant.wd_model"), self)
+        self._wd_model_combo = QComboBox(self)
+        self._wd_model_combo.setToolTip(tr("assistant.wd_model_tip"))
+        for name in self._wd_models:
+            self._wd_model_combo.addItem(name, name)
+        index = self._wd_model_combo.findData(self._wd_model)
+        self._wd_model_combo.setCurrentIndex(max(0, index))
+        self._wd_model_combo.currentIndexChanged.connect(self._on_wd_model_changed)
+        model_row.insertWidget(0, self._wd_model_label)
+        model_row.insertWidget(1, self._wd_model_combo, 1)
 
         # 출력 스타일
         style_row = QHBoxLayout()
@@ -427,12 +459,15 @@ class AssistantDialog(QDialog):
         is_wd = mode == MODE_WD
         is_llm = not is_wd
 
-        # WD: 텍스트 무시(비활성), 모델·스타일 비활성, 네거티브 숨김.
+        # WD: 텍스트 무시(비활성), 모델 줄은 WD 모델로 바꿔 보임, 스타일 비활성, 네거티브 숨김.
         self._text_edit.setEnabled(is_llm)
         self._text_title.setEnabled(is_llm)
-        self._model_label.setEnabled(is_llm)
-        self._model_combo.setEnabled(is_llm)
-        self._refresh_btn.setEnabled(is_llm)
+        self._model_label.setVisible(is_llm)
+        self._model_combo.setVisible(is_llm)
+        self._refresh_btn.setVisible(is_llm)
+        self._wd_model_label.setVisible(is_wd)
+        self._wd_model_combo.setVisible(is_wd)
+        self._wd_model_combo.setEnabled(self._wd_model_combo.count() > 0)
         self._style_label.setEnabled(is_llm)
         self._natural_radio.setEnabled(is_llm)
         self._danbooru_radio.setEnabled(is_llm)
@@ -570,19 +605,35 @@ class AssistantDialog(QDialog):
 
     def _start_wd(self, image: bytes) -> None:
         tr = self._i18n.get_text
+        name = self._selected_wd_model()
         try:
-            tagger = self._wd_tagger_factory()
+            if self._wd_tagger_cache is not None and self._wd_tagger_cache[0] == name:
+                tagger = self._wd_tagger_cache[1]
+            else:
+                self._wd_tagger_cache = None
+                tagger = self._wd_tagger_factory(name)
+                self._wd_tagger_cache = (name, tagger)
         except Exception as e:  # noqa: BLE001
             logger.warning("WD14 tagger init failed: %s", e)
             self._status_label.setText(tr("assistant.wd_unavailable"))
             return
         self._set_busy(True)
         self._status_label.setText(tr("assistant.generating"))
-        worker = _WDWorker(tagger, image, threshold_for_length(self._selected_length()), self)
+        threshold = threshold_for_length(self._selected_length(), tagger.model_name)
+        worker = _WDWorker(tagger, image, threshold, self)
         worker.finished_ok.connect(self._on_done)
         worker.failed.connect(self._on_failed)
         self._worker = worker
         worker.start()
+
+    def _selected_wd_model(self) -> str:
+        """WD 모델 콤보에서 고른 모델 이름 (목록이 비었으면 "" — 폴더에서 찾아 쓴다)."""
+        return self._wd_model_combo.currentData() or ""
+
+    def _on_wd_model_changed(self, _index: int) -> None:
+        name = self._selected_wd_model()
+        if name:
+            self.wd_model_changed.emit(name)
 
     def _selected_length(self) -> str:
         """현재 선택된 출력 길이 (short|medium|long)."""

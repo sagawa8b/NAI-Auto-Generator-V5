@@ -624,9 +624,9 @@ class MainWindow(QMainWindow):
         # 이미지 정보 창 — 모드리스라 하나만 띄워 두고 파일만 갈아 끼운다
         self._image_info_dialog: ImageInfoDialog | None = None
 
-        # 절약 모드처럼 UC 프리셋을 고정하는 모델로 들어가기 전의 사용자 선택.
-        # 고정이 풀리면(다른 모델로 돌아가면) 이 값으로 되돌린다. 고정 중이 아니면 None.
-        self._uc_preset_before_lock: str | None = None
+        # 절약 모드처럼 값을 고정하는 모델로 들어가기 전의 사용자 값 {"steps": 28, ...}.
+        # 고정이 풀리면(다른 모델로 돌아가면) 이 값으로 되돌린다. 고정 중인 항목만 키가 있다.
+        self._before_lock: dict[str, object] = {}
 
         # 프롬프트 어시스턴트 창 — 역시 모드리스다. 떠 있는 동안에도 프롬프트를 고치고
         # 생성을 돌릴 수 있어야 해서, 열려 있으면 앞으로 가져오기만 한다.
@@ -795,12 +795,14 @@ class MainWindow(QMainWindow):
             system_prompt=cfg.system_prompt,
             prompts=prompts,
         )
-        factory, reason = self._wd_tagger_factory()
+        factory, reason, wd_models, wd_model = self._wd_tagger_factory()
         dialog = AssistantDialog(
             config=config,
             i18n=self._i18n,
             wd_tagger_factory=factory,
             wd_unavailable_reason=reason,
+            wd_models=wd_models,
+            wd_model=wd_model,
             default_apply_mode=cfg.default_apply_mode,
             default_style=cfg.default_style,
             default_mode=cfg.default_mode,
@@ -808,6 +810,7 @@ class MainWindow(QMainWindow):
             parent=self,
         )
         dialog.prompt_ready.connect(self._on_assistant_prompt_ready)
+        dialog.wd_model_changed.connect(self._on_assistant_wd_model_changed)
         # 닫힌 창은 버리고 다시 만든다 — 그래야 그 사이 옵션에서 바꾼 LM Studio 설정이
         # 다음에 열 때 반영된다.
         if self._assistant_dialog is not None:
@@ -818,27 +821,42 @@ class MainWindow(QMainWindow):
         dialog.activateWindow()
 
     def _wd_tagger_factory(self):
-        """(factory, reason) 반환. WD를 쓸 수 있으면 태거를 만드는 콜러블, 아니면 (None, 이유).
+        """(factory, reason, 모델 목록, 고른 모델) 반환.
+
+        WD를 쓸 수 있으면 factory는 모델 이름을 받아 태거를 만드는 콜러블이고, 아니면 None과
+        이유를 준다. 모델 목록은 모델 폴더에 설치된 것(어시스턴트 창의 WD 모델 콤보)이고,
+        고른 모델은 옵션의 `wd14_model` — 비었거나 없으면 폴더에서 고른 것이다.
 
         태거 생성을 지연 콜러블로 넘기는 이유: 창을 열 때가 아니라 WD 모드에서 실제로
         생성을 누를 때 ONNX 세션을 만들도록 해, LLM만 쓰는 사용자는 비용을 치르지 않는다.
         """
-        from ..core.wd14_tagger import resolve_model_files, runtime_error
+        from ..core.wd14_tagger import installed_models, resolve_model_files, runtime_error
 
         tr = self._i18n.get_text
+        directory = self._settings.wd14_dir_path()
+        models = installed_models(directory)
         failure = runtime_error()
         if failure:
-            return None, tr("errors.wd14_runtime_missing", failure)
+            return None, tr("errors.wd14_runtime_missing", failure), models, ""
 
-        directory = self._settings.wd14_dir_path()
         model_path, tags_path = resolve_model_files(directory, self._settings.wd14_model)
         if model_path is None or tags_path is None:
             missing = "*.onnx" if model_path is None else "*.csv"
-            return None, tr("errors.wd14_model_missing", missing, str(directory))
+            return None, tr("errors.wd14_model_missing", missing, str(directory)), models, ""
 
-        from ..core.wd14_tagger import WD14Tagger
+        from ..core.wd14_tagger import WD14Error, WD14Tagger
 
-        return (lambda: WD14Tagger(model_path=model_path, tags_path=tags_path)), ""
+        def factory(name: str) -> WD14Tagger:
+            model, tags = resolve_model_files(directory, name)
+            if model is None or tags is None:
+                raise WD14Error(tr("errors.wd14_model_missing", name or "*.onnx", str(directory)))
+            return WD14Tagger(model_path=model, tags_path=tags)
+
+        return factory, "", models, model_path.stem
+
+    def _on_assistant_wd_model_changed(self, name: str) -> None:
+        """어시스턴트 창에서 고른 WD 모델을 옵션에도 남긴다 (다음에 열 때 그대로)."""
+        self._settings.wd14_model = name
 
     def _on_assistant_prompt_ready(self, prompt: str, negative: str, mode: str) -> None:
         """생성된 프롬프트를 프롬프트/네거티브 칸에 반영한다 (mode: append|replace)."""
@@ -1321,15 +1339,19 @@ class MainWindow(QMainWindow):
 
     def _on_model_changed(self) -> None:
         spec = self.current_spec()
-        for combo, values in (
-            (self.sampler_combo, spec.samplers),
-            (self.scheduler_combo, spec.schedulers),
+        # 콤보를 다시 채우기 전에 사용자 값을 잡아 둔다 — 절약 모드 콤보에는 Euler Ancestral만
+        # 있어서, 채운 뒤에 읽으면 고르던 샘플러를 잃는다.
+        previous = self._lockable_values()
+        defaults = spec.defaults
+        for combo, values, key in (
+            (self.sampler_combo, spec.samplers, "sampler"),
+            (self.scheduler_combo, spec.schedulers, "scheduler"),
         ):
             current = combo.currentText()
             combo.clear()
             combo.addItems(list(values))
-            if current in values:
-                combo.setCurrentText(current)
+            # 모델을 바꿔도 고르던 값은 유지하고, 새 모델에 없을 때만 기본값을 쓴다
+            combo.setCurrentText(current if current in values else str(defaults.get(key, "")))
         self._rebuild_resolution_catalog()
         # 모델을 바꿔도 고른 UC 프리셋은 유지한다 (새 모델에 같은 키가 있을 때)
         previous_uc = self.uc_preset_combo.currentData()
@@ -1353,39 +1375,72 @@ class MainWindow(QMainWindow):
         self.enhance_action.setEnabled(supports_i2i)
         if not supports_i2i:
             self.enhance_action.setChecked(False)
-        defaults = spec.defaults
-        self.sampler_combo.setCurrentText(str(defaults.get("sampler", "")))
-        self.scheduler_combo.setCurrentText(str(defaults.get("scheduler", "")))
-        self.steps_spin.setValue(int(defaults.get("steps", 28)))
-        self.cfg_spin.setValue(float(defaults.get("cfg_scale", 5.0)))
-        self.rescale_spin.setValue(float(defaults.get("cfg_rescale", 0.0)))
-        self._lock_fixed_settings()
+        # 스텝·Prompt Guidance·Rescale은 모델을 바꿔도 사용자 값을 유지한다 (V5 모델들은 기본값이
+        # 같다). 예전에는 매번 기본값(28 / 5.0)으로 되돌려, 절약 모드를 다녀오면 값을 잃었다.
+        self._lock_fixed_settings(previous)
 
-    def _lock_fixed_settings(self) -> None:
+    def _lockable_values(self) -> dict[str, object]:
+        """고정 대상 위젯의 현재 값."""
+        return {
+            "steps": self.steps_spin.value(),
+            "sampler": self.sampler_combo.currentText(),
+            "cfg_rescale": self.rescale_spin.value(),
+            "uc_preset": self.uc_preset_combo.currentData(),
+        }
+
+    def _set_lockable_value(self, name: str, value: object) -> None:
+        if name == "steps":
+            self.steps_spin.setValue(int(value))
+        elif name == "sampler":
+            self.sampler_combo.setCurrentText(str(value))
+        elif name == "cfg_rescale":
+            self.rescale_spin.setValue(float(value))
+        elif name == "uc_preset":
+            index = self.uc_preset_combo.findData(value)
+            if index >= 0:
+                self.uc_preset_combo.setCurrentIndex(index)
+
+    def _lock_fixed_settings(self, previous: dict[str, object] | None = None) -> None:
         """모델이 고정한 값(Medium Effort: 스텝·샘플러·Rescale·네거티브)을 위젯에 반영하고 잠근다.
 
-        값을 덮어쓴 다른 경로(설정·프리셋·메타데이터 불러오기) 뒤에도 다시 불러 화면이 실제
-        전송값과 어긋나지 않게 한다. 네거티브 입력란은 지우지 않고 읽기 전용으로만 둔다 —
-        다른 모델로 돌아가면 사용자가 쓴 내용이 그대로 살아난다. 전송값의 최종 강제는
+        고정에 들어가기 전 사용자 값은 `_before_lock`에 기억했다가, 고정이 풀리면(다른 모델로
+        돌아가면) 되돌린다. `previous`는 모델 변경 직전의 값이다 — 콤보를 다시 채우기 전에
+        읽어 둬야 사라진 선택지(샘플러)도 기억할 수 있다. 고정 중에 다른 값이 들어오면
+        (설정·프리셋·메타데이터 불러오기) 그 값을 새로 기억한다.
+
+        값을 덮어쓴 다른 경로 뒤에도 다시 불러 화면이 실제 전송값과 어긋나지 않게 한다.
+        네거티브 입력란은 지우지 않고 읽기 전용으로만 둔다. 전송값의 최종 강제는
         `ModelSpec.apply_fixed`가 한다.
         """
         spec = self.current_spec()
         tr = self._i18n.get_text
         fixed = spec.fixed_params
+        fixed_values: dict[str, object | None] = {
+            "steps": fixed.get("steps"),
+            "sampler": fixed.get("sampler"),
+            "cfg_rescale": None if spec.supports_cfg_rescale else 0.0,
+            "uc_preset": spec.fixed_uc_preset,
+        }
+        current = self._lockable_values()
+        for name, fixed_value in fixed_values.items():
+            if fixed_value is not None:
+                if name not in self._before_lock:
+                    source = previous if previous is not None else current
+                    self._before_lock[name] = source[name]
+                elif current[name] != fixed_value:
+                    self._before_lock[name] = current[name]
+                self._set_lockable_value(name, fixed_value)
+            elif name in self._before_lock:
+                self._set_lockable_value(name, self._before_lock.pop(name))
+
         fixed_tip = tr("ui.fixed_by_model")
-        if "steps" in fixed:
-            self.steps_spin.setValue(int(fixed["steps"]))
-        if "sampler" in fixed:
-            self.sampler_combo.setCurrentText(str(fixed["sampler"]))
-        if not spec.supports_cfg_rescale:
-            self.rescale_spin.setValue(0.0)
-        self._sync_uc_preset_lock(spec.fixed_uc_preset)
-        for widget, locked in (
-            (self.steps_spin, "steps" in fixed),
-            (self.sampler_combo, "sampler" in fixed),
-            (self.rescale_spin, not spec.supports_cfg_rescale),
-            (self.uc_preset_combo, spec.fixed_uc_preset is not None),
+        for widget, name in (
+            (self.steps_spin, "steps"),
+            (self.sampler_combo, "sampler"),
+            (self.rescale_spin, "cfg_rescale"),
+            (self.uc_preset_combo, "uc_preset"),
         ):
+            locked = fixed_values[name] is not None
             widget.setEnabled(not locked)
             widget.setToolTip(fixed_tip if locked else "")
         uc_locked = spec.fixed_uc_preset is not None
@@ -1394,30 +1449,11 @@ class MainWindow(QMainWindow):
             edit.setReadOnly(uc_locked)
             edit.setToolTip(uc_tip)
 
-    def _sync_uc_preset_lock(self, fixed_uc: str | None) -> None:
-        """UC 프리셋 고정을 걸거나 풀고, 고정 전 사용자 선택을 기억했다가 되돌린다.
-
-        V5 Full에서는 프리셋을 none으로 두고 네거티브를 직접 쓰는 경우가 많은데, 절약 모드가
-        Heavy로 고정한 값이 Full로 돌아와서도 남으면 의도치 않게 Heavy가 붙는다.
-        고정 중에 다른 값이 들어오면(설정·프리셋·메타데이터 불러오기) 그 값을 새로 기억한다.
-        """
-        current = self.uc_preset_combo.currentData()
-        if fixed_uc is not None:
-            if self._uc_preset_before_lock is None or current != fixed_uc:
-                self._uc_preset_before_lock = current
-            target = fixed_uc
-        else:
-            target, self._uc_preset_before_lock = self._uc_preset_before_lock, None
-        if target is not None:
-            index = self.uc_preset_combo.findData(target)
-            if index >= 0:
-                self.uc_preset_combo.setCurrentIndex(index)
-
-    def _user_uc_preset(self) -> str:
-        """저장할 UC 프리셋 — 고정 중이면 화면의 고정값이 아니라 사용자가 고른 값."""
-        if self._uc_preset_before_lock is not None:
-            return self._uc_preset_before_lock
-        return self.uc_preset_combo.currentData() or "heavy"
+    def _user_value(self, name: str) -> object:
+        """저장할 값 — 고정 중이면 화면의 고정값이 아니라 고정 전 사용자 값."""
+        if name in self._before_lock:
+            return self._before_lock[name]
+        return self._lockable_values()[name]
 
     # ── 설정 적용/수집 ────────────────────────────────────
 
@@ -1436,6 +1472,16 @@ class MainWindow(QMainWindow):
         uc_idx = self.uc_preset_combo.findData(g.uc_preset)
         if uc_idx >= 0:
             self.uc_preset_combo.setCurrentIndex(uc_idx)
+        # 절약 모드로 종료했다면 위젯에는 고정값이 들어가므로, 저장된 사용자 값을 직접 기억시킨다
+        # (샘플러는 절약 모드 콤보에 없어 위젯을 거칠 수 없다)
+        saved = {
+            "steps": g.steps,
+            "sampler": g.sampler,
+            "cfg_rescale": g.cfg_rescale,
+            "uc_preset": g.uc_preset,
+        }
+        for name in self._before_lock:
+            self._before_lock[name] = saved[name]
         # 시드는 시작할 때 항상 랜덤. 고정 시드는 의도적으로 켜는 일회성 상태다
         # (연속 생성에서 같은 그림만 반복되는 사고를 막는다).
         self.seed_random_check.setChecked(True)
@@ -1512,13 +1558,13 @@ class MainWindow(QMainWindow):
         g.width, g.height = self.resolution_panel.size()
         selected_group = self.resolution_panel.current_group()
         g.resolution_group = selected_group.value if selected_group is not None else ""
-        g.sampler = self.sampler_combo.currentText()
+        g.sampler = str(self._user_value("sampler"))
         g.scheduler = self.scheduler_combo.currentText()
-        g.steps = self.steps_spin.value()
+        g.steps = int(self._user_value("steps"))
         g.cfg_scale = self.cfg_spin.value()
-        g.cfg_rescale = self.rescale_spin.value()
+        g.cfg_rescale = float(self._user_value("cfg_rescale"))
         g.quality_tags = self.quality_check.isChecked()
-        g.uc_preset = self._user_uc_preset()
+        g.uc_preset = str(self._user_value("uc_preset") or "heavy")
         g.seed = -1 if self.seed_random_check.isChecked() else self._seed_value()
         s.batch.count = self.count_spin.value()
         s.batch.delay_seconds = self.delay_spin.value()
