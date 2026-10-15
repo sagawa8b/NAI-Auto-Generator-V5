@@ -131,15 +131,20 @@ class ResolutionPanel(QGroupBox):
 
         layout = QVBoxLayout(self)
 
-        # 1행: 등급 콤보 + Aspect 버튼
+        # 1행: 등급 콤보 + Aspect 버튼 + 해상도 랜덤
         top_row = FlowLayout(expand=True)  # 남는 자리는 Expanding인 등급 콤보가 가져간다
         self.group_label = QLabel()
         self.group_combo = QComboBox()
         self.group_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.aspect_selector = AspectSelector()
+        # 해상도 랜덤 — 해상도를 다루는 위젯이므로 이 패널에 둔다 (생성 바에서 옮겨 옴).
+        # 매 장 등급 안에서 Wide/Square/Portrait 중 하나를 골라 쓴다. Aspect 버튼과 짝이라
+        # 그 바로 옆에 둔다.
+        self.random_check = QCheckBox()
         top_row.addWidget(self.group_label)
         top_row.addWidget(self.group_combo)
         top_row.addWidget(self.aspect_selector)
+        top_row.addWidget(self.random_check)
         layout.addLayout(top_row)
 
         # 2행: 너비 × 높이
@@ -156,12 +161,7 @@ class ResolutionPanel(QGroupBox):
         size_row.addWidget(self.height_spin)
         layout.addLayout(size_row)
 
-        # 3행: 해상도 랜덤 — 해상도를 다루는 위젯이므로 이 패널에 둔다 (생성 바에서 옮겨 옴).
-        # 매 장 등급 안에서 Wide/Square/Portrait 중 하나를 골라 쓴다.
-        self.random_check = QCheckBox()
-        layout.addWidget(self.random_check)
-
-        # 4행: 경고 / 안내
+        # 3행: 경고 / 안내
         self.credit_warning_label = QLabel()
         self.credit_warning_label.setWordWrap(True)
         self.credit_warning_label.setStyleSheet("color: #c07a00;")
