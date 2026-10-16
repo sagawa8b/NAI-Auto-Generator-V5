@@ -123,6 +123,8 @@ class GenerationService:
         self._live_resolution_lock = threading.Lock()
         self._live_resolution: tuple[int, int] | None = None
         self._live_resolution_choices: tuple[tuple[int, int], ...] = ()
+        # 해상도 랜덤 체크도 배치 도중 켜고 끌 수 있다. None이면 잡을 시작할 때의 값을 쓴다.
+        self._live_randomize_resolution: bool | None = None
         # 같은 이유로: 배치 도중 프롬프트/캐릭터 프롬프트를 고치면 다음 이미지부터 반영한다.
         self._live_prompt_lock = threading.Lock()
         self._live_prompt: tuple[str, str, tuple[CharacterCaption, ...], bool] | None = None
@@ -152,6 +154,7 @@ class GenerationService:
         with self._live_resolution_lock:
             self._live_resolution = None
             self._live_resolution_choices = ()
+            self._live_randomize_resolution = None
         with self._live_prompt_lock:
             self._live_prompt = None
         self._future = self._executor.submit(self._run, job)
@@ -161,14 +164,24 @@ class GenerationService:
         """현재 잡에 중지 요청. 진행 중인 HTTP 요청은 완료를 기다린다."""
         self._stop.set()
 
-    def set_live_resolution(self, width: int, height: int, choices: tuple[tuple[int, int], ...] = ()) -> None:
+    def set_live_resolution(
+        self,
+        width: int,
+        height: int,
+        choices: tuple[tuple[int, int], ...] = (),
+        randomize: bool | None = None,
+    ) -> None:
         """해상도 패널이 바뀔 때 GUI 스레드에서 호출 — 다음 `_prepare_request()`부터 반영된다.
 
         진행 중인 이미지에는 영향이 없다 (다음 이미지의 요청을 만들 때만 읽는다).
+        `randomize`는 해상도 랜덤 체크 상태다 — 넘기지 않으면(None) 잡을 시작할 때의
+        `job.randomize_resolution`을 그대로 쓴다. 이 값이 없으면 배치 도중 체크를 꺼도
+        랜덤이 계속되고, 켜도 고정 크기로 남는다.
         """
         with self._live_resolution_lock:
             self._live_resolution = (width, height)
             self._live_resolution_choices = choices
+            self._live_randomize_resolution = randomize
 
     def set_live_prompt(
         self,
@@ -444,16 +457,18 @@ class GenerationService:
         with self._live_resolution_lock:
             live_size = self._live_resolution
             live_choices = self._live_resolution_choices
+            live_randomize = self._live_randomize_resolution
         if per_image:
-            live_size, live_choices = None, ()  # 크기는 원본 이미지가 정한다
+            live_size, live_choices, live_randomize = None, (), None  # 크기는 원본 이미지가 정한다
         choices = live_choices or job.resolution_choices
+        randomize_resolution = job.randomize_resolution if live_randomize is None else live_randomize
         if requested_aspect is not None and not per_image and req.action == "generate":
             # 명시 지시어는 해상도 랜덤보다 우선한다. 지금 등급에 그 비율이 없으면
             # 랜덤으로 되돌리지 않고 화면에 잡힌 해상도를 그대로 쓴다.
             size = _resolution_for_aspect(choices, requested_aspect) or live_size
             if size is not None:
                 req = dataclasses.replace(req, width=size[0], height=size[1])
-        elif not per_image and job.randomize_resolution and len(choices) >= 2:
+        elif not per_image and randomize_resolution and len(choices) >= 2:
             width, height = self._rng.choice(choices)
             req = dataclasses.replace(req, width=width, height=height)
         elif live_size is not None:

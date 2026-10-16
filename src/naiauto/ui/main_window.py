@@ -1312,12 +1312,15 @@ class MainWindow(QMainWindow):
         """배치 진행 중이면 해상도 변경을 다음 이미지부터 반영한다 (진행 중인 이미지는 그대로).
 
         i2i/인페인팅으로 잠겨 있으면 랜덤 후보를 만들지 않는다 (build_job과 동일한 규칙).
+        해상도 랜덤 체크 상태도 함께 넘긴다 — 빠지면 배치 도중 체크를 켜고 꺼도 시작할 때의
+        값이 계속 쓰인다.
         """
         if not self._service.is_running:
             return
         size = self.target_size()
         choices = () if self.locked_size() is not None else self.resolution_panel.random_resolution_choices()
-        self._service.set_live_resolution(size[0], size[1], choices)
+        randomize = self.resolution_panel.random_resolution_enabled() and len(choices) >= 2
+        self._service.set_live_resolution(size[0], size[1], choices, randomize)
 
     def _push_live_prompt(self) -> None:
         """배치 진행 중이면 프롬프트/캐릭터 프롬프트 변경을 다음 이미지부터 반영한다.
