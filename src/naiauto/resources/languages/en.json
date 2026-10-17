@@ -28,7 +28,9 @@
       "preset_applied": "Preset loaded.",
       "accounts": "Manage API Accounts...",
       "narrow_panel": "Narrow input panel",
-      "arena": "Style Arena..."
+      "arena": "Style Arena...",
+      "lock_sections": "Lock Section Layout",
+      "lock_sections_hint": "When unlocked, a handle (⋮⋮) appears above each section — drag it to reorder."
     },
     "statusbar": {
       "before_login": "Login required.",
@@ -113,7 +115,8 @@
       "section_collapsed": "collapsed",
       "options_menu": "Options...",
       "manual_position": "Manual Position",
-      "toggle_slot": "Collapse / expand slot"
+      "toggle_slot": "Collapse / expand slot",
+      "section_grip": "Drag to move this section (Alt+Up/Down)"
     },
     "image_options": {
       "title": "Image Options",

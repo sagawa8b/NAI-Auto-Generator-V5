@@ -43,9 +43,13 @@ class ResizeHandle(QWidget):
         *,
         settings_key: str = SETTINGS_KEY,
         default_height: int = DEFAULT_HEIGHT,
+        minimum_only: bool = False,
     ) -> None:
         super().__init__(parent)
         self._target = target
+        #: True면 높이를 고정하지 않고 최소 높이만 정한다 — 내용(캐릭터 슬롯)이 늘면
+        #: 대상은 그만큼 더 자라고, 핸들로는 그 아래 빈 공간을 넓혀 둘 수 있다.
+        self._minimum_only = minimum_only
         self._settings = settings
         self._settings_key = settings_key
         self._default_height = default_height
@@ -72,7 +76,13 @@ class ResizeHandle(QWidget):
                     height = val
             except (TypeError, ValueError):
                 pass
-        self._target.setFixedHeight(height)
+        self._apply(height)
+
+    def _apply(self, height: int) -> None:
+        if self._minimum_only:
+            self._target.setMinimumHeight(height)
+        else:
+            self._target.setFixedHeight(height)
 
     # ── 마우스 이벤트 ────────────────────────────────────
 
@@ -86,12 +96,12 @@ class ResizeHandle(QWidget):
         if self._drag_start_y is not None and self._drag_start_height is not None:
             delta = int(event.globalPosition().y()) - self._drag_start_y
             new_height = max(MIN_HEIGHT, min(MAX_HEIGHT, self._drag_start_height + delta))
-            self._target.setFixedHeight(new_height)
+            self._apply(new_height)
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton and self._drag_start_y is not None:
-            height = self._target.height()
+            height = self._target.minimumHeight() if self._minimum_only else self._target.height()
             self._settings.setValue(self._settings_key, height)
             self._drag_start_y = None
             self._drag_start_height = None

@@ -162,13 +162,41 @@ class ResolutionOptions(BaseModel):
     customs: list[CustomResolution] = Field(default_factory=_default_customs)
 
 
+#: 좌측 입력 패널 섹션 키. 순서가 곧 기본 배치다 (메인 창이 이 순서로 섹션을 쌓는다).
+SECTION_PROMPT = "prompt"
+SECTION_CHARACTERS = "characters"
+SECTION_MODEL = "model"
+SECTION_RESOLUTION = "resolution"
+SECTION_AI_SETTINGS = "ai_settings"
+SECTION_IMAGE_SOURCE = "image_source"
+SECTION_ENHANCE = "enhance"
+#: 생성 바 — 목록이 아니라 스크롤 영역 위/아래에 고정된다.
+SECTION_GENERATE = "generate"
+DEFAULT_SECTION_ORDER = (
+    SECTION_PROMPT,
+    SECTION_CHARACTERS,
+    SECTION_MODEL,
+    SECTION_RESOLUTION,
+    SECTION_AI_SETTINGS,
+    SECTION_IMAGE_SOURCE,
+    SECTION_ENHANCE,
+)
+
+
 class UiState(BaseModel):
-    """Collapsible_Section 펼침 상태. 기본은 접힘."""
+    """Collapsible_Section 펼침 상태 + 좌측 패널 섹션 배치. 기본은 접힘."""
 
     ai_settings_expanded: bool = False
     #: 캐릭터 위치 지정 캔버스. 여기만 기본이 펼침이다 — 접힌 채로 뜨면 캐릭터를
     #: 두 명 넣었을 때 위치를 지정할 수 있다는 사실 자체가 보이지 않는다.
     position_panel_expanded: bool = True
+    #: 좌측 패널 섹션 순서. 모르는 키·빠진 키는 메인 창이 적용할 때 맞춘다
+    #: (`ui/widgets/section_board.normalize_order`) — 버전이 바뀌어도 읽기가 실패하지 않게.
+    section_order: list[str] = Field(default_factory=lambda: list(DEFAULT_SECTION_ORDER))
+    #: 생성 바 자리: "top" | "bottom". 모르는 값은 적용할 때 "bottom"으로 본다.
+    generate_bar_position: str = "bottom"
+    #: 섹션 순서 잠금. 기본은 잠김 — 실수로 끌어 옮기지 않게, 바꿀 때만 푼다.
+    sections_locked: bool = True
 
 
 class PromptFontSettings(BaseModel):

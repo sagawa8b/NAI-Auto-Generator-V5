@@ -66,6 +66,14 @@ from ..core.settings import accounts, credentials
 from ..core.settings.schema import (
     APP_NAME,
     QUICK_COUNT_SLOTS,
+    SECTION_AI_SETTINGS,
+    SECTION_CHARACTERS,
+    SECTION_ENHANCE,
+    SECTION_GENERATE,
+    SECTION_IMAGE_SOURCE,
+    SECTION_MODEL,
+    SECTION_PROMPT,
+    SECTION_RESOLUTION,
     AppSettings,
     CharacterPromptState,
     duplicate_action,
@@ -107,6 +115,7 @@ from .widgets.prompt_overlay import PromptOverlay
 from .widgets.prompt_tabs import PromptTabs
 from .widgets.resize_handle import ResizeHandle
 from .widgets.resolution_panel import ResolutionPanel
+from .widgets.section_board import EDGE_BOTTOM, EdgeDock, SectionList
 from .widgets.status_bar_gauge import StatusBarGauge
 from .widgets.wheel_guard import guard_wheel
 from .widgets.zoomable_image_view import ZoomableImageView
@@ -129,6 +138,8 @@ SPLITTER_SIZES = (460, 720)  # 입력 패널 / 결과 패널
 #: 좌측 입력 패널을 여기까지 좁힐 수 있다 — 기본 폭(460)의 절반. 이 아래로는
 #: 프롬프트 입력창이 한 줄도 제대로 안 보여 의미가 없다. 줄바꿈은 FlowLayout이 맡는다.
 LEFT_PANEL_MIN_WIDTH = 230
+#: 캐릭터 프롬프트 섹션의 최소 높이(핸들로 조절)를 저장하는 QSettings 키.
+CHARACTER_HEIGHT_KEY = "ui/character_prompts_height"
 
 
 def _format_seconds(value: float) -> str:
@@ -218,6 +229,7 @@ class MainWindow(QMainWindow):
         if app is not None:
             app.installEventFilter(self)
         self._resize_handle.restore_height()
+        self._character_handle.restore_height()
         self._restore_splitters()
         self._setup_m3_components()
         self._populate_models()
@@ -239,9 +251,11 @@ class MainWindow(QMainWindow):
             self.resize(*WINDOW_SIZE)
         self.setAcceptDrops(True)  # PNG를 끌어다 놓으면 생성 정보 표시
 
-        # 왼쪽: 입력
-        left = QWidget()
-        left_layout = QVBoxLayout(left)
+        # 왼쪽: 입력 — 섹션마다 SectionFrame으로 감싸 순서를 바꿀 수 있게 한다.
+        # 추가하는 순서가 기본 순서다 (레이아웃 초기화가 이 순서로 되돌린다).
+        # 그룹 박스·접이식 섹션은 제목이 이미 보이므로 그립 줄에는 제목을 띄우지 않는다
+        # (show_title=False). 제목이 없는 모델 행만 그립 옆에 이름을 단다.
+        left = self.section_list = SectionList(self._i18n)
 
         # 프롬프트 / Undesired Content — 탭 전환 (웹 UI·V4.5와 동일, 세로 공간 절약)
         self.prompt_group = QGroupBox()
@@ -254,18 +268,26 @@ class MainWindow(QMainWindow):
         self.prompt_edit = self.prompt_tabs.prompt_edit
         self.negative_edit = self.prompt_tabs.negative_edit
 
-        # 캐릭터 프롬프트 — 기본 프롬프트 바로 아래 (V5도 지원, 캡처의 characterPrompts)
-        self.character_prompts = CharacterPromptsWidget(self._i18n)
+        left.add_section(SECTION_PROMPT, "ui.prompt_group", self.prompt_group, show_title=False)
 
-        # 프롬프트 ↔ 캐릭터 프롬프트 사이를 드래그로 비율 조절 (V4 스플리터와 동일)
-        self._prompt_char_splitter = QSplitter(Qt.Orientation.Vertical)
-        self._prompt_char_splitter.setChildrenCollapsible(False)
-        self._prompt_char_splitter.addWidget(self.prompt_group)
-        self._prompt_char_splitter.addWidget(self.character_prompts)
-        self._prompt_char_splitter.setHandleWidth(6)
-        # 초기 비율 6:4 (프롬프트 : 캐릭터 프롬프트)
-        self._prompt_char_splitter.setSizes([600, 400])
-        left_layout.addWidget(self._prompt_char_splitter)
+        # 캐릭터 프롬프트 — 기본은 프롬프트 바로 아래 (V5도 지원, 캡처의 characterPrompts).
+        # 프롬프트와 따로 옮길 수 있으므로 둘 사이 스플리터 대신 높이 핸들을 따로 둔다.
+        # 슬롯이 늘면 그만큼 자라야 하므로 높이를 고정하지 않고 최소 높이만 정한다.
+        self.character_prompts = CharacterPromptsWidget(self._i18n)
+        characters_body = QWidget()
+        characters_layout = QVBoxLayout(characters_body)
+        characters_layout.setContentsMargins(0, 0, 0, 0)
+        characters_layout.setSpacing(0)
+        characters_layout.addWidget(self.character_prompts)
+        self._character_handle = ResizeHandle(
+            self.character_prompts,
+            self._qsettings,
+            settings_key=CHARACTER_HEIGHT_KEY,
+            default_height=ResizeHandle.MIN_HEIGHT,
+            minimum_only=True,
+        )
+        characters_layout.addWidget(self._character_handle)
+        left.add_section(SECTION_CHARACTERS, "ui.character_prompts", characters_body, show_title=False)
 
         # 모델 — 접힘 영역 밖 (모델을 바꾸면 샘플러·해상도 카탈로그가 전부 바뀐다)
         self.model_row = QWidget()
@@ -275,11 +297,11 @@ class MainWindow(QMainWindow):
         self.model_combo = QComboBox()
         model_layout.addWidget(self.model_label)
         model_layout.addWidget(self.model_combo, stretch=1)
-        left_layout.addWidget(self.model_row)
+        left.add_section(SECTION_MODEL, "ui.model", self.model_row)
 
         # 해상도 — 접힘 상태와 무관하게 항상 편집 가능 (Req 10.1, 10.2)
         self.resolution_panel = ResolutionPanel(self._i18n)
-        left_layout.addWidget(self.resolution_panel)
+        left.add_section(SECTION_RESOLUTION, "resolution.title", self.resolution_panel, show_title=False)
 
         # AI 설정 — 자주 바꾸지 않는 값은 접어 둔다 (Req 11.1)
         self.ai_settings_body = QWidget()
@@ -334,13 +356,13 @@ class MainWindow(QMainWindow):
             self._i18n, "image_options.title", summary_provider=self._compose_ai_summary
         )
         self.ai_section.set_content(self.ai_settings_body)
-        left_layout.addWidget(self.ai_section)
+        left.add_section(SECTION_AI_SETTINGS, "image_options.title", self.ai_section, show_title=False)
 
         # i2i / 인페인팅 입력 (이미지 없으면 t2i)
         self.image_source = ImageSourceWidget(self._i18n)
         self.image_source.changed.connect(self._on_image_source_changed)
         self.image_source.setVisible(False)  # 보기 메뉴(F2)로 켠다
-        left_layout.addWidget(self.image_source)
+        left.add_section(SECTION_IMAGE_SOURCE, "image_source.title", self.image_source, show_title=False)
 
         # Enhance(강화 업스케일) — i2i와 같은 img2img 경로를 쓰지만 크기·프롬프트를
         # 배율에서 계산한다 (core/enhance.py). 둘 다 켜면 어느 쪽이 요청을 만드는지
@@ -350,7 +372,7 @@ class MainWindow(QMainWindow):
         self.enhance_panel.source_loaded.connect(self._on_enhance_source_loaded)
         self.enhance_panel.folder_requested.connect(self._on_enhance_folder)
         self.enhance_panel.setVisible(False)  # 보기 메뉴(F4)로 켠다
-        left_layout.addWidget(self.enhance_panel)
+        left.add_section(SECTION_ENHANCE, "enhance.title", self.enhance_panel, show_title=False)
 
         self._wire_sections()
 
@@ -364,14 +386,21 @@ class MainWindow(QMainWindow):
         left_scroll.setWidgetResizable(True)
         left_scroll.setMinimumWidth(LEFT_PANEL_MIN_WIDTH)
 
-        # 생성 바는 스크롤 밖 맨 아래에 고정한다 (웹 UI처럼 상태바 바로 위).
-        # 입력을 아무리 스크롤해도 생성 버튼은 늘 같은 자리에 있다.
-        left_column = QWidget()
-        column_layout = QVBoxLayout(left_column)
-        column_layout.setContentsMargins(0, 0, 0, 0)
-        column_layout.addWidget(left_scroll, stretch=1)
-        column_layout.addWidget(self._build_generate_bar())
-        splitter.addWidget(left_column)
+        # 생성 바는 스크롤 밖에 고정한다 (기본은 웹 UI처럼 상태바 바로 위).
+        # 입력을 아무리 스크롤해도 생성 버튼은 늘 같은 자리에 있다. 잠금을 풀면
+        # 스크롤 영역 위/아래 중 한 곳으로만 옮길 수 있다.
+        self.generate_dock = EdgeDock(
+            self._i18n,
+            left_scroll,
+            SECTION_GENERATE,
+            "generate.title",
+            self._build_generate_bar(),
+            show_title=False,
+        )
+        splitter.addWidget(self.generate_dock)
+
+        left.order_changed.connect(self._on_section_order_changed)
+        self.generate_dock.edge_changed.connect(self._on_generate_edge_changed)
 
         # 오른쪽: 결과 미리보기 — 마우스 스크롤로 확대/축소된다 (ZoomableImageView)
         self.preview_label = ZoomableImageView()
@@ -446,6 +475,12 @@ class MainWindow(QMainWindow):
         self.reset_layout_action = self.view_menu.addAction("")
         self.reset_layout_action.setShortcut("Ctrl+R")
         self.reset_layout_action.triggered.connect(self.reset_layout)
+
+        # 섹션 순서 잠금 — 잠긴 동안은 그립이 보이지 않아 실수로 끌어 옮길 일이 없다.
+        self.lock_sections_action = self.view_menu.addAction("")
+        self.lock_sections_action.setCheckable(True)
+        self.lock_sections_action.setChecked(True)
+        self.lock_sections_action.toggled.connect(self._on_lock_sections_toggled)
 
         self.view_menu.addSeparator()
         # i2i는 자동 생성에서 잘 쓰지 않으므로 여기서 켤 때만 나타난다
@@ -1197,7 +1232,8 @@ class MainWindow(QMainWindow):
         """창 크기와 분할 비율을 기본값으로 되돌린다 (패널을 잃어버렸을 때 복구용).
 
         모든 접이식 섹션도 접힘 상태로 되돌린다 (Req 12.3) — `toggled`를 타고
-        `settings.ui`까지 반영된다.
+        `settings.ui`까지 반영된다. 섹션 순서·생성 바 자리도 기본으로 돌아간다
+        (잠금 상태는 그대로 둔다 — 배치가 아니라 조작 모드다).
         """
         self.result_panel_action.setChecked(True)
         self.result_panel.setVisible(True)
@@ -1209,6 +1245,8 @@ class MainWindow(QMainWindow):
         self._splitter.setSizes(list(SPLITTER_SIZES))
         self.ai_section.set_expanded(False)
         self.character_prompts.set_position_panel_expanded(True)
+        self.section_list.reset_order()
+        self.generate_dock.set_edge(EDGE_BOTTOM)
 
     def target_size(self) -> tuple[int, int]:
         """실제로 생성될 크기 — i2i/인페인팅/강화면 원본 이미지가 정한다."""
@@ -1230,22 +1268,17 @@ class MainWindow(QMainWindow):
         """캐릭터 위치 캔버스를 생성 해상도 비율로 맞춘다."""
         self.character_prompts.set_aspect(*self.target_size())
 
-    # ── 스플리터 상태 저장·복원 (프롬프트/캐릭터 + 좌·우 메인 스플리터) ─────
+    # ── 스플리터 상태 저장·복원 (좌·우 메인 스플리터) ─────
 
-    _SPLITTER_KEY = "ui/prompt_char_splitter"
     _MAIN_SPLITTER_KEY = "ui/main_splitter"
     _GEOMETRY_KEY = "ui/main_window_geometry"
 
     def _save_splitters(self) -> None:
         """스플리터 상태를 QSettings에 저장한다."""
-        self._qsettings.setValue(self._SPLITTER_KEY, self._prompt_char_splitter.saveState())
         self._qsettings.setValue(self._MAIN_SPLITTER_KEY, self._splitter.saveState())
 
     def _restore_splitters(self) -> None:
         """QSettings에서 스플리터 상태를 복원한다."""
-        state = self._qsettings.value(self._SPLITTER_KEY)
-        if state is not None:
-            self._prompt_char_splitter.restoreState(state)
         main_state = self._qsettings.value(self._MAIN_SPLITTER_KEY)
         if main_state is not None:
             self._splitter.restoreState(main_state)
@@ -1690,9 +1723,27 @@ class MainWindow(QMainWindow):
         setattr(self._settings.ui, field, expanded)
 
     def _apply_section_states(self) -> None:
-        """`settings.ui`에 저장된 펼침 상태를 섹션에 적용한다 (Req 12.2)."""
-        self.ai_section.set_expanded(self._settings.ui.ai_settings_expanded)
-        self.character_prompts.set_position_panel_expanded(self._settings.ui.position_panel_expanded)
+        """`settings.ui`에 저장된 펼침 상태·섹션 배치를 적용한다 (Req 12.2)."""
+        ui = self._settings.ui
+        self.ai_section.set_expanded(ui.ai_settings_expanded)
+        self.character_prompts.set_position_panel_expanded(ui.position_panel_expanded)
+        self.section_list.set_order(ui.section_order)
+        self.generate_dock.set_edge(ui.generate_bar_position)
+        self.lock_sections_action.setChecked(ui.sections_locked)
+        self._on_lock_sections_toggled(ui.sections_locked)
+
+    # ── 섹션 배치 (순서 / 생성 바 자리 / 잠금) ─────────────────
+
+    def _on_section_order_changed(self, order: list[str]) -> None:
+        self._settings.ui.section_order = list(order)
+
+    def _on_generate_edge_changed(self, edge: str) -> None:
+        self._settings.ui.generate_bar_position = edge
+
+    def _on_lock_sections_toggled(self, locked: bool) -> None:
+        self.section_list.set_locked(locked)
+        self.generate_dock.set_locked(locked)
+        self._settings.ui.sections_locked = locked
 
     def _show_option_notices(self, keys: tuple[str, ...]) -> None:
         """옵션 페이지가 낸 안내 문구를 한 번에 보여 준다 (Req 2.6)."""
@@ -2558,6 +2609,10 @@ class MainWindow(QMainWindow):
         self.result_panel_action.setText(tr("menu.toggle_panel"))
         self.narrow_panel_action.setText(tr("menu.narrow_panel"))
         self.reset_layout_action.setText(tr("menu.reset_layout"))
+        self.lock_sections_action.setText(tr("menu.lock_sections"))
+        self.lock_sections_action.setToolTip(tr("menu.lock_sections_hint"))
+        self.section_list.retranslate()
+        self.generate_dock.retranslate()
         self.image_source_action.setText(tr("image_source.menu"))
         self.enhance_action.setText(tr("enhance.menu"))
         self.result_overlay_action.setText(tr("result.overlay_toggle"))

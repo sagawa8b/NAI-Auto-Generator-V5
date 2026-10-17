@@ -28,7 +28,9 @@
       "preset_applied": "プリセットを適用しました。",
       "accounts": "APIアカウント管理...",
       "narrow_panel": "入力パネルを狭く",
-      "arena": "画風アリーナ..."
+      "arena": "画風アリーナ...",
+      "lock_sections": "セクション位置をロック",
+      "lock_sections_hint": "ロックを解除すると各セクションの上にハンドル(⋮⋮)が表示され、ドラッグで並べ替えられます。"
     },
     "statusbar": {
       "before_login": "ログインが必要です。",
@@ -113,7 +115,8 @@
       "section_collapsed": "折りたたみ",
       "options_menu": "オプション...",
       "manual_position": "手動位置指定",
-      "toggle_slot": "スロットを折りたたむ / 展開"
+      "toggle_slot": "スロットを折りたたむ / 展開",
+      "section_grip": "ドラッグでセクションを移動 (Alt+↑/↓)"
     },
     "image_options": {
       "title": "画像オプション",

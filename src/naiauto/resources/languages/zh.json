@@ -28,7 +28,9 @@
       "preset_applied": "已应用预设。",
       "accounts": "API 账户管理...",
       "narrow_panel": "收窄输入面板",
-      "arena": "画风竞技场..."
+      "arena": "画风竞技场...",
+      "lock_sections": "锁定区块位置",
+      "lock_sections_hint": "解锁后每个区块上方会出现拖动手柄(⋮⋮),拖动即可调整顺序。"
     },
     "statusbar": {
       "before_login": "需要登录。",
@@ -113,7 +115,8 @@
       "section_collapsed": "已折叠",
       "options_menu": "选项...",
       "manual_position": "手动位置",
-      "toggle_slot": "折叠 / 展开该角色"
+      "toggle_slot": "折叠 / 展开该角色",
+      "section_grip": "拖动以移动此区块 (Alt+↑/↓)"
     },
     "image_options": {
       "title": "图像选项",
