@@ -13,6 +13,12 @@
 폴더의 어느 파일"이라 다른 경로들과 한 화면에 있는 편이 찾기 쉽다 (v0.7.8에서 `태그` 화면에서
 옮겨 왔다). 그 구역은 자기 위젯과 `load`/`commit`/`retranslate`를 스스로 들고 있고, 이 페이지는
 같은 이름의 메서드에서 함께 불러 준다.
+
+맨 위의 **시스템 설정 파일** 행은 `AppSettings` 필드가 아니다 — 설정 파일이 자기 위치를 담을
+수는 없으므로 위치는 `core.settings.store`의 포인터 파일에 따로 적는다. 페이지는 고른 경로만
+들고 있고(`settings_target()`), 실제로 옮겨 저장하는 일은 저장 버튼을 누른 뒤 셸이 한다 —
+취소가 no-op이어야 하는 것은 이 행도 같다. `사본 저장`만 즉시 파일을 쓴다 (지금 쓰는 설정을
+바꾸지 않는 내보내기라서).
 """
 
 from __future__ import annotations
@@ -26,6 +32,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -39,6 +46,12 @@ from ...core.settings.schema import (
     default_presets_dir,
     default_save_dir,
     default_wildcards_dir,
+)
+from ...core.settings.store import (
+    SETTINGS_FILENAME,
+    default_settings_path,
+    save_settings,
+    system_settings_path,
 )
 from . import OptionsPage, open_in_file_manager, register_page
 from .wd14_section import WD14ModelSection
@@ -90,17 +103,50 @@ class FoldersPage(OptionsPage):
 
     KEY = "folders"
 
-    def __init__(self, i18n: I18nManager, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        i18n: I18nManager,
+        parent: QWidget | None = None,
+        settings_path: Path | None = None,
+    ) -> None:
         super().__init__(parent)
         self._i18n = i18n
         #: `load` 시점의 값 — `notices()`가 변경 여부를 판단하는 기준 (Req 2.6).
         self._loaded: dict[str, str] = {}
         self._rows: dict[str, _PathRow] = {}
+        #: `load` 시점의 드래프트 — `사본 저장`이 쓴다.
+        self._snapshot: AppSettings | None = None
+        #: 지금 쓰는 시스템 설정 파일 — 셸이 받은 경로, 없으면 store가 고르는 경로.
+        self._current_settings_path = (
+            Path(settings_path) if settings_path is not None else system_settings_path()
+        )
 
         layout = QVBoxLayout(self)
         grid = QGridLayout()
         grid.setColumnStretch(1, 1)
-        for index, field in enumerate(_PATH_FIELDS):
+
+        # 시스템 설정 파일 — 다른 행과 같은 모양이지만 폴더가 아니라 파일을 고른다.
+        self.settings_file_label = QLabel()
+        self.settings_file_edit = QLineEdit(str(self._current_settings_path))
+        self.settings_file_edit.setPlaceholderText(str(default_settings_path()))
+        self.settings_file_browse_button = QPushButton()
+        self.settings_file_browse_button.clicked.connect(self._browse_settings_file)
+        self.settings_file_open_button = QPushButton()
+        self.settings_file_open_button.clicked.connect(self._open_settings_folder)
+        grid.addWidget(self.settings_file_label, 0, 0)
+        grid.addWidget(self.settings_file_edit, 0, 1)
+        grid.addWidget(self.settings_file_browse_button, 0, 2)
+        grid.addWidget(self.settings_file_open_button, 0, 3)
+        # 안내문과 `사본 저장`은 바로 아래 줄 — 아래 폴더 행들과 섞여 보이지 않게 붙여 둔다.
+        self.settings_file_hint = QLabel()
+        self.settings_file_hint.setWordWrap(True)
+        self.settings_file_hint.setStyleSheet("color: palette(mid);")
+        self.settings_file_export_button = QPushButton()
+        self.settings_file_export_button.clicked.connect(self._export_settings_copy)
+        grid.addWidget(self.settings_file_hint, 1, 1, 1, 2)
+        grid.addWidget(self.settings_file_export_button, 1, 3)
+
+        for index, field in enumerate(_PATH_FIELDS, start=2):
             row = self._build_row(field)
             grid.addWidget(row.label, index, 0)
             grid.addWidget(row.edit, index, 1)
@@ -148,6 +194,7 @@ class FoldersPage(OptionsPage):
     # ── OptionsPage 계약 ────────────────────────────────────────────────
 
     def load(self, draft: AppSettings) -> None:
+        self._snapshot = draft.model_copy(deep=True)
         self._loaded = {}
         for field in _PATH_FIELDS:
             value = str(getattr(draft, field.name))
@@ -163,6 +210,11 @@ class FoldersPage(OptionsPage):
 
     def retranslate(self) -> None:
         tr = self._i18n.get_text
+        self.settings_file_label.setText(tr("options.system_settings_file"))
+        self.settings_file_browse_button.setText(tr("options.browse"))
+        self.settings_file_open_button.setText(tr("options.open_folder"))
+        self.settings_file_hint.setText(tr("options.system_settings_file_hint"))
+        self.settings_file_export_button.setText(tr("options.system_settings_export"))
         for row in self._rows.values():
             row.label.setText(tr(row.field.label_key))
             row.browse_button.setText(tr("options.browse"))
@@ -178,6 +230,64 @@ class FoldersPage(OptionsPage):
         if current != self._loaded.get(field.name, current):
             return (WILDCARDS_RESTART_NOTICE,)
         return ()
+
+    # ── 시스템 설정 파일 ────────────────────────────────────────────────
+
+    def current_settings_path(self) -> Path:
+        """다이얼로그를 열 때 쓰던 시스템 설정 파일."""
+        return self._current_settings_path
+
+    def settings_target(self) -> Path:
+        """저장할 때 쓸 시스템 설정 파일 — 입력란 값을 정규화한 것.
+
+        비우면 기본 위치, 폴더를 가리키면 그 안의 `settings_v5.json`, 확장자가 없으면 `.json`.
+        """
+        text = self.settings_file_edit.text().strip()
+        if not text:
+            return default_settings_path()
+        path = Path(text).expanduser()
+        if path.is_dir():
+            return path / SETTINGS_FILENAME
+        if not path.suffix:
+            path = path.with_suffix(".json")
+        return path
+
+    def _browse_settings_file(self) -> None:
+        """시스템 설정 파일의 새 위치를 고른다 — 실제로 옮겨 저장하는 것은 저장 버튼을 누를 때."""
+        tr = self._i18n.get_text
+        chosen, _ = QFileDialog.getSaveFileName(
+            self,
+            tr("options.choose_file", tr("options.system_settings_file")),
+            str(self.settings_target()),
+            tr("options.system_settings_filter"),
+        )
+        if chosen:
+            self.settings_file_edit.setText(str(Path(chosen).resolve()))
+
+    def _open_settings_folder(self) -> None:
+        open_in_file_manager(self.settings_target().parent, self._i18n.get_text, parent=self)
+
+    def _export_settings_copy(self) -> None:
+        """다이얼로그를 열 때의 설정을 다른 파일로 내보낸다 (지금 쓰는 위치는 그대로)."""
+        tr = self._i18n.get_text
+        if self._snapshot is None:
+            return
+        chosen, _ = QFileDialog.getSaveFileName(
+            self,
+            tr("options.system_settings_export"),
+            str(self.settings_target().parent / SETTINGS_FILENAME),
+            tr("options.system_settings_filter"),
+        )
+        if not chosen:
+            return
+        try:
+            written = save_settings(self._snapshot, Path(chosen))
+        except OSError as exc:
+            QMessageBox.warning(self, tr("errors.title"), tr("options.save_failed", exc))
+            return
+        QMessageBox.information(
+            self, tr("options.system_settings_export"), tr("options.system_settings_exported", written)
+        )
 
     # ── 내부 ────────────────────────────────────────────────────────────
 

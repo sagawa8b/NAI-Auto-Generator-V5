@@ -24,6 +24,8 @@ _before = settings.model_copy(deep=True)  # 변경 감지·로깅 롤백용 스�
 5. 바뀐 경로로 부수효과 판단: language → i18n.set_language, debug_logging/log_dir → reconfigure_logging
                               (실패 시 메시지 + log_dir 롤백)
 6. save_settings(live, path)        OSError → 오류 메시지, 메모리 값은 유지, 그래도 닫는다
+                                    path는 폴더 화면의 「시스템 설정 파일」 — 바뀌었으면 새 위치에
+                                    쓰고, 쓰기에 성공했을 때만 그 위치를 기억한다
 7. applied.emit(); accept()
 ```
 """
@@ -52,7 +54,7 @@ from PySide6.QtWidgets import (
 from ..core.i18n.manager import I18nManager
 from ..core.logging_setup import LoggingConfigError, reconfigure_logging
 from ..core.settings.schema import AppSettings
-from ..core.settings.store import save_settings
+from ..core.settings.store import save_settings, set_system_settings_path
 from ..core.settings.validation import (
     PAGE_FILENAME,
     PAGE_GENERATION,
@@ -312,8 +314,13 @@ class OptionsDialog(QDialog):
         logger.info("options saved — changed fields: %s", ", ".join(changed) or "(none)")
         self._apply_side_effects(changed)
 
+        target, relocate = self._settings_target()
         try:
-            save_settings(self._live, self._settings_path)
+            save_settings(self._live, target)
+            if relocate:
+                set_system_settings_path(target)
+                logger.info("system settings file moved to %s", target)
+                self._settings_path = target
         except OSError as exc:
             # Req 1.8: 메모리 값은 유지한 채 실패만 알린다. 다시 저장하라고 붙잡아 둬도
             # 같은 디스크 오류가 반복될 뿐이다.
@@ -329,6 +336,14 @@ class OptionsDialog(QDialog):
         return True
 
     # ── 저장 파이프라인 내부 ──────────────────────────────────────────
+
+    def _settings_target(self) -> tuple[Path | None, bool]:
+        """(저장할 경로, 위치가 바뀌었는지). 폴더 화면이 없으면 받은 경로 그대로다."""
+        folders = self._pages.get("folders")
+        if folders is None or not hasattr(folders, "settings_target"):
+            return self._settings_path, False
+        target = folders.settings_target()
+        return target, target != folders.current_settings_path()
 
     def _report_issues(self, issues: tuple[OptionIssue, ...]) -> None:
         """위반 항목이 있는 페이지로 전환하고 "{항목}: {메시지}" 목록을 보여 준다 (Req 1.7)."""
