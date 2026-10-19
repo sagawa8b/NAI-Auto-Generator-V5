@@ -497,11 +497,11 @@
       "width": "幅",
       "height": "高さ",
       "direct_entry": "直接入力",
-      "credit_warning": "※ 1,048,576ピクセルを超えるためクレジットを多く消費します。",
+      "credit_warning": "※ 1,048,576ピクセルを超えるためAnlasを消費します。",
       "source_locked": "生成サイズは元画像に従います: {} × {}",
       "group_normal": "通常",
-      "group_large": "大きめ",
-      "group_wallpaper": "壁紙",
+      "group_large": "Large",
+      "group_wallpaper": "Wallpaper",
       "group_custom": "カスタム"
     },
     "options_nav": {

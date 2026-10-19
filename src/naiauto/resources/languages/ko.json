@@ -497,11 +497,11 @@
       "width": "너비",
       "height": "높이",
       "direct_entry": "직접 입력",
-      "credit_warning": "※ 1,048,576픽셀을 넘어 크레딧을 더 소모합니다.",
+      "credit_warning": "※ 1,048,576픽셀을 넘어 Anlas를 소모합니다.",
       "source_locked": "생성 크기는 원본을 따릅니다: {} × {}",
       "group_normal": "일반",
-      "group_large": "큰 크기",
-      "group_wallpaper": "월페이퍼",
+      "group_large": "Large",
+      "group_wallpaper": "Wallpaper",
       "group_custom": "커스텀"
     },
     "options_nav": {

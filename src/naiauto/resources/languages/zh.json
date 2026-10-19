@@ -497,11 +497,11 @@
       "width": "宽度",
       "height": "高度",
       "direct_entry": "直接输入",
-      "credit_warning": "※ 超过 1,048,576 像素，将消耗更多额度。",
+      "credit_warning": "※ 超过 1,048,576 像素，将消耗 Anlas。",
       "source_locked": "生成尺寸跟随原图: {} × {}",
       "group_normal": "普通",
-      "group_large": "较大",
-      "group_wallpaper": "壁纸",
+      "group_large": "Large",
+      "group_wallpaper": "Wallpaper",
       "group_custom": "自定义"
     },
     "options_nav": {
