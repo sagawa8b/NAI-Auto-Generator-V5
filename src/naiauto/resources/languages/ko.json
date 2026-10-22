@@ -632,6 +632,8 @@
       "delay": "간격(초):",
       "random_resolution": "해상도 랜덤",
       "random_resolution_tooltip": "생성할 때마다 해상도를 무작위로 바꿉니다. 등급이 “커스텀”이면 옵션에서 켜 둔 커스텀 해상도 전부 중에서, 그 밖의 등급이면 Wide/Square/Portrait 중 하나를 고릅니다. i2i/인페인팅 중에는 원본 이미지 크기가 우선이라 적용되지 않습니다.",
+      "random_resolution_pair": "2가지만",
+      "random_resolution_pair_tooltip": "해상도 랜덤을 고른 두 가지 스타일 안에서만 돌립니다. 켜면 Wide/Square/Portrait 버튼이 두 개를 고르는 버튼으로 바뀝니다 — 세 번째를 누르면 먼저 고른 것이 풀립니다. 지금 등급에 고른 스타일이 하나뿐이면 랜덤이 적용되지 않습니다.",
       "random_settings_order": "세팅별 연속 생성에서 세팅 파일을 무작위 순서로",
       "random_settings_order_hint": "끄면 고른 순서대로 순환합니다. 켜면 매 장마다 무작위로 고릅니다 (같은 파일이 연달아 나오지는 않습니다).",
       "duplicate_action": "동일 조건으로 다시 생성할 때",

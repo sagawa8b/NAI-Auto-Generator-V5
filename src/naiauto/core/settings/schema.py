@@ -132,6 +132,11 @@ class BatchSettings(BaseModel):
     quick_counts: list[int] = Field(default_factory=lambda: list(DEFAULT_QUICK_COUNTS))
     #: True면 매 장마다 Wide/Square/Portrait 중 하나를 무작위로 골라 생성한다 (i2i/인페인팅 잠금 중엔 무시).
     random_resolution: bool = False
+    #: True면 해상도 랜덤이 `random_resolution_aspects`의 두 Aspect 안에서만 고른다.
+    random_resolution_pair: bool = False
+    #: "2가지만"이 고를 Aspect 두 개 (`Aspect.value`). 알 수 없는 값은 패널이 읽을 때 기본값으로
+    #: 떨어뜨린다 — 여기서 막으면 손으로 고친 settings.json 하나가 설정 전체를 날린다.
+    random_resolution_aspects: list[str] = Field(default_factory=lambda: ["Wide", "Portrait"])
     #: True면 "세팅별 연속 생성"이 고른 세팅 파일을 순서대로 돌지 않고 매번 무작위로 고른다
     #: (같은 파일이 연달아 두 번 나오지는 않는다).
     random_settings_order: bool = False

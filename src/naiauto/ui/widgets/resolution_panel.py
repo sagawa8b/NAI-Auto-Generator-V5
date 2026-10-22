@@ -49,17 +49,43 @@ DIRECT_ENTRY = "__direct__"  # 등급 콤보의 "직접 입력" 항목 userData 
 
 DEFAULT_SIZE = (832, 1216)
 
-__all__ = ["DIRECT_ENTRY", "AspectSelector", "ResolutionPanel"]
+#: "2가지만"의 기본 조합 — 세로·가로를 섞어 쓰는 경우가 가장 흔하다.
+DEFAULT_RANDOM_PAIR = (Aspect.WIDE, Aspect.PORTRAIT)
+
+__all__ = ["DEFAULT_RANDOM_PAIR", "DIRECT_ENTRY", "AspectSelector", "ResolutionPanel"]
+
+
+def _normalize_pair(values: Iterable[object]) -> list[Aspect]:
+    """서로 다른 Aspect 두 개. 아니면(알 수 없는 문자열, 중복, 개수 불일치) 기본 조합."""
+    aspects: list[Aspect] = []
+    for value in values:
+        try:
+            aspect = Aspect(value)
+        except ValueError:
+            continue
+        if aspect not in aspects:
+            aspects.append(aspect)
+    return aspects if len(aspects) == 2 else list(DEFAULT_RANDOM_PAIR)
 
 
 class AspectSelector(QWidget):
-    """Wide / Square / Portrait 텍스트 버튼 3개 (Req 10.3, 10.4)."""
+    """Wide / Square / Portrait 텍스트 버튼 3개 (Req 10.3, 10.4).
 
-    selected = Signal(object)  # Aspect
+    평소에는 하나만 눌리는 크기 선택 버튼이다. 해상도 랜덤의 "2가지만"이 켜지면 같은
+    버튼이 "랜덤에 쓸 두 Aspect"를 고르는 버튼으로 바뀐다 (`set_pair_mode`). 이때는 항상
+    정확히 두 개가 눌려 있고, 세 번째를 누르면 가장 먼저 눌렀던 것이 풀린다. 이미 눌린
+    버튼을 다시 눌러도 풀리지 않는다 — 하나만 남으면 랜덤이 아니게 되기 때문이다.
+    """
+
+    selected = Signal(object)  # Aspect — 크기 선택 모드에서만
+    pair_changed = Signal()  # 2가지 선택 모드에서 고른 두 Aspect가 바뀔 때
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._current = Aspect.SQUARE
+        self._pair_mode = False
+        #: 2가지 선택 모드에서 눌린 순서. 맨 앞이 세 번째 클릭에서 풀린다.
+        self._pair: list[Aspect] = list(DEFAULT_RANDOM_PAIR)
 
         # FlowLayout — 패널이 좁아지면 버튼 세 개가 두 줄로 나뉜다 (QHBoxLayout이면
         # 세 버튼의 폭 합이 그대로 해상도 패널의 최소 폭이 된다).
@@ -90,6 +116,13 @@ class AspectSelector(QWidget):
     def buttons(self) -> dict[Aspect, QPushButton]:
         return dict(self._buttons)
 
+    def pair_mode(self) -> bool:
+        return self._pair_mode
+
+    def pair(self) -> tuple[Aspect, ...]:
+        """2가지 선택 모드에서 고른 두 Aspect — `Aspect` 선언 순서 (Wide, Square, Portrait)."""
+        return tuple(aspect for aspect in Aspect if aspect in self._pair)
+
     # ── 조작 ────────────────────────────────────────────────────────────
 
     def set_available(self, aspects: Iterable[Aspect]) -> None:
@@ -99,15 +132,52 @@ class AspectSelector(QWidget):
             button.setEnabled(aspect in allowed)
 
     def set_current(self, aspect: Aspect) -> None:
-        """표시만 갱신한다 — `selected`를 emit하지 않는다."""
+        """표시만 갱신한다 — `selected`를 emit하지 않는다.
+
+        2가지 선택 모드에서는 버튼이 고른 두 Aspect를 보여 주므로 값만 기억해 둔다.
+        """
         self._current = aspect
+        if self._pair_mode:
+            return
         button = self._buttons[aspect]
         if not button.isChecked():
             button.setChecked(True)
 
+    def set_pair(self, values: Iterable[object]) -> None:
+        """고른 두 Aspect를 설정한다 (설정 복원용). `pair_changed`를 emit하지 않는다."""
+        self._pair = _normalize_pair(values)
+        self._sync_checks()
+
+    def set_pair_mode(self, on: bool) -> None:
+        """크기 선택(하나) ↔ 2가지 선택(둘) 모드를 바꾼다."""
+        if on == self._pair_mode:
+            return
+        self._pair_mode = on
+        if on:
+            # 배타 그룹에서는 두 개를 동시에 누를 수 없다.
+            self._group.setExclusive(False)
+            self._sync_checks()
+        else:
+            # 배타로 되돌리기 전에 현재 Aspect 하나만 남긴다.
+            self._sync_checks()
+            self._group.setExclusive(True)
+
+    def _sync_checks(self) -> None:
+        checked = set(self._pair) if self._pair_mode else {self._current}
+        for aspect, button in self._buttons.items():
+            button.setChecked(aspect in checked)
+
     def _on_clicked(self, aspect: Aspect, _checked: bool = False) -> None:
-        self.set_current(aspect)
-        self.selected.emit(aspect)
+        if not self._pair_mode:
+            self.set_current(aspect)
+            self.selected.emit(aspect)
+            return
+        if aspect in self._pair:  # 이미 고른 것 — 두 개를 유지한다
+            self._sync_checks()
+            return
+        self._pair = [*self._pair[1:], aspect]
+        self._sync_checks()
+        self.pair_changed.emit()
 
 
 class ResolutionPanel(QGroupBox):
@@ -141,10 +211,18 @@ class ResolutionPanel(QGroupBox):
         # 매 장 등급 안에서 Wide/Square/Portrait 중 하나를 골라 쓴다. Aspect 버튼과 짝이라
         # 그 바로 옆에 둔다.
         self.random_check = QCheckBox()
+        # "2가지만" — 해상도 랜덤을 두 Aspect로 좁힌다. 켜면 위 Aspect 버튼이 그대로 두 개를
+        # 고르는 버튼이 된다 (따로 버튼을 두지 않는다).
+        self.random_pair_check = QCheckBox()
+        # 체크 둘은 늘어나지 않게 한다 — FlowLayout은 늘어날 수 있는 위젯끼리 남는 폭을 나누므로,
+        # 같은 줄에 둘이 걸리면 `2가지만`이 줄 가운데로 밀려난다.
+        for check in (self.random_check, self.random_pair_check):
+            check.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         top_row.addWidget(self.group_label)
         top_row.addWidget(self.group_combo)
         top_row.addWidget(self.aspect_selector)
         top_row.addWidget(self.random_check)
+        top_row.addWidget(self.random_pair_check)
         layout.addLayout(top_row)
 
         # 2행: 너비 × 높이
@@ -181,6 +259,10 @@ class ResolutionPanel(QGroupBox):
         # 켜고 끄면 배치 진행 중 다음 이미지부터 반영되도록 `changed`로 알린다
         # (메인 창의 `_on_resolution_changed`가 라이브 반영·저장을 맡는다).
         self.random_check.toggled.connect(lambda _on: self.changed.emit())
+        self.random_check.toggled.connect(self._sync_random_pair)
+        self.random_pair_check.toggled.connect(self._sync_random_pair)
+        self.random_pair_check.toggled.connect(lambda _on: self.changed.emit())
+        self.aspect_selector.pair_changed.connect(self.changed.emit)
         self.width_spin.valueChanged.connect(self._on_dimension_changed)
         self.height_spin.valueChanged.connect(self._on_dimension_changed)
         self.width_spin.editingFinished.connect(self._on_editing_finished)
@@ -191,6 +273,7 @@ class ResolutionPanel(QGroupBox):
 
         self.retranslate()
         self._sync_aspect()
+        self._sync_random_pair()
         self._refresh_indicators()
 
     @staticmethod
@@ -264,14 +347,18 @@ class ResolutionPanel(QGroupBox):
           둔 크기 대부분이 뽑히지 않는다 (V4의 `_get_custom_resolution_list`와 같은 규칙).
         - 그 밖의 등급이면 Aspect별 대표 1개씩 — Wide/Square/Portrait 중 하나가 걸린다.
         - "직접 입력" 상태(`current_group()`이 None)면 카탈로그 전체에서 Aspect별 첫 해상도.
+        - "2가지만"이 켜져 있으면 위 후보 중 고른 두 Aspect에 속하는 것만 남긴다.
         """
         if self._catalog is None:
             return ()
+        allowed = self.random_pair_aspects() if self.random_pair_enabled() else tuple(Aspect)
         group = self.current_group()
         if group is ResolutionGroup.CUSTOM:
-            return tuple(item.size for item in self._catalog.resolutions(group))
+            return tuple(item.size for item in self._catalog.resolutions(group) if item.aspect in allowed)
         sizes: list[tuple[int, int]] = []
         for aspect in self._available_aspects():
+            if aspect not in allowed:
+                continue
             item = (
                 self._catalog.first_of_aspect(group, aspect)
                 if group is not None
@@ -288,6 +375,19 @@ class ResolutionPanel(QGroupBox):
     def set_random_resolution(self, enabled: bool) -> None:
         """해상도 랜덤 체크를 설정한다 (설정 복원용)."""
         self.random_check.setChecked(enabled)
+
+    def random_pair_enabled(self) -> bool:
+        """`2가지만` 체크 상태. 해상도 랜덤이 꺼져 있으면 의미가 없지만 값은 그대로 돌려준다."""
+        return self.random_pair_check.isChecked()
+
+    def set_random_pair(self, enabled: bool, aspects: Iterable[object] = DEFAULT_RANDOM_PAIR) -> None:
+        """`2가지만` 체크와 고른 두 Aspect를 설정한다 (설정 복원용)."""
+        self.aspect_selector.set_pair(aspects)
+        self.random_pair_check.setChecked(enabled)
+
+    def random_pair_aspects(self) -> tuple[Aspect, ...]:
+        """`2가지만`으로 고른 두 Aspect."""
+        return self.aspect_selector.pair()
 
     def current_group(self) -> ResolutionGroup | None:
         """콤보에서 선택된 등급. "직접 입력"이면 None.
@@ -327,6 +427,8 @@ class ResolutionPanel(QGroupBox):
         self.height_label.setText(tr("resolution.height"))
         self.random_check.setText(tr("batch.random_resolution"))
         self.random_check.setToolTip(tr("batch.random_resolution_tooltip"))
+        self.random_pair_check.setText(tr("batch.random_resolution_pair"))
+        self.random_pair_check.setToolTip(tr("batch.random_resolution_pair_tooltip"))
         for index in range(self.group_combo.count()):
             data = self.group_combo.itemData(index)
             self.group_combo.setItemText(index, self._group_text(data))
@@ -403,6 +505,17 @@ class ResolutionPanel(QGroupBox):
     def _sync_aspect(self) -> None:
         self.aspect_selector.set_available(self._available_aspects())
         self.aspect_selector.set_current(classify_aspect(self.width_spin.value(), self.height_spin.value()))
+
+    def _sync_random_pair(self, _checked: bool = False) -> None:
+        """`2가지만`은 해상도 랜덤의 하위 옵션 — 랜덤이 꺼져 있으면 비활성.
+
+        둘 다 켜져 있을 때만 Aspect 버튼이 2가지 선택 모드가 된다. 끄면 현재 크기의 Aspect
+        하나만 눌린 원래 모습으로 돌아간다.
+        """
+        self.random_pair_check.setEnabled(self.random_check.isChecked())
+        self.aspect_selector.set_pair_mode(
+            self.random_check.isChecked() and self.random_pair_check.isChecked()
+        )
 
     def _first_of_aspect_any(self, aspect: Aspect) -> Resolution | None:
         """직접 입력 상태에서 Aspect 버튼을 눌렀을 때의 폴백 — 그 Aspect를 가진 첫 해상도."""

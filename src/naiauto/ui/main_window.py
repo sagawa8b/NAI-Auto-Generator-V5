@@ -1526,6 +1526,9 @@ class MainWindow(QMainWindow):
         self.count_spin.setValue(self._settings.batch.count)
         self.delay_spin.setValue(self._settings.batch.delay_seconds)
         self.resolution_panel.set_random_resolution(self._settings.batch.random_resolution)
+        self.resolution_panel.set_random_pair(
+            self._settings.batch.random_resolution_pair, self._settings.batch.random_resolution_aspects
+        )
         self._refresh_quick_buttons()
         self.image_source_action.setChecked(
             self._settings.show_image_source and self.image_source_action.isEnabled()
@@ -1605,6 +1608,8 @@ class MainWindow(QMainWindow):
         s.batch.count = self.count_spin.value()
         s.batch.delay_seconds = self.delay_spin.value()
         s.batch.random_resolution = self.resolution_panel.random_resolution_enabled()
+        s.batch.random_resolution_pair = self.resolution_panel.random_pair_enabled()
+        s.batch.random_resolution_aspects = [a.value for a in self.resolution_panel.random_pair_aspects()]
         s.show_image_source = self.image_source_action.isChecked()
         s.show_enhance = self.enhance_action.isChecked()
         s.show_result_overlay = self.result_overlay_action.isChecked()

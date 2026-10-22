@@ -632,6 +632,8 @@
       "delay": "间隔(秒):",
       "random_resolution": "随机分辨率",
       "random_resolution_tooltip": "每次生成时随机更换分辨率：等级为“自定义”时从选项中已启用的所有自定义分辨率中选择，其他等级则从 Wide/Square/Portrait 中选择。i2i/局部重绘时会优先使用原图尺寸，因此不生效。",
+      "random_resolution_pair": "仅限2种",
+      "random_resolution_pair_tooltip": "随机分辨率只在所选的两种样式之间切换。开启后 Wide/Square/Portrait 按钮会变为选择两种样式的按钮——点击第三种时会取消最先选的那一种。若当前等级中只有一种所选样式，则不进行随机。",
       "random_settings_order": "按设置连续生成时随机选择设置文件",
       "random_settings_order_hint": "关闭时按选择顺序循环；开启后每张随机挑选一个(不会连续两次使用同一个文件)。",
       "duplicate_action": "以相同条件再次生成时",
