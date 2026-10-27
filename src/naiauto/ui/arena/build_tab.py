@@ -300,7 +300,7 @@ class BuildTab(ArenaTab):
         layout.addWidget(self.batch_group)
 
         # ── 수동 추가 ────────────────────────────────────────────────────
-        # 무작위 생성 말고, 원하는 작가·가중치로 조합 하나를 직접 만든다. 명단에
+        # 무작위 생성 말고, 원하는 작가·가중치로 조합을 직접 만든다 (한 줄에 하나). 명단에
         # 없는 작가도 그대로 쓸 수 있다 (편집 창과 같은 `1.2::artist:이름 ::` 문법).
         manual_body = QWidget()
         manual_layout = QVBoxLayout(manual_body)
@@ -968,40 +968,66 @@ class BuildTab(ArenaTab):
     # ── 동작 ────────────────────────────────────────────────────────────
 
     def add_manual_combo(self) -> bool:
-        """입력한 작가·가중치로 조합 하나를 직접 만든다. 만들었으면 True.
+        """입력한 작가·가중치로 조합을 직접 만든다. 하나라도 만들었으면 True.
 
+        **한 줄이 조합 하나**다 — 여러 줄을 넣으면 줄마다 따로 대기 조합이 된다.
         편집 창과 같은 `1.2::artist:이름 ::` 문법을 받는다. 가중치 껍데기 없이 이름만
         적은 작가에게는 옆의 `기본 가중치` 값을 준다 — 하나하나 `1.0::`을 적지 않아도
         된다. 명단에 없는 작가도 그대로 쓸 수 있다. 이미 같은 작가 구성이 있으면
-        (가중치만 달라도) 중복으로 보고 막는다 — 무작위 생성과 같은 규칙이다.
+        (가중치만 달라도) 중복으로 보고 그 줄은 건너뛴다 — 무작위 생성과 같은 규칙이다.
+        건너뛴 줄은 고쳐서 다시 넣을 수 있게 입력란에 남긴다.
         """
-        text = self.manual_edit.toPlainText().strip()
-        if not text:
+        lines = [line.strip() for line in self.manual_edit.toPlainText().splitlines()]
+        lines = [line for line in lines if line]
+        if not lines:
             self.status_message.emit(self.tr("arena.manual_empty"))
             return False
         # 가중치 껍데기 없이 적힌 작가에만 기본 가중치를 준다 — 직접 적은 `1.0::`은 그대로.
         default_weight = normalize_weight(self.manual_weight_spin.value())
-        parsed, warnings = parse_artist_block(text, bare_weight=default_weight)
-        if not parsed:
-            key = "arena.manual_unreadable" if warnings else "arena.manual_empty"
-            self.status_message.emit(self.tr(key).format(", ".join(warnings)))
+        existing = {name_signature(combo.slots) for combo in self.state.combos}
+        added: list[Combo] = []
+        skipped: list[str] = []
+        warnings: list[str] = []
+        error = ""
+        for line in lines:
+            parsed, line_warnings = parse_artist_block(line, bare_weight=default_weight)
+            if not parsed:
+                key = "arena.manual_unreadable" if line_warnings else "arena.manual_empty"
+                error = self.tr(key).format(", ".join(line_warnings))
+                skipped.append(line)
+                continue
+            # 같은 작가를 두 번 적었으면 처음 것만 남긴다.
+            unique: dict[str, ComboSlot] = {}
+            for slot in parsed:
+                unique.setdefault(slot.name, slot)
+            slots = tuple(unique.values())
+            signature = name_signature(slots)
+            if signature in existing:
+                error = self.tr("arena.manual_duplicate")
+                skipped.append(line)
+                continue
+            existing.add(signature)
+            warnings.extend(line_warnings)
+            added.append(Combo(slots=slots, generation=1))
+        if not added:
+            self.status_message.emit(error)
             return False
-        # 같은 작가를 두 번 적었으면 처음 것만 남긴다.
-        unique: dict[str, ComboSlot] = {}
-        for slot in parsed:
-            unique.setdefault(slot.name, slot)
-        slots = tuple(unique.values())
-        signature = name_signature(slots)
-        if any(name_signature(combo.slots) == signature for combo in self.state.combos):
-            self.status_message.emit(self.tr("arena.manual_duplicate"))
-            return False
-        self.state.combos.append(Combo(slots=slots, generation=1))
+        self.state.combos.extend(added)
         self._service.save()
-        self.manual_edit.clear()
-        if warnings:
-            self.status_message.emit(self.tr("arena.queue_edit_warnings").format(", ".join(warnings)))
+        self.manual_edit.setPlainText("\n".join(skipped))
+        if len(lines) == 1:
+            if warnings:
+                message = self.tr("arena.queue_edit_warnings").format(", ".join(warnings))
+            else:
+                message = self.tr("arena.manual_added").format(len(added[0].slots))
         else:
-            self.status_message.emit(self.tr("arena.manual_added").format(len(slots)))
+            parts = [self.tr("arena.manual_added_many").format(len(added))]
+            if skipped:
+                parts.append(self.tr("arena.manual_skipped").format(len(skipped)))
+            if warnings:
+                parts.append(self.tr("arena.manual_unread_parts").format(", ".join(warnings)))
+            message = " ".join(parts)
+        self.status_message.emit(message)
         self.state_changed.emit()
         return True
 
