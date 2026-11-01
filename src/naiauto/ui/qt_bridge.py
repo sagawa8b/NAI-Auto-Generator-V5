@@ -19,3 +19,13 @@ class QtEventBridge(QObject):
     def __call__(self, event: GenerationEvent) -> None:
         # 워커 스레드에서 호출됨 — emit은 스레드 안전 (queued connection)
         self.event_received.emit(event)
+
+
+class TagKnowledgeBridge(QObject):
+    """`TagKnowledgeService.request()`의 결과 콜백 → 메인 스레드 시그널 (모델, 입력, 후보)."""
+
+    result_ready = Signal(str, str, object)
+
+    def __call__(self, model: str, keyword: str, tags: list) -> None:
+        # 작업 스레드에서 호출됨. 위젯이 이미 지워졌으면 RuntimeError — 서비스가 삼킨다.
+        self.result_ready.emit(model, keyword, tags)

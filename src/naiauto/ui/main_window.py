@@ -81,6 +81,7 @@ from ..core.settings.schema import (
 from ..core.settings.store import ensure_dirs
 from ..core.settings_batch import SettingsBatchController
 from ..core.tag_completer import TagCompleter, resolve_database_path
+from ..core.tag_knowledge import TagKnowledgeService
 from ..core.updates import RELEASES_PAGE, ReleaseInfo, check_for_update
 from ..core.wildcards.catalog import WildcardCatalog
 from ..core.wildcards.line_source import WildcardLineSource
@@ -105,7 +106,7 @@ from .options_dialog import OptionsDialog
 from .options_pages import open_in_file_manager
 from .preset_manager_dialog import PresetManagerDialog
 from .qt_bridge import QtEventBridge
-from .tag_completer_dropdown import TagCompleterDropdown
+from .tag_completer_dropdown import TagCompleterDropdown, TagKnowledgeSource
 from .widgets.character_prompts import CharacterPromptsWidget, CharacterSlot
 from .widgets.collapsible_section import CollapsibleSection, compose_ai_summary
 from .widgets.enhance_panel import EnhancePanel
@@ -195,6 +196,8 @@ class MainWindow(QMainWindow):
 
         # M3: Tag Completer — 실제 로드와 드롭다운 부착은 _refresh_tag_completer()가 한다
         self._tag_completer = TagCompleter()
+        # 태그 지식 지표 — 캐시를 모든 입력란이 같이 쓰도록 하나만 둔다
+        self._tag_knowledge = TagKnowledgeService()
 
         # M3: Preset Store — named parameter snapshots (경로는 옵션에서 바꿀 수 있다, Req 2.5)
         self._preset_store = PresetStore(Path(settings.presets_dir))
@@ -714,8 +717,15 @@ class MainWindow(QMainWindow):
             lines = None  # 등록한 와일드카드가 없으면 켜져 있어도 뜰 것이 없다
         if tags is None and wildcards is None and lines is None:
             return
+        knowledge = None
+        if self._settings.tag_autocomplete_enabled and self._settings.tag_knowledge_enabled:
+            knowledge = TagKnowledgeSource(
+                self._tag_knowledge,
+                model=self._knowledge_model,
+                tooltip=lambda count: self._i18n.get_text("ui.tag_knowledge_tooltip", f"{count:,}"),
+            )
         self._completer_dropdowns[edit] = TagCompleterDropdown(
-            edit, tags, wildcards, lines, settings=self._qsettings
+            edit, tags, wildcards, lines, settings=self._qsettings, knowledge=knowledge
         )
 
     def _attach_slot_completers(self, slot: CharacterSlot) -> None:
@@ -1187,6 +1197,15 @@ class MainWindow(QMainWindow):
 
     def current_spec(self) -> ModelSpec:
         return get_spec(self.model_combo.currentData())
+
+    def _knowledge_model(self) -> str:
+        """태그 지식 지표가 물을 모델 API 이름. 고른 모델이 없으면 ""(묻지 않는다).
+
+        입력 중에 불리므로 `current_spec()`처럼 예외를 던지면 안 된다 — 콤보가 비어 있는
+        순간(모델 목록을 다시 채우는 중 등)에도 타자는 계속된다.
+        """
+        key = self.model_combo.currentData()
+        return get_spec(key).api_name if key in MODEL_REGISTRY else ""
 
     def _select_resolution(self, width: int, height: int, group: str = "") -> bool:
         """해상도 패널에 (w, h)를 적용한다.
@@ -1952,6 +1971,7 @@ class MainWindow(QMainWindow):
         for window in (self._assistant_dialog, self._gallery_view, self._image_info_dialog):
             if window is not None:
                 window.close()
+        self._tag_knowledge.shutdown()
         super().closeEvent(event)
 
     # ── 드래그&드롭 ─────────────────────────────────────

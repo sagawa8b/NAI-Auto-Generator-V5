@@ -15,6 +15,9 @@ v0.7.8 이전에는 이 화면 이름이 `태그 자동완성`이었고 WD14 태
 (Req 7.3). 시험 로드가 실패해도 저장은 막지 않는다: 상태 문구만 비활성으로 바뀌고 나머지 항목은
 그대로 반영된다 (Req 7.5).
 
+태그 묶음 아래의 `모델의 태그 인지도 표시`는 태그 후보 옆에 모델별 인지도 마커를 그린다
+(`core.tag_knowledge`). 입력이 서버로 가므로 기본은 꺼 두고, 태그 자동완성을 끄면 함께 흐려진다.
+
 세 번째 묶음 `등록 와일드카드 자동완성`은 고른 와일드카드 파일의 **줄**을 태그 후보에 섞는다
 (`core.wildcards.line_source`). 목록 순서가 곧 우선순위이자 색 순서라, 드롭다운과 같은 색으로
 이름을 칠해 둔다. 추가할 이름은 와일드카드 폴더(드래프트의 `wildcards_dir`)에서 고른다.
@@ -118,6 +121,15 @@ class CompletionPage(OptionsPage):
         self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         layout.addWidget(self.status_label)
 
+        # 태그 지식 지표 — 태그 후보에 붙는 것이라 태그 자동완성이 꺼져 있으면 흐린다
+        self.knowledge_check = QCheckBox(self)
+        layout.addWidget(self.knowledge_check)
+        self.knowledge_hint = QLabel(self)
+        self.knowledge_hint.setWordWrap(True)
+        self.knowledge_hint.setEnabled(False)  # 읽기 전용 안내
+        layout.addWidget(self.knowledge_hint)
+        self.enabled_check.toggled.connect(self.knowledge_check.setEnabled)
+
         # ── 와일드카드 이름 자동완성 (와일드카드 폴더를 읽는다) ────────
         layout.addSpacing(12)
         self.wildcards_title = QLabel(self)
@@ -178,6 +190,8 @@ class CompletionPage(OptionsPage):
 
     def load(self, draft: AppSettings) -> None:
         self.enabled_check.setChecked(draft.tag_autocomplete_enabled)
+        self.knowledge_check.setChecked(draft.tag_knowledge_enabled)
+        self.knowledge_check.setEnabled(draft.tag_autocomplete_enabled)
         self.path_edit.setText(draft.tag_database_path)
         self.wildcard_autocomplete_check.setChecked(draft.wildcard_autocomplete_enabled)
         self.wildcard_tags_check.setChecked(draft.wildcard_tag_autocomplete_enabled)
@@ -189,6 +203,7 @@ class CompletionPage(OptionsPage):
     def commit(self, draft: AppSettings) -> None:
         """공백만 남은 태그 DB 경로는 빈 값(= 내장 DB)으로 정규화한다."""
         draft.tag_autocomplete_enabled = self.enabled_check.isChecked()
+        draft.tag_knowledge_enabled = self.knowledge_check.isChecked()
         draft.tag_database_path = self.path_edit.text().strip()
         draft.wildcard_autocomplete_enabled = self.wildcard_autocomplete_check.isChecked()
         draft.wildcard_tag_autocomplete_enabled = self.wildcard_tags_check.isChecked()
@@ -200,6 +215,8 @@ class CompletionPage(OptionsPage):
         self.enabled_check.setText(tr("options.tags_autocomplete_enabled"))
         self.path_label.setText(tr("options.tag_database_path"))
         self.browse_button.setText(tr("options.browse"))
+        self.knowledge_check.setText(tr("options.tag_knowledge_enabled"))
+        self.knowledge_hint.setText(tr("options.tag_knowledge_hint"))
         key, count = self._status
         self.status_label.setText(
             tr(key, count) if key in (STATUS_LOADED_KEY, STATUS_BUNDLED_KEY) else tr(key)
