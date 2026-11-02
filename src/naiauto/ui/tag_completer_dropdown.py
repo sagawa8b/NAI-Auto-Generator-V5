@@ -316,6 +316,9 @@ class TagCompleterDropdown:
         # `eventFilter`가 그 FocusOut을 보고 팝업을 닫아 버린다 (손잡이를 잡자마자 닫히던 문제).
         self._popup.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.WindowDoesNotAcceptFocus)
         self._popup.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        # Qt는 활성 창이 아닌 창에는 툴팁을 띄우지 않는다 — 위처럼 활성화를 막아 둔 팝업에서
+        # 태그 지식 마커의 값(툴팁)이 보이려면 이 속성이 있어야 한다.
+        self._popup.setAttribute(Qt.WidgetAttribute.WA_AlwaysShowToolTips)
         self._popup.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._popup.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         # 넘치는 문구는 가운데를 줄인다 — 끝을 자르면 줄 후보의 출처 꼬리표(`[이름]`)가 사라진다
