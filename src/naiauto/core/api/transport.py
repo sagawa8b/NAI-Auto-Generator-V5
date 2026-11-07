@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Mapping
 
 import requests
 
@@ -18,6 +19,7 @@ from .errors import (
     NetworkError,
     PayloadRejectedError,
     RateLimitError,
+    ServerBlockedError,
     ServerBusyError,
 )
 
@@ -25,9 +27,28 @@ logger = logging.getLogger(__name__)
 
 RETRYABLE_STATUS = (502, 503, 504, 520)
 
+#: Cloudflare 확인 페이지에 들어 있는 표식들 (본문 앞부분만 본다).
+_CHALLENGE_MARKERS = ("<title>Just a moment...</title>", "challenge-platform", "cf-chl")
+
+
+def is_cloudflare_challenge(status: int, headers: Mapping[str, str], body: str) -> bool:
+    """Cloudflare가 보낸 봇 확인 페이지인지.
+
+    `cf-mitigated: challenge` 헤더가 가장 확실하고, 없으면 403/503 HTML 본문의 표식을 본다.
+    """
+    lowered = {str(k).lower(): str(v) for k, v in dict(headers).items()}
+    if lowered.get("cf-mitigated", "").lower() == "challenge":
+        return True
+    if status not in (403, 503) or "text/html" not in lowered.get("content-type", "").lower():
+        return False
+    head = body[:4000]
+    return any(marker in head for marker in _CHALLENGE_MARKERS)
+
 
 def _raise_for_status(resp: requests.Response) -> None:
     status = resp.status_code
+    if status in (403, 503) and is_cloudflare_challenge(status, resp.headers, resp.text):
+        raise ServerBlockedError(status)
     if status == 401:
         raise AuthError("Authentication failed (401). Token invalid or expired.")
     if status == 402:

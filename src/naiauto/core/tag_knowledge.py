@@ -15,6 +15,12 @@ NovelAI 웹 UI는 태그 자동완성 후보 오른쪽에 원 마커를 그리�
 - 언더스코어는 공백으로 바꿔 보내야 한다 (`blue_ey`로는 `blue eyes`가 안 나온다).
 - 없는 모델 이름이면 400 `Model not found`.
 
+**요청을 아껴 보낸다.** 이 호스트는 이미지 생성과 같은 `image.novelai.net`이라, 여기서 Cloudflare
+확인(403 "Just a moment...")이나 429를 부르면 생성·로그인까지 함께 막힌다 (2026-11-07 실제로 약 5분간
+막힌 적이 있다). 그래서 차단 응답을 받으면 `BLOCKED_PAUSE` 동안 아예 묻지 않고, 그 밖의 실패는
+간격을 두 배씩 늘리며(`RETRY_AFTER` → `MAX_RETRY_AFTER`), 평소에도 분당 `MAX_REQUESTS_PER_MINUTE`
+번을 넘기지 않는다. 연결은 `requests.Session` 하나로 재사용한다.
+
 core/ 모듈이므로 Qt를 모른다. 요청은 `TagKnowledgeService`가 작업 스레드에서 보내고 결과를
 콜백으로 넘긴다 — 메인 스레드로 옮기는 일은 UI 쪽(`ui/qt_bridge.py`)이 한다.
 """
@@ -24,7 +30,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from collections.abc import Callable
 from concurrent.futures import Executor, ThreadPoolExecutor
 from dataclasses import dataclass
@@ -42,7 +48,18 @@ MAX_KNOWLEDGE = 10000
 REQUEST_TIMEOUT = 5.0
 
 #: 실패한 뒤 이 시간(초) 동안은 다시 요청하지 않는다 — 오프라인일 때 키를 칠 때마다 붙잡지 않게.
+#: 연달아 실패하면 두 배씩 늘려 `MAX_RETRY_AFTER`까지.
 RETRY_AFTER = 30.0
+MAX_RETRY_AFTER = 600.0
+
+#: 서버가 막았을 때(403·429) 쉬는 시간(초). 생성과 같은 호스트라 짧게 두면 생성까지 막힌다.
+BLOCKED_PAUSE = 900.0
+
+#: 차단으로 보는 HTTP 상태 — Cloudflare 확인 페이지(403)와 레이트 리밋(429).
+BLOCKED_STATUSES = frozenset({403, 429})
+
+#: 1분 동안 보낼 수 있는 최대 요청 수. 넘으면 그 입력은 묻지 않는다 (마커만 빠진다).
+MAX_REQUESTS_PER_MINUTE = 20
 
 #: 캐시에 남길 (모델, 입력) 조합 수.
 CACHE_SIZE = 512
@@ -100,13 +117,30 @@ def parse_suggest_tags(data: object) -> list[TagKnowledge]:
     return result
 
 
+class SuggestTagsBlocked(Exception):
+    """서버가 요청을 막았다 (403 Cloudflare 확인·429) — 한동안 묻지 말아야 한다."""
+
+    def __init__(self, status: int):
+        super().__init__(f"suggest-tags blocked by server (HTTP {status})")
+        self.status = status
+
+
+#: 연결을 재사용하는 HTTP 세션 — 키를 칠 때마다 TLS 연결을 새로 맺지 않게.
+_HTTP = requests.Session()
+
+
 def fetch_tag_knowledge(model: str, keyword: str, timeout: float = REQUEST_TIMEOUT) -> list[TagKnowledge]:
-    """서버에 한 번 묻는다. 네트워크·HTTP 오류는 `requests` 예외 그대로 올린다."""
-    resp = requests.get(
+    """서버에 한 번 묻는다.
+
+    403·429는 `SuggestTagsBlocked`로, 그 밖의 네트워크·HTTP 오류는 `requests` 예외 그대로 올린다.
+    """
+    resp = _HTTP.get(
         SUGGEST_TAGS_URL,
         params={"model": model, "prompt": normalize_tag(keyword)},
         timeout=timeout,
     )
+    if resp.status_code in BLOCKED_STATUSES:
+        raise SuggestTagsBlocked(resp.status_code)
     resp.raise_for_status()
     return parse_suggest_tags(resp.json())
 
@@ -119,8 +153,13 @@ class TagKnowledgeService:
     """캐시 + 백그라운드 요청.
 
     `cached()`는 바로 답하고(없으면 None), `request()`는 작업 스레드에 요청을 맡긴 뒤 끝나면
-    `on_done`을 부른다. 같은 (모델, 입력)을 이미 묻는 중이거나 실패 직후(`RETRY_AFTER`)면 요청하지
-    않는다. 여러 입력란의 드롭다운이 이 객체 하나를 같이 쓴다.
+    `on_done`을 부른다. 다음 경우에는 요청하지 않는다:
+
+    - 같은 (모델, 입력)을 이미 묻는 중
+    - 실패 뒤 쉬는 중 — 보통 실패는 `RETRY_AFTER`부터 두 배씩, 차단(403·429)은 `BLOCKED_PAUSE`
+    - 최근 1분 동안 이미 `MAX_REQUESTS_PER_MINUTE`번 물었음
+
+    여러 입력란의 드롭다운이 이 객체 하나를 같이 쓴다.
     """
 
     def __init__(
@@ -129,6 +168,9 @@ class TagKnowledgeService:
         executor: Executor | None = None,
         cache_size: int = CACHE_SIZE,
         retry_after: float = RETRY_AFTER,
+        max_retry_after: float = MAX_RETRY_AFTER,
+        blocked_pause: float = BLOCKED_PAUSE,
+        max_per_minute: int = MAX_REQUESTS_PER_MINUTE,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._fetch = fetch
@@ -136,11 +178,31 @@ class TagKnowledgeService:
         self._owns_executor = executor is None
         self._cache_size = cache_size
         self._retry_after = retry_after
+        self._max_retry_after = max_retry_after
+        self._blocked_pause = blocked_pause
+        self._max_per_minute = max_per_minute
         self._clock = clock
         self._cache: OrderedDict[tuple[str, str], list[TagKnowledge]] = OrderedDict()
         self._in_flight: set[tuple[str, str]] = set()
-        self._failed_at: float | None = None
+        #: 이 시각(clock 기준) 전에는 묻지 않는다.
+        self._paused_until: float | None = None
+        #: 연달아 실패한 횟수 — 쉬는 시간을 두 배씩 늘리는 데 쓴다.
+        self._failures = 0
+        #: 최근 요청 시각 — 분당 상한을 세는 데 쓴다.
+        self._sent: deque[float] = deque()
         self._lock = threading.Lock()
+
+    def pause(self, seconds: float) -> None:
+        """밖에서 서버 차단을 알았을 때(예: 생성 요청이 Cloudflare에 막힘) 함께 쉰다."""
+        with self._lock:
+            until = self._clock() + seconds
+            if self._paused_until is None or until > self._paused_until:
+                self._paused_until = until
+
+    @property
+    def is_paused(self) -> bool:
+        with self._lock:
+            return self._paused_until is not None and self._clock() < self._paused_until
 
     def cached(self, model: str, keyword: str) -> list[TagKnowledge] | None:
         key = (model, normalize_tag(keyword))
@@ -158,8 +220,14 @@ class TagKnowledgeService:
         with self._lock:
             if key in self._cache or key in self._in_flight:
                 return False
-            if self._failed_at is not None and self._clock() - self._failed_at < self._retry_after:
+            now = self._clock()
+            if self._paused_until is not None and now < self._paused_until:
                 return False
+            while self._sent and now - self._sent[0] >= 60.0:
+                self._sent.popleft()
+            if len(self._sent) >= self._max_per_minute:
+                return False
+            self._sent.append(now)
             self._in_flight.add(key)
         if self._executor is None:
             self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tag-knowledge")
@@ -170,15 +238,29 @@ class TagKnowledgeService:
         model, keyword = key
         try:
             tags = self._fetch(model, keyword)
-        except Exception as e:  # noqa: BLE001 — 자동완성 보조 기능이라 어떤 실패도 조용히 넘긴다
-            logger.info("suggest-tags failed (%s, %r): %s", model, keyword, e)
+        except SuggestTagsBlocked as e:
+            logger.warning(
+                "suggest-tags blocked (HTTP %s) — pausing tag knowledge for %.0fs",
+                e.status,
+                self._blocked_pause,
+            )
             with self._lock:
                 self._in_flight.discard(key)
-                self._failed_at = self._clock()
+                self._failures += 1
+                self._paused_until = self._clock() + self._blocked_pause
+            return
+        except Exception as e:  # noqa: BLE001 — 자동완성 보조 기능이라 어떤 실패도 조용히 넘긴다
+            with self._lock:
+                self._in_flight.discard(key)
+                self._failures += 1
+                wait = min(self._retry_after * 2 ** (self._failures - 1), self._max_retry_after)
+                self._paused_until = self._clock() + wait
+            logger.info("suggest-tags failed (%s, %r): %s — retry in %.0fs", model, keyword, e, wait)
             return
         with self._lock:
             self._in_flight.discard(key)
-            self._failed_at = None
+            self._failures = 0
+            self._paused_until = None
             self._cache[key] = tags
             self._cache.move_to_end(key)
             while len(self._cache) > self._cache_size:
@@ -195,12 +277,17 @@ class TagKnowledgeService:
 
 
 __all__ = [
+    "BLOCKED_PAUSE",
+    "BLOCKED_STATUSES",
     "CACHE_SIZE",
     "MAX_KNOWLEDGE",
+    "MAX_REQUESTS_PER_MINUTE",
+    "MAX_RETRY_AFTER",
     "REQUEST_TIMEOUT",
     "RETRY_AFTER",
     "SUGGEST_TAGS_URL",
     "ResultCallback",
+    "SuggestTagsBlocked",
     "TagKnowledge",
     "TagKnowledgeService",
     "fetch_tag_knowledge",

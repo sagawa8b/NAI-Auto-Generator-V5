@@ -14,8 +14,9 @@ from hashlib import blake2b
 import argon2.low_level
 import requests
 
-from .errors import AuthError, NetworkError
+from .errors import AuthError, NetworkError, ServerBlockedError
 from .model_specs import BASE_URL
+from .transport import is_cloudflare_challenge
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,8 @@ class NAISession:
             resp = requests.post(f"{BASE_URL}/user/login", json={"key": access_key}, timeout=30)
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
             raise NetworkError(f"Login network error: {e}") from e
+        if is_cloudflare_challenge(resp.status_code, resp.headers, resp.text):
+            raise ServerBlockedError(resp.status_code)
         if resp.status_code == 401:
             raise AuthError("Login failed (401). Check email/password.")
         try:

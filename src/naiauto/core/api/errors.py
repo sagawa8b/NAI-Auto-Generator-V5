@@ -45,6 +45,19 @@ class PayloadRejectedError(NAIError):
         self.body = body
 
 
+class ServerBlockedError(NAIError):
+    """Cloudflare가 요청을 막았다 — 403 "Just a moment..." 확인 페이지.
+
+    토큰 문제가 아니다 (그때는 401). 브라우저는 이 확인을 자동으로 넘지만 앱은 못 넘는다.
+    대개 몇 분 뒤 풀리므로 재시도하지 않고 잡을 멈춘다 — 곧바로 다시 두드리면 더 오래 막힌다.
+    HTML 본문은 사용자에게 보여 줄 가치가 없어 메시지에 넣지 않는다.
+    """
+
+    def __init__(self, status: int):
+        super().__init__(f"HTTP {status}: blocked by Cloudflare challenge (temporary)")
+        self.status = status
+
+
 class ServerBusyError(NAIError):
     """502/503/504/520 — 일시적 서버 오류. 백오프 후 재시도 대상."""
 

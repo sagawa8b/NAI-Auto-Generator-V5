@@ -84,8 +84,12 @@ Item = tuple[str, str, QColor | None]
 #: 태그 지식 값(서버의 `count`)을 담는 항목 데이터 역할. 없으면 마커를 그리지 않는다.
 KNOWLEDGE_ROLE = Qt.ItemDataRole.UserRole + 1
 
-#: 입력이 이만큼(ms) 멈춰야 서버에 묻는다 — 글자마다 요청하지 않게.
-KNOWLEDGE_DEBOUNCE_MS = 250
+#: 입력이 이만큼(ms) 멈춰야 서버에 묻는다 — 글자마다 요청하지 않게. 서버가 생성과 같은
+#: 호스트라 요청이 몰리면 Cloudflare가 생성까지 막을 수 있어 넉넉히 둔다 (`core/tag_knowledge.py`).
+KNOWLEDGE_DEBOUNCE_MS = 600
+
+#: 이 글자 수보다 짧은 입력은 서버에 묻지 않는다 (로컬 후보는 그대로 보인다).
+KNOWLEDGE_MIN_CHARS = 3
 
 
 @dataclass(frozen=True)
@@ -531,7 +535,14 @@ class TagCompleterDropdown:
         if self._knowledge_timer is None or not model:
             return
         service = self._knowledge.service
-        missing = next((k for k in keywords if service.cached(model, k) is None), None)
+        missing = next(
+            (
+                k
+                for k in keywords
+                if len(normalize_tag(k)) >= KNOWLEDGE_MIN_CHARS and service.cached(model, k) is None
+            ),
+            None,
+        )
         if missing is None:
             self._pending_knowledge = None
             self._knowledge_timer.stop()
@@ -723,6 +734,7 @@ class TagCompleterDropdown:
 __all__ = [
     "DEFAULT_POPUP_SIZE",
     "KNOWLEDGE_DEBOUNCE_MS",
+    "KNOWLEDGE_MIN_CHARS",
     "KNOWLEDGE_ROLE",
     "MAX_POPUP_SIZE",
     "MIN_POPUP_SIZE",

@@ -81,7 +81,7 @@ from ..core.settings.schema import (
 from ..core.settings.store import ensure_dirs
 from ..core.settings_batch import SettingsBatchController
 from ..core.tag_completer import TagCompleter, resolve_database_path
-from ..core.tag_knowledge import TagKnowledgeService
+from ..core.tag_knowledge import BLOCKED_PAUSE, TagKnowledgeService
 from ..core.updates import RELEASES_PAGE, ReleaseInfo, check_for_update
 from ..core.wildcards.catalog import WildcardCatalog
 from ..core.wildcards.line_source import WildcardLineSource
@@ -129,6 +129,7 @@ _ERROR_TYPE_TO_KEY = {
     "NetworkError": "errors.network_error",
     "RateLimitError": "errors.api_error",
     "PayloadRejectedError": "errors.api_error",
+    "ServerBlockedError": "errors.server_blocked",
     "ServerBusyError": "errors.network_error",
     "FixedSeedBatchError": "errors.fixed_seed_batch",
 }
@@ -2358,6 +2359,9 @@ class MainWindow(QMainWindow):
                 if event.error is not None:
                     key = _ERROR_TYPE_TO_KEY.get(event.error_type or "", "errors.generation_error")
                     self.status_label.setText(tr("statusbar.job_error", tr(key)))
+                    if event.error_type == "ServerBlockedError":
+                        # 같은 호스트라 태그 지식 요청도 함께 쉬어야 차단이 빨리 풀린다
+                        self._tag_knowledge.pause(BLOCKED_PAUSE)
                 elif event.stopped:
                     self.status_label.setText(tr("statusbar.job_stopped", event.completed))
                 else:

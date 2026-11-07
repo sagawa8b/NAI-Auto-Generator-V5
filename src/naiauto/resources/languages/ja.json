@@ -290,6 +290,8 @@
       "auth_error": "認証エラー: ログインが必要です。",
       "payment_required": "支払いが必要: Anlasが不足しています。",
       "api_error": "API リクエストエラー",
+      "server_blocked": "サーバーが一時的にリクエストを遮断 (数分後に再試行)",
+      "server_blocked_detail": "NovelAI サーバーの Cloudflare セキュリティがこの PC からのリクエストを一時的に遮断しています。\nトークンやアカウントの問題ではありません。通常は数分で解除されるので、少し待ってから再試行してください。\n(その間もウェブブラウザでは利用できます。)",
       "generation_error": "画像生成中にエラーが発生",
       "file_save_error": "ファイル保存中にエラーが発生",
       "file_load_error": "ファイル読み込み中にエラーが発生",

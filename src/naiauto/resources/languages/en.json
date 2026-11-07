@@ -290,6 +290,8 @@
       "auth_error": "Authentication error: Login required.",
       "payment_required": "Payment required: Insufficient Anlas.",
       "api_error": "API request error",
+      "server_blocked": "Server temporarily blocked requests (try again in a few minutes)",
+      "server_blocked_detail": "NovelAI's server (Cloudflare) is temporarily blocking requests from this PC.\nThis is not a token or account problem. It usually clears within a few minutes, so please try again shortly.\n(The web browser keeps working in the meantime.)",
       "generation_error": "Error during image generation",
       "file_save_error": "Error saving file",
       "file_load_error": "Error loading file",

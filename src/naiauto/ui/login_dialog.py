@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from ..core.api.errors import ServerBlockedError
 from ..core.i18n.manager import I18nManager
 
 
@@ -133,6 +134,10 @@ class LoginDialog(QDialog):
         tr = self._i18n.get_text
         try:
             self._validate(self.token)
+        except ServerBlockedError as e:
+            # Cloudflare 차단 — 토큰은 멀쩡하다. "아이디·비밀번호 확인"이라고 하면 엉뚱한 곳을 보게 된다.
+            QMessageBox.warning(self, tr("errors.title"), f"{tr('errors.server_blocked_detail')}\n\n{e}")
+            return
         except Exception as e:
             QMessageBox.warning(self, tr("errors.title"), f"{tr('dialogs.login_failed')}\n\n{e}")
             return

@@ -290,6 +290,8 @@
       "auth_error": "认证错误: 需要登录。",
       "payment_required": "需要付费: Anlas余额不足。",
       "api_error": "API请求错误",
+      "server_blocked": "服务器暂时拦截了请求 (请几分钟后重试)",
+      "server_blocked_detail": "NovelAI 服务器的 Cloudflare 安全防护暂时拦截了来自这台电脑的请求。\n这不是令牌或账号的问题。通常几分钟后就会解除，请稍后再试。\n(在此期间网页浏览器仍可正常使用。)",
       "generation_error": "图像生成过程中发生错误",
       "file_save_error": "文件保存过程中发生错误",
       "file_load_error": "文件加载过程中发生错误",

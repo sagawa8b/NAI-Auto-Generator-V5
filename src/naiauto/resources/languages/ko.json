@@ -290,6 +290,8 @@
       "auth_error": "인증 오류: 로그인이 필요합니다.",
       "payment_required": "결제 필요: Anlas가 부족합니다.",
       "api_error": "API 요청 오류",
+      "server_blocked": "서버가 요청을 일시적으로 막음 (몇 분 뒤 다시 시도)",
+      "server_blocked_detail": "NovelAI 서버의 Cloudflare 보안이 이 PC의 요청을 일시적으로 막았습니다.\n토큰이나 계정 문제는 아닙니다. 보통 몇 분 뒤에 풀리니 잠시 후 다시 시도해 주세요.\n(웹 브라우저에서는 그동안에도 쓸 수 있습니다.)",
       "generation_error": "이미지 생성 중 오류 발생",
       "file_save_error": "파일 저장 중 오류 발생",
       "file_load_error": "파일 로드 중 오류 발생",
