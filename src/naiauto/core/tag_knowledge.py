@@ -34,6 +34,7 @@ from collections import OrderedDict, deque
 from collections.abc import Callable
 from concurrent.futures import Executor, ThreadPoolExecutor
 from dataclasses import dataclass
+from typing import Protocol
 
 import requests
 
@@ -149,6 +150,16 @@ def fetch_tag_knowledge(model: str, keyword: str, timeout: float = REQUEST_TIMEO
 ResultCallback = Callable[[str, str, list[TagKnowledge]], None]
 
 
+class KnowledgeStore(Protocol):
+    """메모리 캐시 뒤에 두는 디스크 캐시 (`core/tag_knowledge_store.py`의 `TagKnowledgeStore`)."""
+
+    def get(self, model: str, keyword: str) -> list[TagKnowledge] | None: ...
+
+    def put(self, model: str, keyword: str, tags: list[TagKnowledge]) -> None: ...
+
+    def close(self) -> None: ...
+
+
 class TagKnowledgeService:
     """캐시 + 백그라운드 요청.
 
@@ -158,6 +169,9 @@ class TagKnowledgeService:
     - 같은 (모델, 입력)을 이미 묻는 중
     - 실패 뒤 쉬는 중 — 보통 실패는 `RETRY_AFTER`부터 두 배씩, 차단(403·429)은 `BLOCKED_PAUSE`
     - 최근 1분 동안 이미 `MAX_REQUESTS_PER_MINUTE`번 물었음
+
+    `store`를 주면 메모리 캐시에 없을 때 디스크에서 찾고, 서버 응답을 디스크에도 남긴다 — 앱을
+    다시 켜도 같은 입력은 서버에 묻지 않는다. 유효 기간은 저장소가 판단한다.
 
     여러 입력란의 드롭다운이 이 객체 하나를 같이 쓴다.
     """
@@ -172,8 +186,10 @@ class TagKnowledgeService:
         blocked_pause: float = BLOCKED_PAUSE,
         max_per_minute: int = MAX_REQUESTS_PER_MINUTE,
         clock: Callable[[], float] = time.monotonic,
+        store: KnowledgeStore | None = None,
     ) -> None:
         self._fetch = fetch
+        self._store = store
         self._executor = executor
         self._owns_executor = executor is None
         self._cache_size = cache_size
@@ -205,17 +221,36 @@ class TagKnowledgeService:
             return self._paused_until is not None and self._clock() < self._paused_until
 
     def cached(self, model: str, keyword: str) -> list[TagKnowledge] | None:
-        key = (model, normalize_tag(keyword))
+        return self._lookup((model, normalize_tag(keyword)))
+
+    def _lookup(self, key: tuple[str, str]) -> list[TagKnowledge] | None:
+        """메모리 → 디스크 순으로 찾는다. 디스크에서 찾으면 메모리에 올려 둔다."""
         with self._lock:
             hit = self._cache.get(key)
             if hit is not None:
                 self._cache.move_to_end(key)
-            return hit
+                return hit
+        if self._store is None:
+            return None
+        hit = self._store.get(*key)
+        if hit is not None:
+            with self._lock:
+                self._remember(key, hit)
+        return hit
+
+    def _remember(self, key: tuple[str, str], tags: list[TagKnowledge]) -> None:
+        """메모리 캐시에 넣는다 (잠금을 쥔 채 부른다)."""
+        self._cache[key] = tags
+        self._cache.move_to_end(key)
+        while len(self._cache) > self._cache_size:
+            self._cache.popitem(last=False)
 
     def request(self, model: str, keyword: str, on_done: ResultCallback) -> bool:
         """요청을 맡겼으면 True. 캐시에 있거나·묻는 중이거나·쉬는 중이면 False."""
         key = (model, normalize_tag(keyword))
         if not model or not key[1]:
+            return False
+        if self._lookup(key) is not None:
             return False
         with self._lock:
             if key in self._cache or key in self._in_flight:
@@ -261,25 +296,30 @@ class TagKnowledgeService:
             self._in_flight.discard(key)
             self._failures = 0
             self._paused_until = None
-            self._cache[key] = tags
-            self._cache.move_to_end(key)
-            while len(self._cache) > self._cache_size:
-                self._cache.popitem(last=False)
+            self._remember(key, tags)
+        store = self._store  # shutdown()이 그사이 None으로 바꿀 수 있다 — 닫힌 저장소의 put은 무시된다
+        if store is not None:
+            store.put(model, keyword, tags)
         try:
             on_done(model, keyword, tags)
         except Exception:  # noqa: BLE001 — 받는 쪽(위젯)이 이미 사라졌을 수 있다
             logger.debug("tag knowledge callback failed", exc_info=True)
 
     def shutdown(self) -> None:
+        """작업 스레드를 멈추고 디스크 캐시를 닫는다. 늦게 끝난 요청은 디스크에 남지 않는다."""
         if self._owns_executor and self._executor is not None:
             self._executor.shutdown(wait=False, cancel_futures=True)
             self._executor = None
+        if self._store is not None:
+            store, self._store = self._store, None
+            store.close()
 
 
 __all__ = [
     "BLOCKED_PAUSE",
     "BLOCKED_STATUSES",
     "CACHE_SIZE",
+    "KnowledgeStore",
     "MAX_KNOWLEDGE",
     "MAX_REQUESTS_PER_MINUTE",
     "MAX_RETRY_AFTER",

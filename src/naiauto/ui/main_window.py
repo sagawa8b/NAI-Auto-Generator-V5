@@ -82,6 +82,7 @@ from ..core.settings.store import ensure_dirs
 from ..core.settings_batch import SettingsBatchController
 from ..core.tag_completer import TagCompleter, resolve_database_path
 from ..core.tag_knowledge import BLOCKED_PAUSE, TagKnowledgeService
+from ..core.tag_knowledge_store import open_store
 from ..core.updates import RELEASES_PAGE, ReleaseInfo, check_for_update
 from ..core.wildcards.catalog import WildcardCatalog
 from ..core.wildcards.line_source import WildcardLineSource
@@ -197,8 +198,9 @@ class MainWindow(QMainWindow):
 
         # M3: Tag Completer — 실제 로드와 드롭다운 부착은 _refresh_tag_completer()가 한다
         self._tag_completer = TagCompleter()
-        # 태그 지식 지표 — 캐시를 모든 입력란이 같이 쓰도록 하나만 둔다
-        self._tag_knowledge = TagKnowledgeService()
+        # 태그 지식 지표 — 캐시를 모든 입력란이 같이 쓰도록 하나만 둔다. 서버 응답은 디스크에도
+        # 남겨(90일) 다시 켜도 같은 입력은 묻지 않는다. 파일을 못 열면 메모리 캐시만 쓴다.
+        self._tag_knowledge = TagKnowledgeService(store=open_store())
 
         # M3: Preset Store — named parameter snapshots (경로는 옵션에서 바꿀 수 있다, Req 2.5)
         self._preset_store = PresetStore(Path(settings.presets_dir))
