@@ -5,7 +5,9 @@
 
   naiauto.log        일반 로그 (INFO, 디버그 모드면 DEBUG)
   naiauto.crash.log  faulthandler가 남기는 네이티브 스택 — 파이썬 예외가 아니라
-                     세그폴트 등으로 프로세스가 죽을 때의 유일한 단서
+                     세그폴트 등으로 프로세스가 죽을 때의 유일한 단서.
+                     UI가 멈췄을 때("응답 없음")의 스택도 여기 남는다
+                     (`dump_all_threads`, `core/hang_watchdog.py`)
 
 파일은 회전(rotate)시켜 무한히 커지지 않게 한다.
 """
@@ -16,6 +18,7 @@ import faulthandler
 import logging
 import logging.handlers
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from .settings.schema import default_log_dir
@@ -93,6 +96,25 @@ def enable_crash_log(log_dir: Path) -> Path:
         except OSError:  # 이미 닫혔거나 디스크 오류 — 크래시 로그 때문에 죽을 이유는 없다
             _logger.debug("failed to close previous crash log handle", exc_info=True)
     return path
+
+
+def dump_all_threads(reason: str) -> bool:
+    """모든 스레드의 파이썬 스택을 크래시 로그에 남긴다 (프로세스는 계속 돈다).
+
+    멈춤 감시(`core/hang_watchdog.py`)가 쓴다. 아무 스레드에서나 불러도 된다.
+    크래시 로그가 켜져 있지 않거나 쓸 수 없으면 False.
+    """
+    handle = _crash_file
+    if handle is None:
+        return False
+    try:
+        handle.write(f"\n=== {datetime.now().isoformat(sep=' ', timespec='seconds')} {reason} ===\n")
+        handle.flush()
+        faulthandler.dump_traceback(file=handle, all_threads=True)
+        handle.flush()
+    except (OSError, ValueError):  # 디스크 오류, 또는 로그 디렉터리를 바꾸는 사이 핸들이 닫혔다
+        return False
+    return True
 
 
 def probe_log_dir(log_dir: Path) -> None:
@@ -206,6 +228,7 @@ __all__ = [
     "LoggingConfigError",
     "configure_logging",
     "crash_log_path",
+    "dump_all_threads",
     "enable_crash_log",
     "install_excepthook",
     "log_path",

@@ -13,7 +13,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import platformdirs
-from PySide6.QtCore import QtMsgType, qInstallMessageHandler
+from PySide6.QtCore import QTimer, QtMsgType, qInstallMessageHandler
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QDialog
 
@@ -21,8 +21,14 @@ from .. import __version__
 from ..core.api.client import NAIClient
 from ..core.api.session import NAISession
 from ..core.artist_combos import ArtistComboEngine
+from ..core.hang_watchdog import HEARTBEAT_MS, HangWatchdog
 from ..core.i18n.manager import I18nManager
-from ..core.logging_setup import configure_logging, enable_crash_log, install_excepthook
+from ..core.logging_setup import (
+    configure_logging,
+    dump_all_threads,
+    enable_crash_log,
+    install_excepthook,
+)
 from ..core.settings import credentials
 from ..core.settings.schema import APP_NAME, ORG_NAME, AppSettings
 from ..core.settings.store import ensure_dirs, load_settings, save_settings
@@ -320,8 +326,18 @@ def main() -> int:
     window.set_logged_in(session.is_logged_in)
     window.show()
 
+    # UI 멈춤 감시 — 이벤트 루프가 5초 넘게 돌지 않으면 그 순간의 스택을 크래시 로그에 남긴다.
+    # "응답 없음"은 프로세스가 죽지 않아 faulthandler만으로는 흔적이 남지 않는다.
+    watchdog = HangWatchdog(dump_all_threads)
+    heartbeat = QTimer()
+    heartbeat.setInterval(HEARTBEAT_MS)
+    heartbeat.timeout.connect(watchdog.beat)
+    heartbeat.start()
+    watchdog.start()
+
     exit_code = app.exec()
 
+    watchdog.stop()  # 아래 정리 작업은 이벤트 루프 밖이다 — 멈춤으로 세지 않는다
     service.shutdown()
     save_settings(window.collect_settings())
     return exit_code
