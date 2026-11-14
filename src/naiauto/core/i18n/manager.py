@@ -48,7 +48,7 @@ class I18nManager:
             lang_code = filepath.stem
             try:
                 lang_data = json.loads(filepath.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError) as e:
+            except (json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
                 logger.error("failed to load language file %s: %s", filepath.name, e)
                 continue
             self.translations[lang_code] = lang_data.get("translations", {})

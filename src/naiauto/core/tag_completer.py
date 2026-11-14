@@ -130,7 +130,7 @@ class TagCompleter:
 
         try:
             raw = path.read_text(encoding="utf-8")
-        except OSError as e:
+        except (OSError, UnicodeDecodeError) as e:
             logger.warning("Cannot read tag database file: %s; tag completer disabled", e)
             return False
 

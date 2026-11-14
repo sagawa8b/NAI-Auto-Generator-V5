@@ -51,6 +51,29 @@ def log_dir() -> Path:
     return Path(platformdirs.user_log_dir(APP_NAME))
 
 
+def start_logging(settings: AppSettings) -> Path:
+    """로깅과 크래시 로그를 켜고, 실제로 쓰게 된 로그 폴더를 돌려준다.
+
+    옵션에서 정한 로그 폴더(`settings.log_dir`)를 먼저 쓴다. 전에는 시작할 때 늘 OS 표준
+    폴더에 썼는데, 로그 뷰어는 설정한 폴더를 읽어서 재시작하면 옛 로그만 보였다.
+    그 폴더를 쓸 수 없으면(분리한 드라이브 등) OS 표준 폴더로 내려가고, 그것도 안 되면
+    콘솔로만 남긴다 — 로그 때문에 앱이 뜨지 못하면 안 된다.
+    """
+    candidates = [settings.log_dir_path()]
+    if log_dir() not in candidates:
+        candidates.append(log_dir())
+    for directory in candidates:
+        try:
+            configure_logging(directory, debug=settings.debug_logging)
+            enable_crash_log(directory)  # 세그폴트 등 네이티브 크래시 추적
+        except OSError as e:
+            logging.getLogger(__name__).warning("cannot use log dir %s: %s", directory, e)
+            continue
+        return directory
+    logging.basicConfig(level=logging.DEBUG if settings.debug_logging else logging.INFO)
+    return log_dir()
+
+
 def app_icon_path() -> Path:
     """번들 앱 아이콘 경로 — 언어 파일·태그 DB와 같은 규칙(`naiauto/resources/`)을 따른다."""
     return Path(__file__).resolve().parent.parent / "resources" / "icons" / "app_icon.ico"
@@ -278,8 +301,7 @@ def main() -> int:
         return smoketest()
 
     settings = load_settings()
-    configure_logging(log_dir(), debug=settings.debug_logging)
-    enable_crash_log(log_dir())  # 세그폴트 등 네이티브 크래시 추적
+    active_log_dir = start_logging(settings)
     install_excepthook()
     _install_qt_message_handler()
     logger = logging.getLogger(__name__)
@@ -305,7 +327,7 @@ def main() -> int:
     client = NAIClient(
         session,
         debug_headers=settings.debug_headers,
-        forensics_dir=log_dir() / "forensics",
+        forensics_dir=active_log_dir / "forensics",
     )
 
     def validate_token(token: str) -> None:

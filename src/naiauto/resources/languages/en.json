@@ -3,6 +3,8 @@
   "language_code": "en",
   "translations": {
     "menu": {
+      "settings_file_filter": "Settings files",
+      "all_files_filter": "All files",
       "languages": "Languages",
       "file": "Files",
       "open_file": "Open file",
@@ -283,6 +285,10 @@
       "remember": "Store securely on this PC (OS keyring)"
     },
     "errors": {
+      "settings_file_unreadable": "Cannot read the settings file: {0}",
+      "settings_file_format": "The settings file has an invalid format: {0}",
+      "settings_file_missing": "The settings file is missing required fields: {0}",
+      "settings_file_invalid": "The settings file has invalid values: {0}",
       "title": "Error",
       "warning": "Warning",
       "info": "Information",
@@ -527,7 +533,38 @@
       "log": "Logging",
       "log_desc": "Manage debug mode and logging settings."
     },
+    "preset_manager": {
+      "title": "Preset Manager",
+      "save": "Save",
+      "save_tooltip": "Save the current settings as a preset",
+      "load": "Load",
+      "load_tooltip": "Apply the selected preset",
+      "rename": "Rename",
+      "rename_tooltip": "Rename the selected preset",
+      "delete": "Delete",
+      "delete_tooltip": "Move the selected preset to the trash",
+      "close": "Close",
+      "save_title": "Save Preset",
+      "load_title": "Load Preset",
+      "rename_title": "Rename Preset",
+      "delete_title": "Delete Preset",
+      "name_prompt": "Preset name:",
+      "new_name_prompt": "New name:",
+      "none_selected": "Select a preset first.",
+      "overwrite_title": "Overwrite Preset",
+      "overwrite_confirm": "A preset named '{0}' already exists.\nOverwrite it?",
+      "delete_confirm": "Delete the preset '{0}'?",
+      "save_error": "Failed to save the preset:\n{0}",
+      "load_error": "Failed to load the preset:\n{0}",
+      "rename_error": "Failed to rename the preset:\n{0}",
+      "delete_error": "Failed to delete the preset:\n{0}",
+      "unknown_model_title": "Unknown Model",
+      "unknown_model": "The preset uses the model '{0}', which is not recognized.\nOther settings will be applied; the model selection stays as it is."
+    },
     "gallery": {
+      "menu_open_folder": "Open folder",
+      "menu_copy_seed": "Copy seed",
+      "menu_reuse": "Reuse settings",
       "title": "Prompt Manager",
       "select_folder": "📁 Select Folder",
       "select_folder_tooltip": "Select a sample image folder",

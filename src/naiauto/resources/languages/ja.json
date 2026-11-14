@@ -3,6 +3,8 @@
   "language_code": "ja",
   "translations": {
     "menu": {
+      "settings_file_filter": "設定ファイル",
+      "all_files_filter": "すべてのファイル",
       "languages": "言語",
       "file": "ファイル",
       "open_file": "ファイルを開く",
@@ -283,6 +285,10 @@
       "remember": "このPCに安全に保存 (OSキーリング)"
     },
     "errors": {
+      "settings_file_unreadable": "設定ファイルを読み込めません: {0}",
+      "settings_file_format": "設定ファイルの形式が正しくありません: {0}",
+      "settings_file_missing": "設定ファイルに必要な項目がありません: {0}",
+      "settings_file_invalid": "設定値が正しくありません: {0}",
       "title": "エラー",
       "warning": "警告",
       "info": "通知",
@@ -527,7 +533,38 @@
       "log": "ログ設定",
       "log_desc": "デバッグモードとログ設定を管理します。"
     },
+    "preset_manager": {
+      "title": "プリセット管理",
+      "save": "保存",
+      "save_tooltip": "現在の設定をプリセットとして保存します",
+      "load": "読み込み",
+      "load_tooltip": "選択したプリセットを適用します",
+      "rename": "名前の変更",
+      "rename_tooltip": "選択したプリセットの名前を変更します",
+      "delete": "削除",
+      "delete_tooltip": "選択したプリセットをごみ箱に移動します",
+      "close": "閉じる",
+      "save_title": "プリセットの保存",
+      "load_title": "プリセットの読み込み",
+      "rename_title": "プリセット名の変更",
+      "delete_title": "プリセットの削除",
+      "name_prompt": "プリセット名:",
+      "new_name_prompt": "新しい名前:",
+      "none_selected": "先にプリセットを選択してください。",
+      "overwrite_title": "プリセットの上書き",
+      "overwrite_confirm": "プリセット「{0}」は既に存在します。\n上書きしますか？",
+      "delete_confirm": "プリセット「{0}」を削除しますか？",
+      "save_error": "プリセットを保存できませんでした:\n{0}",
+      "load_error": "プリセットを読み込めませんでした:\n{0}",
+      "rename_error": "プリセット名を変更できませんでした:\n{0}",
+      "delete_error": "プリセットを削除できませんでした:\n{0}",
+      "unknown_model_title": "不明なモデル",
+      "unknown_model": "プリセットのモデル「{0}」を認識できません。\n他の設定は適用し、モデルの選択はそのままにします。"
+    },
     "gallery": {
+      "menu_open_folder": "フォルダーを開く",
+      "menu_copy_seed": "シードをコピー",
+      "menu_reuse": "設定を再利用",
       "title": "プロンプトマネージャー",
       "select_folder": "📁 フォルダ選択",
       "select_folder_tooltip": "サンプル画像フォルダを選択します",

@@ -74,7 +74,7 @@ def custom_settings_path() -> Path | None:
     """포인터에 적힌 위치 (없거나 비었거나 못 읽으면 None)."""
     try:
         text = _location_file().read_text(encoding="utf-8").strip()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return None
     return Path(text) if text else None
 
@@ -141,7 +141,8 @@ def load_settings(path: Path | None = None) -> AppSettings:
         if isinstance(data, dict):
             data = migrate_settings_data(data)
         return AppSettings.model_validate(data)
-    except (json.JSONDecodeError, ValidationError, OSError) as e:
+    # UnicodeDecodeError도 "파손된 파일"이다 — 빠져 있으면 앱이 시작하다 죽는다.
+    except (json.JSONDecodeError, UnicodeDecodeError, ValidationError, OSError) as e:
         logger.error("settings file broken (%s), falling back to defaults: %s", path, e)
         try:
             path.replace(path.with_suffix(".json.broken"))

@@ -3,6 +3,8 @@
   "language_code": "zh",
   "translations": {
     "menu": {
+      "settings_file_filter": "设置文件",
+      "all_files_filter": "所有文件",
       "languages": "语言",
       "file": "文件",
       "open_file": "打开文件",
@@ -283,6 +285,10 @@
       "remember": "安全保存到此电脑 (系统钥匙串)"
     },
     "errors": {
+      "settings_file_unreadable": "无法读取设置文件：{0}",
+      "settings_file_format": "设置文件格式不正确：{0}",
+      "settings_file_missing": "设置文件缺少必需的项目：{0}",
+      "settings_file_invalid": "设置值不正确：{0}",
       "title": "错误",
       "warning": "警告",
       "info": "通知",
@@ -527,7 +533,38 @@
       "log": "日志设置",
       "log_desc": "管理调试模式和日志设置。"
     },
+    "preset_manager": {
+      "title": "预设管理",
+      "save": "保存",
+      "save_tooltip": "将当前设置保存为预设",
+      "load": "加载",
+      "load_tooltip": "应用所选预设",
+      "rename": "重命名",
+      "rename_tooltip": "重命名所选预设",
+      "delete": "删除",
+      "delete_tooltip": "将所选预设移到回收站",
+      "close": "关闭",
+      "save_title": "保存预设",
+      "load_title": "加载预设",
+      "rename_title": "重命名预设",
+      "delete_title": "删除预设",
+      "name_prompt": "预设名称：",
+      "new_name_prompt": "新名称：",
+      "none_selected": "请先选择一个预设。",
+      "overwrite_title": "覆盖预设",
+      "overwrite_confirm": "预设“{0}”已存在。\n要覆盖吗？",
+      "delete_confirm": "要删除预设“{0}”吗？",
+      "save_error": "无法保存预设：\n{0}",
+      "load_error": "无法加载预设：\n{0}",
+      "rename_error": "无法重命名预设：\n{0}",
+      "delete_error": "无法删除预设：\n{0}",
+      "unknown_model_title": "未知模型",
+      "unknown_model": "无法识别预设中的模型“{0}”。\n其余设置会被应用，模型选择保持不变。"
+    },
     "gallery": {
+      "menu_open_folder": "打开文件夹",
+      "menu_copy_seed": "复制种子",
+      "menu_reuse": "重用设置",
       "title": "提示管理器",
       "select_folder": "📁 选择文件夹",
       "select_folder_tooltip": "选择示例图片文件夹",

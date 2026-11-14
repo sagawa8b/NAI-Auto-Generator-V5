@@ -85,6 +85,21 @@ def _as_str(value: object, default: str = "") -> str:
     return value if isinstance(value, str) else default
 
 
+def _as_image_name(value: object) -> str:
+    """`image_path`로 쓸 **파일명만** 남긴다. 폴더가 섞여 있으면 빈 문자열(그림 없음).
+
+    `arena.json`은 손으로 고칠 수 있고, 남이 건넨 기록 파일(zip)에서 올 수도 있다.
+    `../../무엇`을 그대로 믿으면 조합을 지울 때 아레나 폴더 **밖의** 파일이 휴지통으로 가고,
+    내보내기에도 담긴다. 앱이 쓰는 값은 언제나 `images/` 안의 파일명 하나다.
+    """
+    name = _as_str(value).strip()
+    if not name or name in (".", ".."):
+        return ""
+    if "/" in name or "\\" in name or ":" in name or "\x00" in name:
+        return ""
+    return name
+
+
 def new_id() -> str:
     """조합 식별자. 이미지 파일명에도 쓰이므로 파일명에 안전한 문자만 쓴다."""
     return uuid.uuid4().hex[:12]
@@ -265,7 +280,7 @@ class Combo:
             memo=_as_str(data.get("memo")),
             generation=_as_int(data.get("generation"), 1, minimum=1),
             parents=parents,
-            image_path=_as_str(data.get("image_path")),
+            image_path=_as_image_name(data.get("image_path")),
             seed=_as_int(data.get("seed"), 0),
             created_at=_as_float(data.get("created_at"), 0.0),
             judge_score=_as_int(data.get("judge_score"), -1),

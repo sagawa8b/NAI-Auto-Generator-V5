@@ -922,7 +922,16 @@ class MainWindow(QMainWindow):
 
     # ── 설정 파일 저장 / 불러오기 (V4 방식) ────────────────
 
-    _SETTINGS_FILE_FILTER = "설정 파일 (*.json *.txt);;모든 파일 (*)"
+    def _settings_file_filter(self) -> str:
+        """설정 파일 대화상자의 형식 필터 (지금 언어로)."""
+        tr = self._i18n.get_text
+        return f"{tr('menu.settings_file_filter')} (*.json *.txt);;{tr('menu.all_files_filter')} (*)"
+
+    def _preset_error_text(self, error: PresetError) -> str:
+        """설정 파일 오류를 지금 언어로. 번역 키가 없는 오류는 원문 그대로."""
+        if error.i18n_key:
+            return self._i18n.get_text(error.i18n_key, *error.i18n_args)
+        return str(error)
 
     def _on_save_settings_file(self) -> None:
         """현재 생성 설정을 파일 하나로 저장한다 (Ctrl+S)."""
@@ -931,7 +940,7 @@ class MainWindow(QMainWindow):
             self,
             tr("menu.save_settings"),
             str(Path(self._settings.presets_dir) / "settings.json"),
-            self._SETTINGS_FILE_FILTER,
+            self._settings_file_filter(),
         )
         if not path:
             return
@@ -950,7 +959,7 @@ class MainWindow(QMainWindow):
             self,
             tr("menu.load_settings"),
             self._settings.presets_dir,
-            self._SETTINGS_FILE_FILTER,
+            self._settings_file_filter(),
         )
         if not path:
             return
@@ -961,7 +970,7 @@ class MainWindow(QMainWindow):
         try:
             loaded = settings_file.load(Path(path), defaults=defaults)
         except PresetError as e:
-            QMessageBox.warning(self, tr("errors.title"), str(e))
+            QMessageBox.warning(self, tr("errors.title"), self._preset_error_text(e))
             return
 
         self._on_preset_loaded(loaded.preset)
@@ -1061,6 +1070,7 @@ class MainWindow(QMainWindow):
         dialog = PresetManagerDialog(
             store=self._preset_store,
             get_current_config=self._get_current_preset_config,
+            i18n=self._i18n,
             parent=self,
         )
         dialog.preset_loaded.connect(self._on_preset_loaded)
@@ -2246,7 +2256,7 @@ class MainWindow(QMainWindow):
         """
         tr = self._i18n.get_text
         paths, _ = QFileDialog.getOpenFileNames(
-            self, tr("errors.settings_load_caption"), self._settings.presets_dir, self._SETTINGS_FILE_FILTER
+            self, tr("errors.settings_load_caption"), self._settings.presets_dir, self._settings_file_filter()
         )
         if not paths:
             return
@@ -2272,7 +2282,7 @@ class MainWindow(QMainWindow):
         try:
             loaded = settings_file.load(Path(path), defaults=defaults)
         except PresetError as e:
-            QMessageBox.warning(self, tr("errors.title"), str(e))
+            QMessageBox.warning(self, tr("errors.title"), self._preset_error_text(e))
             return False
 
         self._on_preset_loaded(loaded.preset)
@@ -2372,7 +2382,7 @@ class MainWindow(QMainWindow):
             if event.credit_observations and event.completed > 0:
                 size = self.target_size()
                 steps = self.steps_spin.value()
-                from ..core.credit_estimator import CreditObservation
+                from ..core.credit_estimator import CreditObservation, images_between
 
                 observations = [
                     obs
@@ -2382,7 +2392,8 @@ class MainWindow(QMainWindow):
                 ]
                 cost = self._credit_estimator.compute_batch_cost(
                     observations=observations,
-                    image_count=event.completed,
+                    # 완료 매수가 아니라 관측 사이의 장수 — 관측은 각 장이 끝난 뒤에 찍힌다
+                    image_count=images_between(observations),
                     resolution=size,
                     steps=steps,
                 )

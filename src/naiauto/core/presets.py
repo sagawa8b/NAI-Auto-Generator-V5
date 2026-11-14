@@ -28,7 +28,16 @@ _SAFE_FILENAME_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
 class PresetError(Exception):
-    """Raised when a preset file cannot be loaded (malformed JSON, etc.)."""
+    """Raised when a preset file cannot be loaded (malformed JSON, etc.).
+
+    `i18n_key`가 있으면 UI는 `str(e)` 대신 그 키를 `i18n_args`로 번역해 보여 준다
+    (core는 번역을 갖지 않는다). 없으면 메시지를 그대로 쓴다.
+    """
+
+    def __init__(self, message: str, *, i18n_key: str | None = None, i18n_args: tuple = ()) -> None:
+        super().__init__(message)
+        self.i18n_key = i18n_key
+        self.i18n_args = tuple(i18n_args)
 
 
 class CharacterPromptPreset(BaseModel):
@@ -114,8 +123,10 @@ class PresetStore:
         for p in sorted(self._dir.glob("*.json")):
             try:
                 data = json.loads(p.read_text(encoding="utf-8"))
+                if not isinstance(data, dict):
+                    raise ValueError("preset file is not a JSON object")
                 names.append(data.get("name", p.stem))
-            except (json.JSONDecodeError, OSError):
+            except (ValueError, OSError):  # JSON·인코딩 오류는 둘 다 ValueError다
                 # Skip unreadable files
                 logger.warning("Skipping unreadable preset file: %s", p.name)
         return names
@@ -132,7 +143,7 @@ class PresetStore:
 
         try:
             raw_text = path.read_text(encoding="utf-8")
-        except OSError as exc:
+        except (OSError, UnicodeDecodeError) as exc:
             raise PresetError(f"Cannot read preset file: {path} — {exc}") from exc
 
         try:

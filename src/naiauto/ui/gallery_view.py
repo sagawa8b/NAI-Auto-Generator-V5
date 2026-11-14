@@ -458,18 +458,15 @@ class GalleryView(QDialog):
 
         menu = QMenu(self)
 
-        # "Open in Explorer" action
-        open_action = QAction("Open in Explorer", self)
+        open_action = QAction(self._i18n.get_text("gallery.menu_open_folder"), self)
         open_action.triggered.connect(lambda: self._open_in_explorer(path))
         menu.addAction(open_action)
 
-        # "Copy Seed" action
-        copy_seed_action = QAction("Copy Seed", self)
+        copy_seed_action = QAction(self._i18n.get_text("gallery.menu_copy_seed"), self)
         copy_seed_action.triggered.connect(lambda: self._copy_seed(path))
         menu.addAction(copy_seed_action)
 
-        # "Reuse Settings" action
-        reuse_action = QAction("Reuse Settings", self)
+        reuse_action = QAction(self._i18n.get_text("gallery.menu_reuse"), self)
         reuse_action.triggered.connect(lambda: self.reuse_requested.emit(path))
         menu.addAction(reuse_action)
 

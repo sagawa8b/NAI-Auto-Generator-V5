@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.api.model_specs import MODEL_REGISTRY
+from ..core.i18n.manager import I18nManager
 from ..core.presets import GenerationPreset, PresetError, PresetStore
 
 if TYPE_CHECKING:
@@ -46,6 +47,7 @@ class PresetManagerDialog(QDialog):
         self,
         store: PresetStore,
         get_current_config: Callable[[], GenerationPreset],
+        i18n: I18nManager,
         parent: QWidget | None = None,
     ) -> None:
         """PresetManagerDialog 초기화.
@@ -53,13 +55,15 @@ class PresetManagerDialog(QDialog):
         Args:
             store: 프리셋 CRUD를 담당하는 PresetStore 인스턴스.
             get_current_config: 현재 UI 상태를 GenerationPreset으로 반환하는 콜백.
+            i18n: 번역기 — 이 창의 문구는 전부 `preset_manager.*` 키에서 온다.
             parent: 부모 위젯.
         """
         super().__init__(parent)
         self._store = store
         self._get_current_config = get_current_config
+        self._tr = i18n.get_text
 
-        self.setWindowTitle("Preset Manager")
+        self.setWindowTitle(self._tr("preset_manager.title"))
         self.setMinimumSize(400, 350)
 
         self._build_ui()
@@ -70,6 +74,7 @@ class PresetManagerDialog(QDialog):
     # ──────────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
+        tr = self._tr
         layout = QHBoxLayout(self)
 
         # Left: preset list
@@ -80,29 +85,29 @@ class PresetManagerDialog(QDialog):
         # Right: action buttons
         btn_layout = QVBoxLayout()
 
-        self._btn_save = QPushButton("Save")
-        self._btn_save.setToolTip("Save current configuration as a preset")
+        self._btn_save = QPushButton(tr("preset_manager.save"))
+        self._btn_save.setToolTip(tr("preset_manager.save_tooltip"))
         self._btn_save.clicked.connect(self._on_save)
         btn_layout.addWidget(self._btn_save)
 
-        self._btn_load = QPushButton("Load")
-        self._btn_load.setToolTip("Load the selected preset into the UI")
+        self._btn_load = QPushButton(tr("preset_manager.load"))
+        self._btn_load.setToolTip(tr("preset_manager.load_tooltip"))
         self._btn_load.clicked.connect(self._on_load)
         btn_layout.addWidget(self._btn_load)
 
-        self._btn_rename = QPushButton("Rename")
-        self._btn_rename.setToolTip("Rename the selected preset")
+        self._btn_rename = QPushButton(tr("preset_manager.rename"))
+        self._btn_rename.setToolTip(tr("preset_manager.rename_tooltip"))
         self._btn_rename.clicked.connect(self._on_rename)
         btn_layout.addWidget(self._btn_rename)
 
-        self._btn_delete = QPushButton("Delete")
-        self._btn_delete.setToolTip("Delete the selected preset")
+        self._btn_delete = QPushButton(tr("preset_manager.delete"))
+        self._btn_delete.setToolTip(tr("preset_manager.delete_tooltip"))
         self._btn_delete.clicked.connect(self._on_delete)
         btn_layout.addWidget(self._btn_delete)
 
         btn_layout.addStretch()
 
-        self._btn_close = QPushButton("Close")
+        self._btn_close = QPushButton(tr("preset_manager.close"))
         self._btn_close.clicked.connect(self.close)
         btn_layout.addWidget(self._btn_close)
 
@@ -129,7 +134,9 @@ class PresetManagerDialog(QDialog):
 
     def _on_save(self) -> None:
         """현재 설정을 프리셋으로 저장. 이름 입력 → 중복 시 확인 → 저장."""
-        name, ok = QInputDialog.getText(self, "Save Preset", "Preset name:")
+        name, ok = QInputDialog.getText(
+            self, self._tr("preset_manager.save_title"), self._tr("preset_manager.name_prompt")
+        )
         if not ok or not name.strip():
             return
         name = name.strip()
@@ -138,8 +145,8 @@ class PresetManagerDialog(QDialog):
         if self._store.exists(name):
             reply = QMessageBox.question(
                 self,
-                "Overwrite Preset",
-                f'A preset named "{name}" already exists.\nOverwrite it?',
+                self._tr("preset_manager.overwrite_title"),
+                self._tr("preset_manager.overwrite_confirm", name),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -153,7 +160,9 @@ class PresetManagerDialog(QDialog):
             self._refresh_list()
         except Exception as exc:
             logger.exception("Failed to save preset %r", name)
-            QMessageBox.critical(self, "Save Error", f"Failed to save preset:\n{exc}")
+            QMessageBox.critical(
+                self, self._tr("preset_manager.save_title"), self._tr("preset_manager.save_error", exc)
+            )
 
     def _on_load(self) -> None:
         """선택된 프리셋을 로드. 원자적 적용 — 실패 시 UI 변경 없음.
@@ -163,7 +172,9 @@ class PresetManagerDialog(QDialog):
         """
         name = self._selected_name()
         if name is None:
-            QMessageBox.information(self, "Load Preset", "No preset selected.")
+            QMessageBox.information(
+                self, self._tr("preset_manager.load_title"), self._tr("preset_manager.none_selected")
+            )
             return
 
         try:
@@ -172,8 +183,8 @@ class PresetManagerDialog(QDialog):
             # Requirement 6.10: corrupted preset → error message, UI unchanged
             QMessageBox.critical(
                 self,
-                "Load Error",
-                f"Cannot load preset:\n{exc}",
+                self._tr("preset_manager.load_title"),
+                self._tr("preset_manager.load_error", exc),
             )
             return
 
@@ -183,9 +194,8 @@ class PresetManagerDialog(QDialog):
             unknown_model = True
             QMessageBox.warning(
                 self,
-                "Unknown Model",
-                f'The preset references model "{preset.model}" which is not recognized.\n'
-                "Other settings will be loaded, but the model selector will remain unchanged.",
+                self._tr("preset_manager.unknown_model_title"),
+                self._tr("preset_manager.unknown_model", preset.model),
             )
 
         # Emit signal for the main window to apply atomically (Requirement 6.4)
@@ -201,10 +211,17 @@ class PresetManagerDialog(QDialog):
         """선택된 프리셋의 이름을 변경한다."""
         old_name = self._selected_name()
         if old_name is None:
-            QMessageBox.information(self, "Rename Preset", "No preset selected.")
+            QMessageBox.information(
+                self, self._tr("preset_manager.rename_title"), self._tr("preset_manager.none_selected")
+            )
             return
 
-        new_name, ok = QInputDialog.getText(self, "Rename Preset", "New name:", text=old_name)
+        new_name, ok = QInputDialog.getText(
+            self,
+            self._tr("preset_manager.rename_title"),
+            self._tr("preset_manager.new_name_prompt"),
+            text=old_name,
+        )
         if not ok or not new_name.strip():
             return
         new_name = new_name.strip()
@@ -216,20 +233,24 @@ class PresetManagerDialog(QDialog):
             self._store.rename(old_name, new_name)
             self._refresh_list()
         except PresetError as exc:
-            QMessageBox.critical(self, "Rename Error", f"Failed to rename preset:\n{exc}")
+            QMessageBox.critical(
+                self, self._tr("preset_manager.rename_title"), self._tr("preset_manager.rename_error", exc)
+            )
 
     def _on_delete(self) -> None:
         """선택된 프리셋을 삭제. 확인 다이얼로그 후 실행."""
         name = self._selected_name()
         if name is None:
-            QMessageBox.information(self, "Delete Preset", "No preset selected.")
+            QMessageBox.information(
+                self, self._tr("preset_manager.delete_title"), self._tr("preset_manager.none_selected")
+            )
             return
 
         # Requirement 6.8: confirmation before deletion
         reply = QMessageBox.question(
             self,
-            "Delete Preset",
-            f'Are you sure you want to delete the preset "{name}"?',
+            self._tr("preset_manager.delete_title"),
+            self._tr("preset_manager.delete_confirm", name),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -240,4 +261,6 @@ class PresetManagerDialog(QDialog):
             self._store.delete(name)
             self._refresh_list()
         except PresetError as exc:
-            QMessageBox.critical(self, "Delete Error", f"Failed to delete preset:\n{exc}")
+            QMessageBox.critical(
+                self, self._tr("preset_manager.delete_title"), self._tr("preset_manager.delete_error", exc)
+            )

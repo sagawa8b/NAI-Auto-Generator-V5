@@ -80,7 +80,7 @@ class ArtistComboEngine:
             try:
                 with open(filepath, encoding="utf-8") as f:
                     data = json.load(f)
-            except (OSError, json.JSONDecodeError) as e:
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
                 logger.warning("Invalid artist combo file '%s': %s", filename, e)
                 continue
 

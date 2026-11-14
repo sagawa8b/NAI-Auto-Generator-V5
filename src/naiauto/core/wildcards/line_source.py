@@ -25,6 +25,7 @@ import time
 from dataclasses import dataclass
 
 from ..tag_completer import CONTAINS_MIN_LENGTH
+from ..text_files import read_text_lenient
 from .catalog import MAX_SUGGESTIONS
 
 logger = logging.getLogger(__name__)
@@ -56,9 +57,8 @@ def wildcard_file_path(directory: str, name: str) -> str:
 def read_wildcard_lines(path: str) -> list[str]:
     """와일드카드 파일의 유효한 줄 (빈 줄·`#` 줄 제외, 앞뒤 공백 제거). 못 읽으면 빈 목록."""
     try:
-        with open(path, encoding="utf8") as f:
-            raw = f.readlines()
-    except (OSError, UnicodeDecodeError) as e:
+        raw = read_text_lenient(path).splitlines()  # 전개 엔진(applier)과 같은 규칙으로 읽는다
+    except OSError as e:
         logger.warning("Cannot read wildcard file %s: %s", path, e)
         return []
     lines = [ln.strip() for ln in raw if ln.strip() and not ln.strip().startswith("#")]

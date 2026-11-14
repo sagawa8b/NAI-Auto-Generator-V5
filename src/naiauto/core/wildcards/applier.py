@@ -19,6 +19,8 @@ import logging
 import os
 import random
 
+from ..text_files import read_text_lenient
+
 logger = logging.getLogger(__name__)
 
 MAX_TRY_AMOUNT = 10
@@ -60,8 +62,9 @@ class WildcardApplier:
                         continue
                     src = os.path.join(dirpath, filename)
                     try:
-                        with open(src, encoding="utf8") as f:
-                            lines = f.readlines()
+                        # ANSI(CP949)·BOM 붙은 파일도 읽는다 — 파일 하나의 인코딩 때문에
+                        # 생성 잡이 통째로 멈추면 안 된다 (`core/text_files.py`).
+                        lines = read_text_lenient(src).splitlines()
                     except OSError as e:
                         logger.error("Error loading wildcard file %s: %s", src, e)
                         continue
@@ -285,7 +288,9 @@ class WildcardApplier:
                 wc_list = self._wildcards_dict[wildcard_name]
                 if wc_list:
                     self._used_keys.add(original_pattern)
-                    idx = self._current_snapshot.get(wildcard_name, 0)
+                    # 사전은 사이클마다 다시 읽는다 — 배치 도중 파일의 줄 수를 줄였으면
+                    # 기억해 둔 인덱스가 목록 밖일 수 있다 (처음으로 되감는다).
+                    idx = self._current_snapshot.get(wildcard_name, 0) % len(wc_list)
                     str_center = wc_list[idx].strip()
                     applied.append(str_center)
                     logger.debug("Applied loopcard '%s' at index %d", original_pattern, idx)

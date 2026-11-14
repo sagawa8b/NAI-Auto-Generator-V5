@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from .presets import GenerationPreset, PresetError, _clamp_preset_fields
+from .text_files import read_text_lenient
 
 #: 이 모듈이 쓴 파일임을 알아보는 표식.
 FORMAT_KEY = "format"
@@ -120,11 +121,20 @@ def load(path: Path, *, defaults: dict[str, Any] | None = None) -> LoadedSetting
     `ModelSpec.defaults`). 없으면 `GenerationPreset`의 기본값을 쓴다.
     """
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        # V4가 저장한 .txt는 ANSI(CP949)일 수 있다 — 관대하게 읽는다 (`core/text_files.py`).
+        raw = json.loads(read_text_lenient(path))
     except (OSError, json.JSONDecodeError) as e:
-        raise PresetError(f"설정 파일을 읽을 수 없습니다: {path}") from e
+        raise PresetError(
+            f"설정 파일을 읽을 수 없습니다: {path}",
+            i18n_key="errors.settings_file_unreadable",
+            i18n_args=(str(path),),
+        ) from e
     if not isinstance(raw, dict):
-        raise PresetError(f"설정 파일 형식이 올바르지 않습니다: {path}")
+        raise PresetError(
+            f"설정 파일 형식이 올바르지 않습니다: {path}",
+            i18n_key="errors.settings_file_format",
+            i18n_args=(str(path),),
+        )
 
     is_v4 = raw.get(FORMAT_KEY) != FORMAT_NAME
     fields = _from_v4(raw) if is_v4 else {k: v for k, v in raw.items() if k != FORMAT_KEY}
@@ -140,11 +150,19 @@ def load(path: Path, *, defaults: dict[str, Any] | None = None) -> LoadedSetting
     if missing:
         # 오래된 V4 파일에는 `model`처럼 필수 항목이 아예 없다. pydantic 덤프를 그대로
         # 보여 주는 대신 무엇이 없는지 말한다 (호출부가 `defaults`로 채워 주면 여기 안 온다).
-        raise PresetError(f"설정 파일에 필요한 항목이 없습니다: {', '.join(missing)}")
+        raise PresetError(
+            f"설정 파일에 필요한 항목이 없습니다: {', '.join(missing)}",
+            i18n_key="errors.settings_file_missing",
+            i18n_args=(", ".join(missing),),
+        )
 
     try:
         preset = GenerationPreset(**_clamp_preset_fields(merged))
     except Exception as e:  # pydantic ValidationError 포함
-        raise PresetError(f"설정 값이 올바르지 않습니다: {e}") from e
+        raise PresetError(
+            f"설정 값이 올바르지 않습니다: {e}",
+            i18n_key="errors.settings_file_invalid",
+            i18n_args=(str(e),),
+        ) from e
 
     return LoadedSettings(preset=preset, seed=seed, is_v4=is_v4)

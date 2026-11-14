@@ -335,14 +335,17 @@ class GenerationService:
         `next_percent_in`은 시간이 지나면 저절로 줄어들므로, 소비량을 보려면
         elapsed와 함께 봐야 한다 (소비하면 그만큼 다시 늘어난다).
 
-        측정 때문에 생성이 멈추면 안 되므로 어떤 예외도 삼킨다.
+        측정 때문에 생성이 멈추면 안 되므로 어떤 예외도 삼킨다 — 조회뿐 아니라 응답을
+        해석하는 부분까지. (전에는 조회만 감싸서, 응답에 `usage`가 있다 없다 하면 차이를
+        계산하다 `TypeError`로 잡이 통째로 중단됐다.)
         """
         try:
-            info = self._client.get_anlas()
+            self._probe_credit(index)
         except Exception as e:  # 측정은 부가 기능 — 잡을 방해하지 않는다
             logger.debug("credit probe failed: %s", e)
-            return
 
+    def _probe_credit(self, index: int) -> None:
+        info = self._client.get_anlas()
         usage = info.get("usage")
         now = time.monotonic()
         elapsed = now - self._last_probe_at if self._last_probe_at else 0.0
@@ -354,8 +357,9 @@ class GenerationService:
         previous = self._last_probe
         deltas = ""
         if previous is not None:
-            d_percent = None if percent is None else percent - previous[0]
-            d_anlas = None if anlas is None else anlas - previous[1]
+            # 직전 관측에 값이 없었을 수 있다 (응답에 usage가 빠진 경우) — 그때는 차이도 모른다.
+            d_percent = None if percent is None or previous[0] is None else percent - previous[0]
+            d_anlas = None if anlas is None or previous[1] is None else anlas - previous[1]
             deltas = f" dpercent={d_percent} danlas={d_anlas}"
         self._last_probe = (percent, anlas)
 

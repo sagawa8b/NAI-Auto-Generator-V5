@@ -31,6 +31,20 @@ class PerImageCost:
     cost_per_image: float  # percent consumed per image
 
 
+def images_between(observations: list[CreditObservation]) -> int:
+    """첫 관측과 마지막 관측 **사이에** 생성된 장수.
+
+    관측은 각 장이 끝난 **뒤에** 찍힌다. 그래서 N장 배치의 관측 N개가 보여 주는 잔량 차이는
+    2번째~N번째 장, 즉 N-1장이 쓴 양이다 (첫 장이 쓴 양은 첫 관측 이전이라 보이지 않는다).
+    이 값을 `compute_batch_cost()`의 `image_count`로 넘겨야 장당 소모량이 맞는다 — 완료 매수
+    N을 그대로 넘기면 (N-1)/N배로 낮게 나와 남은 장수가 부풀려진다.
+    """
+    if len(observations) < 2:
+        return 0
+    indices = [obs.index for obs in observations]
+    return max(indices) - min(indices)
+
+
 _MAX_ENTRIES = 50
 _FILENAME = "credit_costs.json"
 
@@ -54,6 +68,9 @@ class CreditEstimator:
         steps: int,
     ) -> PerImageCost | None:
         """Compute per-image cost from a batch's observations.
+
+        `image_count`는 첫 관측과 마지막 관측 **사이에** 생성된 장수다 (`images_between()`).
+        배치의 완료 매수가 아니다 — 관측은 각 장이 끝난 뒤에 찍히기 때문이다.
 
         Returns None if:
         - image_count <= 0

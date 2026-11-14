@@ -71,7 +71,7 @@ class ArenaStore:
             return ArenaState()
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as e:
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
             logger.error("arena data broken (%s), starting empty: %s", path, e)
             try:
                 path.replace(path.with_suffix(".json.broken"))
