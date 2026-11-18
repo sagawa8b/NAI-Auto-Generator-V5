@@ -364,8 +364,12 @@ class GenerationService:
         self._last_probe = (percent, anlas)
 
         # Collect CreditObservation for batch cost computation
-        if percent is not None:
-            self._credit_observations.append(CreditObservation(index=index, percent=percent, timestamp=now))
+        # 크레딧(%)이 없는 계정은 Anlas만 온다 — 둘 중 하나라도 있으면 관측으로 남긴다.
+        anlas_value = anlas if isinstance(anlas, int) and not isinstance(anlas, bool) else None
+        if percent is not None or anlas_value is not None:
+            self._credit_observations.append(
+                CreditObservation(index=index, percent=percent, timestamp=now, anlas=anlas_value)
+            )
 
         logger.info(
             "v5-credit index=%s percent=%s next_percent_in=%s anlas=%s elapsed=%.1f%s",

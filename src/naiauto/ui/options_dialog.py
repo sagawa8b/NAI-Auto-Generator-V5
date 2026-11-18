@@ -119,6 +119,10 @@ OWNED_FIELDS: tuple[str, ...] = (
     "batch.delay_seconds",
     "batch.quick_counts",
     "batch.random_settings_order",
+    "batch.duplicate_action",
+    "batch.notify_flash",
+    "batch.notify_sound",
+    "shortcuts",
     "resolution",
     "ui",
 )

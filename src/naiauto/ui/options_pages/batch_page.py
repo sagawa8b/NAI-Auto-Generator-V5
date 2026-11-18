@@ -2,7 +2,8 @@
 
 `batch.count` / `batch.delay_seconds` / `batch.quick_counts`(생성 바의 퀵 매수 버튼 4개) /
 `batch.random_settings_order`(세팅별 연속 생성의 파일 순서) /
-`batch.duplicate_action`(동일 조건으로 다시 생성할 때의 동작)을 다룬다. 스핀박스 범위가 이미 값을 막지만
+`batch.duplicate_action`(동일 조건으로 다시 생성할 때의 동작) /
+`batch.notify_flash`·`batch.notify_sound`(작업이 끝났을 때 알림) / `shortcuts`(생성 단축키)를 다룬다. 스핀박스 범위가 이미 값을 막지만
 손으로 편집한 `settings.json`도 걸러야 하므로 검증은 `core.settings.validation`이 한 번 더
 한다 (Req 4.3, 4.4). `stop_on_anlas_error`는 이 스펙의 범위 밖이라 노출하지 않는다 — 드래프트의
 값을 그대로 남겨 둔다.
@@ -10,11 +11,13 @@
 
 from __future__ import annotations
 
+from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
+    QKeySequenceEdit,
     QLabel,
     QSpinBox,
     QWidget,
@@ -27,6 +30,8 @@ from ..widgets.wheel_guard import guard_wheel
 from . import OptionsPage, register_page
 
 DELAY_STEP = 0.5
+#: `ShortcutSettings`의 필드 이름 — 화면에 놓는 순서다.
+SHORTCUT_FIELDS = ("generate_once", "generate_auto", "stop")
 
 __all__ = ["BatchPage"]
 
@@ -74,6 +79,32 @@ class BatchPage(OptionsPage):
         self.random_settings_hint.setStyleSheet("color: gray;")
         layout.addRow(self.random_settings_hint)
 
+        # 작업이 끝났을 때 알림 — 다른 창을 보고 있어도 끝난 줄 알 수 있게
+        self.notify_flash_check = QCheckBox()
+        layout.addRow(self.notify_flash_check)
+        self.notify_sound_check = QCheckBox()
+        layout.addRow(self.notify_sound_check)
+
+        # 생성 단축키 — 비워 두면 그 동작에는 단축키가 없다. 한 번에 키 하나만 받는다
+        # (두 번 누르는 조합은 프롬프트를 치는 중에 실수로 걸리기 쉽다).
+        self.shortcut_title = QLabel()
+        self.shortcut_title.setStyleSheet("font-weight: bold;")
+        layout.addRow(self.shortcut_title)
+        self.shortcut_labels: dict[str, QLabel] = {}
+        self.shortcut_edits: dict[str, QKeySequenceEdit] = {}
+        for name in SHORTCUT_FIELDS:
+            label = QLabel()
+            edit = QKeySequenceEdit()
+            edit.setMaximumSequenceLength(1)
+            edit.setClearButtonEnabled(True)
+            layout.addRow(label, edit)
+            self.shortcut_labels[name] = label
+            self.shortcut_edits[name] = edit
+        self.shortcut_hint = QLabel()
+        self.shortcut_hint.setWordWrap(True)
+        self.shortcut_hint.setStyleSheet("color: gray;")
+        layout.addRow(self.shortcut_hint)
+
         # 퀵 매수 버튼 값 — 생성 바의 버튼 4개에 그대로 쓰인다
         self.quick_title = QLabel()
         self.quick_title.setStyleSheet("font-weight: bold;")
@@ -101,6 +132,10 @@ class BatchPage(OptionsPage):
         self.random_settings_check.setChecked(draft.batch.random_settings_order)
         index = self.duplicate_combo.findData(duplicate_action(draft.batch.duplicate_action))
         self.duplicate_combo.setCurrentIndex(max(0, index))
+        self.notify_flash_check.setChecked(draft.batch.notify_flash)
+        self.notify_sound_check.setChecked(draft.batch.notify_sound)
+        for name, edit in self.shortcut_edits.items():
+            edit.setKeySequence(QKeySequence(getattr(draft.shortcuts, name)))
         # 손으로 고친 settings.json이 4칸을 다 채우지 않았을 수 있다 — 모자란 칸은 기본값으로.
         low, _high = QUICK_COUNT_RANGE
         for index, spin in enumerate(self.quick_spins):
@@ -113,6 +148,12 @@ class BatchPage(OptionsPage):
         draft.batch.random_settings_order = self.random_settings_check.isChecked()
         draft.batch.duplicate_action = self.duplicate_combo.currentData()
         draft.batch.quick_counts = [spin.value() for spin in self.quick_spins]
+        draft.batch.notify_flash = self.notify_flash_check.isChecked()
+        draft.batch.notify_sound = self.notify_sound_check.isChecked()
+        for name, edit in self.shortcut_edits.items():
+            # PortableText — 저장 파일의 표기가 OS 언어(예: "Strg+…")를 타지 않게 한다.
+            text = edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText)
+            setattr(draft.shortcuts, name, text)
 
     def retranslate(self) -> None:
         tr = self._i18n.get_text
@@ -126,6 +167,12 @@ class BatchPage(OptionsPage):
         self.duplicate_hint.setText(tr("batch.duplicate_action_hint"))
         self.random_settings_check.setText(tr("batch.random_settings_order"))
         self.random_settings_hint.setText(tr("batch.random_settings_order_hint"))
+        self.notify_flash_check.setText(tr("options.notify_flash"))
+        self.notify_sound_check.setText(tr("options.notify_sound"))
+        self.shortcut_title.setText(tr("options.shortcuts_title"))
+        for name, label in self.shortcut_labels.items():
+            label.setText(tr(f"options.shortcut_{name}"))
+        self.shortcut_hint.setText(tr("options.shortcuts_hint"))
         self.quick_title.setText(tr("options.quick_counts_title"))
         for index, label in enumerate(self.quick_labels, start=1):
             label.setText(tr("options.quick_count_button", index))

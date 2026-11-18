@@ -51,7 +51,8 @@
       "job_error": "エラーで中断: {}",
       "by_settings_progress": "設定別連続生成中 ({}/{}) - {}",
       "by_settings_progress_inf": "設定別連続生成中 ({}枚) - {}",
-      "duplicate_seed_changed": "直前の生成と条件が同じため、シードを {} に変更しました。"
+      "duplicate_seed_changed": "直前の生成と条件が同じため、シードを {} に変更しました。",
+      "scene_progress": "シーンキュー {}/{} · {} ({}/{})"
     },
     "status": {
       "tags_reloaded": "タグ自動補完が再読み込みされました。"
@@ -153,7 +154,12 @@
       "stop": "生成停止",
       "pause": "一時停止",
       "pause_short": "停止",
-      "resume": "再開"
+      "resume": "再開",
+      "cost_unknown": "予想消費量: 測定値なし",
+      "cost_unknown_hint": "この解像度・ステップでは測定したことがありません。ツール → V5 クレジット消費量の測定をオンにして2枚以上連続生成すると記録されます。",
+      "cost_per_image": "予想消費量: 1枚あたり約 {}",
+      "cost_with_total": "予想消費量: 1枚あたり約 {} · {} 枚で約 {}",
+      "cost_hint": "この解像度・ステップで測定した値です。i2i・強化・設定別生成のように1枚ごとに条件が違う場合は実際と異なることがあります。"
     },
     "validation": {
       "title": "入力エラー",
@@ -236,7 +242,10 @@
       "field_rescale": "Rescale",
       "field_scheduler": "ノイズスケジュール",
       "overlay_waiting": "生成すると、その画像のプロンプトと設定がここに表示されます。",
-      "overlay_toggle_hint": "生成したばかりの画像のプロンプトと設定を結果画像に重ねて表示します (F8)。ワイルドカードやアーティスト組み合わせを展開した後の、実際に送信した値です。"
+      "overlay_toggle_hint": "生成したばかりの画像のプロンプトと設定を結果画像に重ねて表示します (F8)。ワイルドカードやアーティスト組み合わせを展開した後の、実際に送信した値です。",
+      "history_toggle": "結果履歴の帯を表示",
+      "history_prev": "前の結果",
+      "history_next": "次の結果"
     },
     "dialogs": {
       "login_title": "NAI API ログイン",
@@ -500,7 +509,15 @@
       "llm_prompt_config_exists": "すでにファイルがあるため上書きしませんでした: {}",
       "llm_prompt_config_open_failed": "ファイルを開けませんでした: {}",
       "llm_prompt_config": "プロンプトセットのファイル",
-      "folder_arena_dir": "画風アリーナフォルダ"
+      "folder_arena_dir": "画風アリーナフォルダ",
+      "notify_flash": "連続生成・シーンキューが終わったらタスクバーのボタンを点滅させる",
+      "notify_sound": "終わったら通知音を鳴らす",
+      "shortcuts_title": "生成ショートカット",
+      "shortcut_generate_once": "1回生成",
+      "shortcut_generate_auto": "連続生成",
+      "shortcut_stop": "生成を停止",
+      "shortcuts_hint": "欄をクリックして使うキーを押してください。空にするとその操作にショートカットはありません。メニューが使っているキー（F2、Ctrl+S など）は選べません。",
+      "err_shortcut_conflict": "{} はすでに別の操作で使われています。"
     },
     "resolution": {
       "title": "解像度",
@@ -617,7 +634,20 @@
       "apply_model": "モデル",
       "apply_characters": "キャラクター",
       "nothing_to_apply": "適用する項目が選択されていません。",
-      "empty": "画像がありません"
+      "empty": "画像がありません",
+      "search_tooltip": "ファイル名とプロンプトから探します。カンマで区切るとすべて含むものだけ、先頭に - を付けるとその語を含まないものだけが残ります。例: blue eyes, -hat",
+      "favorites_only": "お気に入りのみ",
+      "menu_send_i2i": "i2i の元画像に送る",
+      "menu_send_enhance": "強化の元画像に送る",
+      "menu_favorite_add": "お気に入りに追加",
+      "menu_favorite_remove": "お気に入りから外す",
+      "menu_delete": "ごみ箱に移動（{}枚）",
+      "delete_title": "画像を削除",
+      "delete_confirm": "画像 {} 枚をごみ箱に移動しますか？",
+      "delete_failed": "{} 枚は削除できませんでした。ほかのプログラムで開いていないか確認してください。",
+      "count": "{} / {} 枚",
+      "indexing": "プロンプトを読み込み中…",
+      "no_match": "条件に合う画像がありません"
     },
     "artist_combo": {
       "title": "絵師プロンプト組み合わせ",
@@ -667,7 +697,32 @@
       "nothing_to_shuffle": "シャッフルできる絵師がいません。絵師プールを選択するか固定を解除してください。",
       "col_order": "順序",
       "move_up": "上へ移動",
-      "move_down": "下へ移動"
+      "move_down": "下へ移動",
+      "editor_title": "アーティスト組み合わせの編集",
+      "editor_menu": "アーティスト組み合わせの編集...",
+      "new_group": "新しいグループ",
+      "name_prompt": "グループ名（英数字・アンダースコア）:",
+      "delete_group": "グループを削除",
+      "delete_confirm": "グループ「{}」を削除しますか？",
+      "save_first": "先にグループを保存してください。保存していないグループは生成時に置き換えられません。",
+      "saved": "グループ「{}」を保存しました。",
+      "empty_hint": "左でグループを選ぶか「新しいグループ」を押してください。",
+      "tag_count": "タグ {} 個",
+      "name": "名前:",
+      "name_hint": "プロンプトで {artist:名前} として呼ぶ名前です。英数字とアンダースコアのみ使えます。",
+      "tags": "タグ（1行に1つ — 複数のアーティストを混ぜた1行も可）",
+      "save": "保存",
+      "insert_random": "プロンプトに挿入（ランダム）",
+      "insert_random_hint": "{artist:名前} — 生成のたびにグループから1つをランダムに選びます。",
+      "insert_loop": "プロンプトに挿入（順番）",
+      "insert_loop_hint": "{artist_loop:名前} — 生成のたびに次の行へ進みます。",
+      "err_no_tags": "タグを1行以上入力してください。",
+      "err_too_many_tags": "タグは1グループにつき {} 個までです。",
+      "err_tag_too_long": "タグ1行は {} 文字までです: {}…",
+      "err_invalid_name": "グループ名は英数字とアンダースコアのみ、{} 文字までです。",
+      "err_duplicate_name": "グループ「{}」はすでにあります。",
+      "err_file_unreadable": "組み合わせファイルを読み込めません: {}",
+      "err_file_unwritable": "組み合わせファイルに書き込めません: {}"
     },
     "batch": {
       "count": "生成枚数 (0=無限):",
@@ -1229,6 +1284,64 @@
       "judge_export_run_info": "結果の保存に判定条件も含める",
       "judge_export_run_info_hint": "CSVの各行に `model` 列を付け、データの下にモデル・アドレス・参照枚数・採点指示を変更したか・時刻を書きます。モデルを変えて性能を見比べるときに必要です。オフなら従来どおり4列(順位・点数・組み合わせ・根拠)だけです。",
       "judge_by_model": "{} で判定"
+    },
+    "scene_queue": {
+      "menu": "シーンキュー...",
+      "title": "シーンキュー",
+      "col_name": "シーン名",
+      "col_count": "枚数",
+      "col_prompt": "プロンプト",
+      "add_current": "現在の設定で追加",
+      "add_current_hint": "メインウィンドウの現在のプロンプト・モデル・解像度などを新しいシーンとして保存します。",
+      "import_files": "設定ファイルを読み込む...",
+      "import_files_hint": "「ファイル → 設定を保存」で作ったファイルをシーンとして読み込みます。ファイル名がシーン名になります。",
+      "update": "現在の設定で上書き",
+      "update_hint": "選んだシーンの設定をメインウィンドウの現在の値に置き換えます。名前と枚数はそのままです。",
+      "apply": "画面に適用",
+      "apply_hint": "選んだシーンの設定をメインウィンドウに読み込みます。",
+      "move_up": "上へ",
+      "move_down": "下へ",
+      "remove": "削除",
+      "interleave": "1枚ずつ交互に生成",
+      "interleave_hint": "オフ: シーンを順番に終わらせます（シーン1を全部、次にシーン2）。オン: 1枚ずつ順番に回し、枚数に達したシーンは外れます。",
+      "hint": "チェックしたシーンだけ実行します。シーンごとに結果フォルダー内のシーン名のサブフォルダーに保存されます。プロンプトの <lock> 区間はシーンを適用しても残ります。",
+      "save_set": "セットを保存...",
+      "load_set": "セットを読み込む...",
+      "run": "キューを実行",
+      "close": "閉じる",
+      "total": "シーン {} 個 · 合計 {} 枚",
+      "default_name": "シーン",
+      "import_failed": "読み込めなかったファイル: {}",
+      "set_filter": "シーンセット",
+      "nothing_to_run": "実行するシーンがありません。シーンを追加してチェックしてください。"
+    },
+    "backup": {
+      "menu_export": "バックアップを書き出す...",
+      "menu_import": "バックアップを読み込む...",
+      "export_title": "バックアップの書き出し",
+      "import_title": "バックアップの読み込み",
+      "export_intro": "選んだ項目を1つの zip ファイルにまとめます。",
+      "import_intro": "バックアップに含まれる項目から読み込むものを選んでください。現在設定されているフォルダーに展開します。",
+      "section_settings": "アプリ設定",
+      "section_presets": "プリセットフォルダー",
+      "section_wildcards": "ワイルドカードフォルダー",
+      "section_artist_combos": "アーティスト組み合わせフォルダー",
+      "section_app_data": "シーンキュー · ギャラリーのお気に入り · LLM プロンプトセット · クレジット測定値",
+      "section_arena": "画風アリーナの記録（画像ファイルを除く）",
+      "overwrite": "既存のファイルを上書きする",
+      "overwrite_hint": "オフにすると、同じ名前のファイルがすでにある場合はスキップします。",
+      "export_note": "API トークン、結果画像、アリーナの画像、WD14 モデル、ログは含みません。",
+      "import_note": "アプリ設定は再起動後に適用され、フォルダーのパスはこの PC の現在の値をそのまま使います。",
+      "export_button": "書き出す",
+      "import_button": "読み込む",
+      "file_filter": "バックアップファイル",
+      "err_write_failed": "バックアップファイルを書き込めませんでした:\n{}",
+      "err_not_a_backup": "NAI-Auto-V5 のバックアップファイルではありません。",
+      "err_restore_failed": "バックアップを展開できませんでした:\n{}",
+      "export_done": "ファイル {} 個をバックアップしました。\n{}",
+      "import_done": "{} 個を読み込みました（すでにあるためスキップ: {} 個）。",
+      "import_restart": "アプリ設定はプログラムを再起動すると適用されます。",
+      "import_rejected": "対象フォルダーの外を指すパスのため破棄した項目: {} 個"
     }
   }
 }

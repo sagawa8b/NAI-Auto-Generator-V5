@@ -129,11 +129,20 @@ def load(path: Path, *, defaults: dict[str, Any] | None = None) -> LoadedSetting
             i18n_key="errors.settings_file_unreadable",
             i18n_args=(str(path),),
         ) from e
+    return from_dict(raw, defaults=defaults, source=str(path))
+
+
+def from_dict(raw: Any, *, defaults: dict[str, Any] | None = None, source: str = "") -> LoadedSettings:
+    """이미 읽어 둔 dict(`to_dict`의 결과, 또는 V4 파일 내용)를 설정으로 바꾼다.
+
+    파일을 거치지 않는 경로 — 씬 큐(`core/scene_queue.py`)가 씬마다 설정을 dict로 들고
+    있다가 이 함수로 되살린다. `source`는 오류 문구에 넣을 출처 이름이다.
+    """
     if not isinstance(raw, dict):
         raise PresetError(
-            f"설정 파일 형식이 올바르지 않습니다: {path}",
+            f"설정 파일 형식이 올바르지 않습니다: {source}",
             i18n_key="errors.settings_file_format",
-            i18n_args=(str(path),),
+            i18n_args=(source,),
         )
 
     is_v4 = raw.get(FORMAT_KEY) != FORMAT_NAME

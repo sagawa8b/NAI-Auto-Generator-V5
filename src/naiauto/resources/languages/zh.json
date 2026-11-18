@@ -51,7 +51,8 @@
       "job_error": "因错误中止: {}",
       "by_settings_progress": "按设置连续生成中 ({}/{}) - {}",
       "by_settings_progress_inf": "按设置连续生成中 ({}张) - {}",
-      "duplicate_seed_changed": "与上次生成条件相同，已将种子改为 {}。"
+      "duplicate_seed_changed": "与上次生成条件相同，已将种子改为 {}。",
+      "scene_progress": "场景队列 {}/{} · {} ({}/{})"
     },
     "status": {
       "tags_reloaded": "标签自动完成已重新加载。"
@@ -153,7 +154,12 @@
       "stop": "停止生成",
       "pause": "暂停",
       "pause_short": "暂停",
-      "resume": "继续"
+      "resume": "继续",
+      "cost_unknown": "预计消耗：无测量值",
+      "cost_unknown_hint": "尚未测量过此分辨率和步数。打开“工具 → 测量 V5 点数消耗”并连续生成两张以上即可记录。",
+      "cost_per_image": "预计消耗：每张约 {}",
+      "cost_with_total": "预计消耗：每张约 {} · {} 张约 {}",
+      "cost_hint": "基于此分辨率和步数的测量值。图生图、增强、按设置生成等每张条件不同的情况下可能与实际不符。"
     },
     "validation": {
       "title": "输入错误",
@@ -236,7 +242,10 @@
       "field_rescale": "Rescale",
       "field_scheduler": "噪声调度",
       "overlay_waiting": "开始生成后，这里会显示该图片的提示词与设置。",
-      "overlay_toggle_hint": "在结果图像上叠加显示刚生成图片的提示词与设置 (F8)。显示的是展开通配符与画师组合之后实际发送的值。"
+      "overlay_toggle_hint": "在结果图像上叠加显示刚生成图片的提示词与设置 (F8)。显示的是展开通配符与画师组合之后实际发送的值。",
+      "history_toggle": "显示结果历史栏",
+      "history_prev": "上一个结果",
+      "history_next": "下一个结果"
     },
     "dialogs": {
       "login_title": "NAI API 登录",
@@ -500,7 +509,15 @@
       "llm_prompt_config_exists": "文件已存在，未覆盖：{}",
       "llm_prompt_config_open_failed": "无法打开文件：{}",
       "llm_prompt_config": "提示词集文件",
-      "folder_arena_dir": "画风竞技场文件夹"
+      "folder_arena_dir": "画风竞技场文件夹",
+      "notify_flash": "连续生成或场景队列结束时闪烁任务栏按钮",
+      "notify_sound": "结束时播放提示音",
+      "shortcuts_title": "生成快捷键",
+      "shortcut_generate_once": "生成一次",
+      "shortcut_generate_auto": "连续生成",
+      "shortcut_stop": "停止生成",
+      "shortcuts_hint": "点击输入框后按下要使用的按键。留空则该操作没有快捷键。菜单已占用的按键（F2、Ctrl+S 等）不能选择。",
+      "err_shortcut_conflict": "{} 已被其他操作占用。"
     },
     "resolution": {
       "title": "分辨率",
@@ -617,7 +634,20 @@
       "apply_model": "模型",
       "apply_characters": "角色",
       "nothing_to_apply": "未选择要应用的项目。",
-      "empty": "没有图像"
+      "empty": "没有图像",
+      "search_tooltip": "在文件名和提示词中搜索。用逗号分隔表示必须全部包含，前面加 - 表示排除。例：blue eyes, -hat",
+      "favorites_only": "仅收藏",
+      "menu_send_i2i": "发送到图生图",
+      "menu_send_enhance": "发送到增强",
+      "menu_favorite_add": "加入收藏",
+      "menu_favorite_remove": "取消收藏",
+      "menu_delete": "移到回收站（{} 张）",
+      "delete_title": "删除图片",
+      "delete_confirm": "要把 {} 张图片移到回收站吗？",
+      "delete_failed": "有 {} 张未能删除。请确认是否被其他程序占用。",
+      "count": "{} / {} 张",
+      "indexing": "正在读取提示词…",
+      "no_match": "没有符合条件的图片"
     },
     "artist_combo": {
       "title": "画师提示词组合",
@@ -667,7 +697,32 @@
       "nothing_to_shuffle": "没有可以打乱的画师。请选择画师池或取消固定。",
       "col_order": "顺序",
       "move_up": "上移",
-      "move_down": "下移"
+      "move_down": "下移",
+      "editor_title": "画师组合编辑",
+      "editor_menu": "画师组合编辑...",
+      "new_group": "新建分组",
+      "name_prompt": "分组名称（字母、数字、下划线）:",
+      "delete_group": "删除分组",
+      "delete_confirm": "要删除分组“{}”吗？",
+      "save_first": "请先保存分组。未保存的分组在生成时不会被替换。",
+      "saved": "已保存分组“{}”。",
+      "empty_hint": "请在左侧选择分组，或点击“新建分组”。",
+      "tag_count": "{} 个标签",
+      "name": "名称:",
+      "name_hint": "在提示词中以 {artist:名称} 调用的名称。只能使用字母、数字和下划线。",
+      "tags": "标签（每行一个 — 一行也可以混合多位画师）",
+      "save": "保存",
+      "insert_random": "插入提示词（随机）",
+      "insert_random_hint": "{artist:名称} — 每次生成时从分组中随机选一个。",
+      "insert_loop": "插入提示词（顺序）",
+      "insert_loop_hint": "{artist_loop:名称} — 每次生成时进入下一行。",
+      "err_no_tags": "请至少输入一行标签。",
+      "err_too_many_tags": "每个分组最多 {} 个标签。",
+      "err_tag_too_long": "每行标签最多 {} 个字符：{}…",
+      "err_invalid_name": "分组名称只能使用字母、数字和下划线，最多 {} 个字符。",
+      "err_duplicate_name": "分组“{}”已存在。",
+      "err_file_unreadable": "无法读取组合文件：{}",
+      "err_file_unwritable": "无法写入组合文件：{}"
     },
     "batch": {
       "count": "生成数量 (0=无限):",
@@ -1229,6 +1284,64 @@
       "judge_export_run_info": "保存结果时一并包含判读条件",
       "judge_export_run_info_hint": "为每一行加上 `model` 列，并在数据下方写入模型、地址、参考图数量、是否修改过评分指令以及时间。在对比不同模型时需要。关闭则和以前一样只有四列(排名·分数·组合·理由)。",
       "judge_by_model": "由 {} 判读"
+    },
+    "scene_queue": {
+      "menu": "场景队列...",
+      "title": "场景队列",
+      "col_name": "场景名称",
+      "col_count": "张数",
+      "col_prompt": "提示词",
+      "add_current": "用当前设置添加",
+      "add_current_hint": "把主窗口当前的提示词、模型、分辨率等保存为新场景。",
+      "import_files": "导入设置文件...",
+      "import_files_hint": "把通过“文件 → 保存设置”生成的文件导入为场景。文件名即场景名称。",
+      "update": "用当前设置覆盖",
+      "update_hint": "用主窗口当前的值替换所选场景的设置。名称和张数保持不变。",
+      "apply": "应用到主窗口",
+      "apply_hint": "把所选场景的设置载入主窗口。",
+      "move_up": "上移",
+      "move_down": "下移",
+      "remove": "删除",
+      "interleave": "逐张轮流生成",
+      "interleave_hint": "关闭：按顺序完成各场景（先完成场景 1，再场景 2）。开启：各场景逐张轮流生成，达到张数的场景退出。",
+      "hint": "只运行已勾选的场景。每个场景保存到结果文件夹下以场景名称命名的子文件夹。提示词中的 <lock> 区段在应用场景后仍会保留。",
+      "save_set": "保存队列...",
+      "load_set": "载入队列...",
+      "run": "运行队列",
+      "close": "关闭",
+      "total": "{} 个场景 · 共 {} 张",
+      "default_name": "场景",
+      "import_failed": "无法读取的文件：{}",
+      "set_filter": "场景队列",
+      "nothing_to_run": "没有可运行的场景。请添加并勾选场景。"
+    },
+    "backup": {
+      "menu_export": "导出备份...",
+      "menu_import": "导入备份...",
+      "export_title": "导出备份",
+      "import_title": "导入备份",
+      "export_intro": "把所选项目打包成一个 zip 文件。",
+      "import_intro": "请选择要从备份中导入的项目。它们会解压到当前设置的文件夹。",
+      "section_settings": "应用设置",
+      "section_presets": "预设文件夹",
+      "section_wildcards": "通配符文件夹",
+      "section_artist_combos": "画师组合文件夹",
+      "section_app_data": "场景队列 · 图库收藏 · LLM 提示词集 · 点数测量值",
+      "section_arena": "画风竞技场记录（不含图片文件）",
+      "overwrite": "覆盖已有文件",
+      "overwrite_hint": "关闭时，如果已有同名文件则跳过。",
+      "export_note": "不包含 API 令牌、结果图片、竞技场图片、WD14 模型和日志。",
+      "import_note": "应用设置在重启后生效，文件夹路径保持本机当前的值。",
+      "export_button": "导出",
+      "import_button": "导入",
+      "file_filter": "备份文件",
+      "err_write_failed": "无法写入备份文件：\n{}",
+      "err_not_a_backup": "这不是 NAI-Auto-V5 的备份文件。",
+      "err_restore_failed": "无法还原备份：\n{}",
+      "export_done": "已备份 {} 个文件。\n{}",
+      "import_done": "已导入 {} 项（因已存在而跳过：{} 项）。",
+      "import_restart": "应用设置将在重启程序后生效。",
+      "import_rejected": "因路径超出目标文件夹而丢弃的项目：{} 项"
     }
   }
 }

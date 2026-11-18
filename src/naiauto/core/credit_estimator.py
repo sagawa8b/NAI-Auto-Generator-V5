@@ -18,8 +18,11 @@ class CreditObservation:
     """Single v5-credit log observation."""
 
     index: int
-    percent: int
+    #: V5 크레딧 잔량(%). 응답에 `usage`가 없는 계정(크레딧 대신 Anlas로 내는 경우)은 None.
+    percent: int | None
     timestamp: float  # monotonic
+    #: 그때의 Anlas 잔액. 크레딧이 떨어진 뒤나 크레딧이 없는 계정은 이쪽이 줄어든다.
+    anlas: int | None = None
 
 
 @dataclass(frozen=True)
@@ -28,7 +31,8 @@ class PerImageCost:
 
     resolution: tuple[int, int]  # (width, height)
     steps: int
-    cost_per_image: float  # percent consumed per image
+    cost_per_image: float  # percent consumed per image (0 = 크레딧으로는 측정되지 않음)
+    anlas_per_image: float = 0.0  # Anlas consumed per image (0 = Anlas는 나가지 않았음)
 
 
 def images_between(observations: list[CreditObservation]) -> int:
@@ -43,6 +47,51 @@ def images_between(observations: list[CreditObservation]) -> int:
         return 0
     indices = [obs.index for obs in observations]
     return max(indices) - min(indices)
+
+
+def _drop_per_image(values: list[int | None], image_count: int, *, minimum_drop: int) -> float | None:
+    """관측값이 처음부터 끝까지 얼마나 줄었는지를 장수로 나눈다.
+
+    값이 하나라도 비었거나, 중간에 **늘어난** 적이 있거나(충전·구매), 줄어든 양이
+    `minimum_drop`에 못 미치면 None — 그 배치로는 이 단위의 소모량을 알 수 없다.
+    """
+    if any(value is None for value in values):
+        return None
+    numbers = [value for value in values if value is not None]
+    if any(later > earlier for earlier, later in zip(numbers, numbers[1:], strict=False)):
+        return None
+    drop = numbers[0] - numbers[-1]
+    if drop < minimum_drop:
+        return None
+    return drop / image_count
+
+
+@dataclass(frozen=True)
+class CostEstimate:
+    """생성 전에 보여 줄 예상 소모량. `total_*`은 매수가 무한(0)이면 None."""
+
+    percent_per_image: float
+    anlas_per_image: float
+    total_percent: float | None
+    total_anlas: float | None
+
+
+def _format_amount(percent: float, anlas: float) -> str:
+    """`0.8%`, `20 Anlas`, 둘 다 있으면 `0.8% + 20 Anlas`."""
+    parts = []
+    if percent > 0:
+        parts.append(f"{percent:.2f}".rstrip("0").rstrip(".") + "%")
+    if anlas > 0:
+        parts.append(f"{anlas:.1f}".rstrip("0").rstrip(".") + " Anlas")
+    return " + ".join(parts)
+
+
+def format_estimate(estimate: CostEstimate) -> tuple[str, str]:
+    """(장당, 합계) 표시 문자열. 합계를 모르면(무한 매수) 두 번째는 ""."""
+    per_image = _format_amount(estimate.percent_per_image, estimate.anlas_per_image)
+    if estimate.total_percent is None or estimate.total_anlas is None:
+        return per_image, ""
+    return per_image, _format_amount(estimate.total_percent, estimate.total_anlas)
 
 
 _MAX_ENTRIES = 50
@@ -75,8 +124,11 @@ class CreditEstimator:
         Returns None if:
         - image_count <= 0
         - fewer than 2 observations
-        - Total percent drop < 1
-        - Recharge detected (percent increased between consecutive obs)
+        - Total percent drop < 1 **and** total Anlas drop < 1 (nothing measurable)
+        - Recharge detected (percent increased between consecutive obs) and no Anlas drop
+
+        크레딧(%)과 Anlas를 따로 본다. 크레딧이 남아 있으면 %만 줄고, 크레딧이 없으면
+        Anlas만 준다 — 측정된 쪽만 값이 들어가고 나머지는 0이다.
         """
         if image_count <= 0:
             return None
@@ -86,20 +138,16 @@ class CreditEstimator:
         # Sort by index to ensure proper ordering
         sorted_obs = sorted(observations, key=lambda o: o.index)
 
-        # Check for recharge: percent must never increase between consecutive obs
-        for i in range(len(sorted_obs) - 1):
-            if sorted_obs[i + 1].percent > sorted_obs[i].percent:
-                return None
-
-        first_percent = sorted_obs[0].percent
-        last_percent = sorted_obs[-1].percent
-        total_drop = first_percent - last_percent
-
-        if total_drop < 1:
+        percent_cost = _drop_per_image([o.percent for o in sorted_obs], image_count, minimum_drop=1)
+        anlas_cost = _drop_per_image([o.anlas for o in sorted_obs], image_count, minimum_drop=1)
+        if percent_cost is None and anlas_cost is None:
             return None
-
-        cost_per_image = total_drop / image_count
-        return PerImageCost(resolution=resolution, steps=steps, cost_per_image=cost_per_image)
+        return PerImageCost(
+            resolution=resolution,
+            steps=steps,
+            cost_per_image=percent_cost or 0.0,
+            anlas_per_image=anlas_cost or 0.0,
+        )
 
     # ------------------------------------------------------------------
     # Storage
@@ -120,10 +168,10 @@ class CreditEstimator:
         self.save()
 
     def get_cost(self, resolution: tuple[int, int], steps: int) -> PerImageCost | None:
-        """Retrieve stored cost. Returns None if missing or invalid (<=0)."""
+        """Retrieve stored cost. Returns None if missing or invalid (no positive cost)."""
         for entry in self._entries:
             if entry.resolution == resolution and entry.steps == steps:
-                if entry.cost_per_image <= 0:
+                if entry.cost_per_image <= 0 and entry.anlas_per_image <= 0:
                     return None
                 return entry
         return None
@@ -140,6 +188,24 @@ class CreditEstimator:
         if cost.cost_per_image <= 0:
             return None
         return math.floor(current_percent / cost.cost_per_image)
+
+    def estimate_cost(self, resolution: tuple[int, int], steps: int, count: int) -> CostEstimate | None:
+        """이 해상도·스텝으로 `count`장을 뽑을 때의 예상 소모량. 측정값이 없으면 None.
+
+        `count`가 0(무한)이면 합계는 None이다.
+        """
+        cost = self.get_cost(resolution, steps)
+        if cost is None:
+            return None
+        percent = max(0.0, cost.cost_per_image)
+        anlas = max(0.0, cost.anlas_per_image)
+        finite = count > 0
+        return CostEstimate(
+            percent_per_image=percent,
+            anlas_per_image=anlas,
+            total_percent=percent * count if finite else None,
+            total_anlas=anlas * count if finite else None,
+        )
 
     # ------------------------------------------------------------------
     # Persistence
@@ -174,11 +240,13 @@ class CreditEstimator:
                 height = int(item["height"])
                 steps = int(item["steps"])
                 cost_per_image = float(item["cost_per_image"])
+                anlas_per_image = float(item.get("anlas_per_image", 0.0))
                 self._entries.append(
                     PerImageCost(
                         resolution=(width, height),
                         steps=steps,
                         cost_per_image=cost_per_image,
+                        anlas_per_image=anlas_per_image,
                     )
                 )
             except (KeyError, TypeError, ValueError):
@@ -195,6 +263,7 @@ class CreditEstimator:
                 "height": e.resolution[1],
                 "steps": e.steps,
                 "cost_per_image": e.cost_per_image,
+                "anlas_per_image": e.anlas_per_image,
             }
             for e in self._entries
         ]

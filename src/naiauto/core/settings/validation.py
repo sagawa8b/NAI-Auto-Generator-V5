@@ -23,6 +23,7 @@ __all__ = [
     "BATCH_DELAY_RANGE",
     "LLM_TIMEOUT_RANGE",
     "QUICK_COUNT_RANGE",
+    "RESERVED_SHORTCUTS",
     "OptionIssue",
     "PAGE_FILENAME",
     "PAGE_GENERATION",
@@ -46,6 +47,40 @@ BATCH_DELAY_RANGE: tuple[float, float] = (0.0, 3600.0)
 QUICK_COUNT_RANGE: tuple[int, int] = (1, 99999)
 #: LM Studio 응답 타임아웃(초). 0은 "무제한"이라 허용한다 (상한은 넉넉히).
 LLM_TIMEOUT_RANGE: tuple[float, float] = (0.0, 3600.0)
+
+#: 메뉴가 이미 쓰는 단축키 (`MainWindow._build_ui`). 생성 단축키를 여기에 겹쳐 두면 Qt가
+#: 둘 다 "모호함"으로 무시해 **양쪽 다 안 먹는다** — 저장하기 전에 막는다.
+RESERVED_SHORTCUTS: tuple[str, ...] = (
+    "Ctrl+I",
+    "Ctrl+Shift+I",
+    "Ctrl+S",
+    "Ctrl+O",
+    "Ctrl+,",
+    "Ctrl+R",
+    "Ctrl+L",
+    "Ctrl+G",
+    "Ctrl+P",
+    "Ctrl+Shift+A",
+    "Ctrl+Shift+Q",
+    "Ctrl+Shift+C",
+    "Alt+Left",
+    "Alt+Right",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8",
+    "F9",
+    "F11",
+)
+
+
+def _shortcut_key(value: str) -> str:
+    """비교용 표기 — 대소문자·공백을 지우고 Enter/Return을 하나로 본다."""
+    return value.replace(" ", "").lower().replace("enter", "return")
+
 
 # 알려진 토큰 판정은 `core.metadata.save.has_known_token`이 유일한 구현이다 (TOKEN_NAMES와 같은
 # 목록을 두 번 적지 않기 위해 그대로 재수출한다). save.py는 stdlib만 쓰므로 Qt-free가 유지된다.
@@ -139,6 +174,29 @@ def _validate_generation(settings: AppSettings) -> list[OptionIssue]:
                     field_args=(index,),
                 )
             )
+    issues += _validate_shortcuts(settings)
+    return issues
+
+
+def _validate_shortcuts(settings: AppSettings) -> list[OptionIssue]:
+    """생성 단축키가 메뉴 단축키나 서로와 겹치지 않는지. 빈 값(단축키 없음)은 통과."""
+    issues: list[OptionIssue] = []
+    reserved = {_shortcut_key(key) for key in RESERVED_SHORTCUTS}
+    seen: set[str] = set()
+    shortcuts = settings.shortcuts
+    for field_key, value in (
+        ("options.shortcut_generate_once", shortcuts.generate_once),
+        ("options.shortcut_generate_auto", shortcuts.generate_auto),
+        ("options.shortcut_stop", shortcuts.stop),
+    ):
+        key = _shortcut_key(value)
+        if not key:
+            continue
+        if key in reserved or key in seen:
+            issues.append(
+                OptionIssue(PAGE_GENERATION, field_key, "options.err_shortcut_conflict", (value.strip(),))
+            )
+        seen.add(key)
     return issues
 
 

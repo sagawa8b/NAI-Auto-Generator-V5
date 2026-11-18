@@ -145,6 +145,23 @@ class BatchSettings(BaseModel):
     #: duplicate_action()이 기본값으로 떨어뜨린다 — 여기서 막으면 손으로 고친
     #: settings.json 하나가 설정 전체를 날린다 (store.load_settings의 복구 규칙).
     duplicate_action: str = DEFAULT_DUPLICATE_ACTION
+    #: 연속 생성·씬 큐가 끝나거나 오류로 멈추면 작업 표시줄 단추를 깜빡인다. 창이 이미
+    #: 앞에 있으면 OS가 아무것도 하지 않으므로 기본으로 켜 둔다.
+    notify_flash: bool = True
+    #: 같은 때에 시스템 알림음을 낸다. 소리는 호불호가 갈려 기본은 끈다.
+    notify_sound: bool = False
+
+
+class ShortcutSettings(BaseModel):
+    """생성 단축키 (옵션 → 생성). 빈 문자열이면 그 동작에는 단축키가 없다.
+
+    값은 Qt의 키 표기(`"Ctrl+Return"`)다. 메뉴 단축키(F2·Ctrl+S 등)는 여기서 다루지
+    않는다 — 겹치면 Qt가 둘 다 무시하므로, 옵션 화면이 저장 전에 겹침을 막는다.
+    """
+
+    generate_once: str = "Ctrl+Return"
+    generate_auto: str = "Ctrl+Shift+Return"
+    stop: str = "Ctrl+."
 
 
 class CustomResolution(BaseModel):
@@ -408,9 +425,12 @@ class AppSettings(BaseModel):
     #: 결과 이미지 위에 그 장의 프롬프트를 겹쳐 보여 준다 (보기 메뉴 F8, V4의 '프롬프트 결과 표시')
     show_result_overlay: bool = False
     measure_credit: bool = False  # V5 크레딧 소모량 측정 로그 (도구 메뉴)
+    #: 결과 이미지 아래에 이번 실행의 최근 결과 썸네일 줄을 보여 준다 (보기 메뉴).
+    show_result_history: bool = True
     check_updates_on_start: bool = True  # 시작 시 새 버전 확인 (기타 메뉴에서 수동 확인도 가능)
     generation: GenerationDefaults = Field(default_factory=GenerationDefaults)
     batch: BatchSettings = Field(default_factory=BatchSettings)
+    shortcuts: ShortcutSettings = Field(default_factory=ShortcutSettings)
     prompts: PromptState = Field(default_factory=PromptState)
     resolution: ResolutionOptions = Field(default_factory=ResolutionOptions)
     ui: UiState = Field(default_factory=UiState)

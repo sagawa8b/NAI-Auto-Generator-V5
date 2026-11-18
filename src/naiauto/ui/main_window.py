@@ -19,7 +19,7 @@ from pathlib import Path
 import platformdirs
 import shiboken6
 from PySide6.QtCore import QEvent, QObject, QSettings, Qt, QTimer, QUrl, Signal, SignalInstance
-from PySide6.QtGui import QColor, QDesktopServices, QPixmap
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QKeySequence, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -45,23 +45,46 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__
-from ..core import settings_file
+from ..core import gallery_search, scene_queue, settings_file
 from ..core.api.client import NAIClient
 from ..core.api.model_specs import MODEL_REGISTRY, ModelSpec, get_spec
 from ..core.api.models import CharacterCaption, GenerationRequest
 from ..core.api.subscription import OpusUsage
 from ..core.arena.finale import finale_total
+from ..core.arena.store import DATA_FILENAME as ARENA_DATA_FILENAME
 from ..core.arena.store import ArenaStore
-from ..core.credit_estimator import CreditEstimator
+from ..core.backup import (
+    SECTION_APP_DATA,
+    SECTION_ARENA,
+    SECTION_ARTIST_COMBOS,
+    BackupError,
+    BackupLocations,
+    create_backup,
+    merge_restored_settings,
+    read_manifest,
+    restore_backup,
+    suggested_name,
+)
+from ..core.credit_estimator import CreditEstimator, format_estimate
 from ..core.enhance import apply_enhance, build_enhance_provider, unusable_sources
 from ..core.i18n.manager import I18nManager
+from ..core.llm.prompt_config import DEFAULT_CONFIG_FILENAME as LLM_PROMPTS_FILENAME
 from ..core.logging_setup import configure_logging, crash_log_path, log_path
 from ..core.metadata.reuse import ReusableSettings
 from ..core.presets import CharacterPromptPreset, GenerationPreset, PresetError, PresetStore
 from ..core.prompt_dynamics import has_dynamic_syntax
 from ..core.prompt_lock import apply_locked, apply_locked_characters
 from ..core.resolution_catalog import ResolutionCatalog, parse_group
+from ..core.result_history import HistoryEntry, ResultHistory
 from ..core.result_summary import ResultLabels, compose_result_summary
+from ..core.scene_queue import (
+    Scene,
+    SceneQueueController,
+    SceneSet,
+    folder_name,
+    plan_steps,
+    total_images,
+)
 from ..core.settings import accounts, credentials
 from ..core.settings.schema import (
     APP_NAME,
@@ -78,7 +101,7 @@ from ..core.settings.schema import (
     CharacterPromptState,
     duplicate_action,
 )
-from ..core.settings.store import ensure_dirs
+from ..core.settings.store import ensure_dirs, save_settings, system_settings_path
 from ..core.settings_batch import SettingsBatchController
 from ..core.tag_completer import TagCompleter, resolve_database_path
 from ..core.tag_knowledge import BLOCKED_PAUSE, TagKnowledgeService
@@ -99,6 +122,8 @@ from ..services.events import (
 from ..services.generation_service import GenerationJob, GenerationService
 from .accounts_dialog import AccountsDialog
 from .arena import ArenaDialog
+from .artist_combo_dialog import ArtistComboDialog
+from .backup_dialog import BackupDialog
 from .gallery_view import GalleryView
 from .image_info_dialog import ImageInfoDialog
 from .log_dialog import LogDialog
@@ -107,11 +132,13 @@ from .options_dialog import OptionsDialog
 from .options_pages import open_in_file_manager
 from .preset_manager_dialog import PresetManagerDialog
 from .qt_bridge import QtEventBridge
+from .scene_queue_dialog import SceneQueueDialog
 from .tag_completer_dropdown import TagCompleterDropdown, TagKnowledgeSource
 from .widgets.character_prompts import CharacterPromptsWidget, CharacterSlot
 from .widgets.collapsible_section import CollapsibleSection, compose_ai_summary
 from .widgets.enhance_panel import EnhancePanel
 from .widgets.flow_layout import FlowLayout
+from .widgets.history_strip import HistoryStrip
 from .widgets.image_source import ImageSourceWidget
 from .widgets.prompt_overlay import PromptOverlay
 from .widgets.prompt_tabs import PromptTabs
@@ -226,6 +253,18 @@ class MainWindow(QMainWindow):
         #: `arena.json`을 읽을 이유가 없고, 만들어지기 전에는 가로챌 이벤트도 없다.
         self._arena: ArenaService | None = None
         self._arena_dialog: ArenaDialog | None = None
+        #: 결과 패널 히스토리 — 이번 실행에서 만든 최근 결과와 지금 보고 있는 장.
+        self._result_history = ResultHistory()
+        #: 씬 큐의 진행 판정 (Qt-free)과, 실행을 시작할 때 굳혀 둔 씬 목록. 실행 중에
+        #: 창에서 씬을 고쳐도 돌고 있는 큐는 흔들리지 않는다.
+        self._scene_queue = SceneQueueController()
+        self._scene_run: list[Scene] = []
+        self._scene_name = ""
+        self._scene_queue_dialog: SceneQueueDialog | None = None
+        self._artist_combo_dialog: ArtistComboDialog | None = None
+        #: 백업에서 가져온 설정. 있으면 종료할 때 화면 값 대신 이것을 저장한다
+        #: (`settings_to_save`) — 다음 실행부터 적용된다.
+        self._restored_settings: AppSettings | None = None
 
         self._build_ui()
         # 이미지를 창 어디에 놓든 이미지 정보를 읽는다 (V4 동작). 기본 위젯(입력칸·콤보 등)은
@@ -410,10 +449,20 @@ class MainWindow(QMainWindow):
 
         # 오른쪽: 결과 미리보기 — 마우스 스크롤로 확대/축소된다 (ZoomableImageView)
         self.preview_label = ZoomableImageView()
-        self.result_panel = self.preview_label
         # 방금 만든 이미지의 프롬프트를 이미지 위에 겹쳐 보여 준다 (보기 메뉴에서 켠다).
         # 레이아웃이 아니라 절대 위치라, 켜고 꺼도 이미지 크기는 그대로다.
         self.result_overlay = PromptOverlay(self.preview_label)
+        # 이미지 아래 — 이번 실행의 최근 결과 썸네일 줄. 결과가 생기기 전에는 숨어 있다.
+        self.history_strip = HistoryStrip()
+        self.history_strip.setVisible(False)
+        self.history_strip.entry_selected.connect(self._on_history_selected)
+        self.history_strip.entry_activated.connect(self._on_history_activated)
+        self.result_panel = QWidget()
+        result_layout = QVBoxLayout(self.result_panel)
+        result_layout.setContentsMargins(0, 0, 0, 0)
+        result_layout.setSpacing(0)
+        result_layout.addWidget(self.preview_label, 1)
+        result_layout.addWidget(self.history_strip)
         splitter.addWidget(self.result_panel)
         splitter.setSizes(list(SPLITTER_SIZES))
 
@@ -457,6 +506,13 @@ class MainWindow(QMainWindow):
         self.load_settings_action = self.file_menu.addAction("")
         self.load_settings_action.setShortcut("Ctrl+O")
         self.load_settings_action.triggered.connect(self._on_load_settings_file)
+
+        # 전체 백업 — 설정·프리셋·와일드카드 등을 zip 하나로 (PC 이전용)
+        self.file_menu.addSeparator()
+        self.backup_export_action = self.file_menu.addAction("")
+        self.backup_export_action.triggered.connect(self._on_backup_export)
+        self.backup_import_action = self.file_menu.addAction("")
+        self.backup_import_action.triggered.connect(self._on_backup_import)
 
         # 설정 진입점은 여기 하나뿐이다 (Req 1.1)
         self.file_menu.addSeparator()
@@ -509,6 +565,18 @@ class MainWindow(QMainWindow):
         self.result_overlay_action.toggled.connect(self._on_result_overlay_toggled)
         self._wire_result_overlay_toggle()
 
+        # 결과 히스토리 줄 — 켬/끔과 앞뒤 이동
+        self.result_history_action = self.view_menu.addAction("")
+        self.result_history_action.setCheckable(True)
+        self.result_history_action.setChecked(True)
+        self.result_history_action.toggled.connect(lambda _on: self._sync_history_strip())
+        self.history_prev_action = self.view_menu.addAction("")
+        self.history_prev_action.setShortcut("Alt+Left")
+        self.history_prev_action.triggered.connect(lambda: self._step_history(-1))
+        self.history_next_action = self.view_menu.addAction("")
+        self.history_next_action.setShortcut("Alt+Right")
+        self.history_next_action.triggered.connect(lambda: self._step_history(1))
+
         # M3: Gallery View action
         self.view_menu.addSeparator()
         self.gallery_action = self.view_menu.addAction("")
@@ -546,6 +614,13 @@ class MainWindow(QMainWindow):
         self.presets_action = self.tools_menu.addAction("")
         self.presets_action.setShortcut("Ctrl+P")
         self.presets_action.triggered.connect(self._on_open_presets)
+        # 씬 큐 (Q=Queue) / 아티스트 조합 편집 (C=Combo)
+        self.scene_queue_action = self.tools_menu.addAction("")
+        self.scene_queue_action.setShortcut("Ctrl+Shift+Q")
+        self.scene_queue_action.triggered.connect(self._on_open_scene_queue)
+        self.artist_combos_action = self.tools_menu.addAction("")
+        self.artist_combos_action.setShortcut("Ctrl+Shift+C")
+        self.artist_combos_action.triggered.connect(self._on_open_artist_combos)
 
         # 폴더 — 자주 여는 세 곳을 바로 연다 (V4와 같은 단축키: F5/F6/F7)
         self.folders_menu = self.menuBar().addMenu("")
@@ -572,8 +647,22 @@ class MainWindow(QMainWindow):
             action = self.language_menu.addAction(name)
             action.triggered.connect(lambda _=False, c=code: self._set_language(c))
 
+        # 생성 단축키 — 메뉴에 넣지 않고 창에 직접 단다 (키는 옵션 → 생성에서 바꾼다).
+        # 버튼이 눌릴 수 있을 때만 동작한다: 로그아웃 상태나 생성 중에는 아무 일도 없다.
+        self.generate_once_action = QAction(self)
+        self.generate_once_action.triggered.connect(lambda: self._click_if_enabled(self.once_button))
+        self.generate_auto_action = QAction(self)
+        self.generate_auto_action.triggered.connect(lambda: self._click_if_enabled(self.auto_button))
+        self.stop_action = QAction(self)
+        self.stop_action.triggered.connect(lambda: self._click_if_enabled(self.stop_button))
+        for action in (self.generate_once_action, self.generate_auto_action, self.stop_action):
+            self.addAction(action)
+
         self.model_combo.currentIndexChanged.connect(self._on_model_changed)
         self.resolution_panel.changed.connect(self._on_resolution_changed)  # Req 10.14
+        # 예상 소모량은 매수·스텝·해상도가 정한다
+        self.count_spin.valueChanged.connect(self._refresh_cost_estimate)
+        self.steps_spin.valueChanged.connect(self._refresh_cost_estimate)
 
         # 프롬프트/캐릭터 프롬프트를 고치면 연속 생성 중 다음 이미지부터 반영한다
         self.prompt_edit.textChanged.connect(self._push_live_prompt)
@@ -636,6 +725,11 @@ class MainWindow(QMainWindow):
         button_row.addWidget(self.auto_button)
         button_row.addWidget(self.by_settings_button)
         button_row.addWidget(self.stop_button)
+        # 생성 전 예상 소모량 — 측정해 둔 값이 있을 때만 숫자가 나온다 (core/credit_estimator.py)
+        self.cost_label = QLabel()
+        self.cost_label.setStyleSheet("color: gray;")
+        self.cost_label.setWordWrap(True)
+        bar_layout.addWidget(self.cost_label)
         # 스크롤 밖이라 휠 사고가 날 일은 없지만, 값 위젯 규칙은 똑같이 적용한다
         guard_wheel(self.generate_group, self._wheel_guard)
         return self.generate_group
@@ -779,6 +873,9 @@ class MainWindow(QMainWindow):
             )
             self._gallery_view.reuse_requested.connect(self._on_gallery_reuse)
             self._gallery_view.settings_reused.connect(self.apply_reusable)
+            self._gallery_view.send_to_i2i.connect(self._send_to_i2i)
+            self._gallery_view.send_to_enhance.connect(self._send_to_enhance)
+            self._gallery_view.images_deleted.connect(self._on_gallery_deleted)
             self._gallery_view.setWindowTitle(self._i18n.get_text("menu.gallery_view"))
             self._gallery_view.setMinimumSize(600, 400)
 
@@ -791,6 +888,268 @@ class MainWindow(QMainWindow):
     def _on_gallery_reuse(self, path: str) -> None:
         """Gallery에서 Reuse Settings 요청 시 기존 apply_reusable로 위임."""
         self.open_image_info(path)
+
+    def _send_to_i2i(self, path: str) -> None:
+        """갤러리에서 고른 이미지를 i2i 원본으로 — 패널이 꺼져 있으면 켠다."""
+        if not self.image_source_action.isEnabled():
+            return  # 지금 모델이 i2i를 지원하지 않는다
+        self.image_source_action.setChecked(True)
+        self.image_source.load_image(path)
+
+    def _send_to_enhance(self, path: str) -> None:
+        """갤러리에서 고른 이미지를 강화 원본으로 — 패널이 꺼져 있으면 켠다."""
+        if not self.enhance_action.isEnabled():
+            return
+        self.enhance_action.setChecked(True)
+        self.enhance_panel.load_image(path)
+
+    def _on_gallery_deleted(self, paths: list) -> None:
+        """갤러리에서 지운 이미지는 히스토리 줄에서도 뺀다 (없는 파일을 가리키지 않게)."""
+        removed = [path for path in paths if self._result_history.remove(path)]
+        if not removed:
+            return
+        self._sync_history_strip()
+        current = self._result_history.current
+        if current is not None:
+            self._show_history_entry(current)
+
+    # ── 아티스트 조합 편집 ───────────────────────────────
+
+    def _on_open_artist_combos(self) -> ArtistComboDialog:
+        """아티스트 조합 편집 창 (모드리스). 저장하면 생성 엔진이 조합을 다시 읽는다."""
+        if self._artist_combo_dialog is None:
+            dialog = ArtistComboDialog(self._settings.artist_combos_dir, self._i18n, self)
+            dialog.groups_changed.connect(
+                lambda: self._service.reload_artist_combos(self._settings.artist_combos_dir)
+            )
+            dialog.insert_requested.connect(self._insert_into_prompt)
+            self._artist_combo_dialog = dialog
+        dialog = self._artist_combo_dialog
+        dialog.set_directory(self._settings.artist_combos_dir)
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+        return dialog
+
+    def _insert_into_prompt(self, text: str) -> None:
+        """메인 프롬프트의 커서 자리에 글자를 넣는다 (조합 자리표시자 등)."""
+        self.prompt_tabs.setCurrentIndex(0)
+        self.prompt_edit.insertPlainText(text)
+        self.prompt_edit.setFocus()
+
+    # ── 씬 큐 ────────────────────────────────────────────
+
+    def _on_open_scene_queue(self) -> SceneQueueDialog:
+        """씬 큐 창 (모드리스). 띄워 둔 채 메인 창에서 설정을 고쳐 씬으로 담는다."""
+        if self._scene_queue_dialog is None:
+            dialog = SceneQueueDialog(
+                self._i18n,
+                self._scene_capture,
+                default_dir=self._settings.presets_dir,
+                parent=self,
+            )
+            dialog.apply_requested.connect(lambda data: self._apply_scene_settings(data))
+            dialog.run_requested.connect(self.start_scene_queue)
+            self._scene_queue_dialog = dialog
+        dialog = self._scene_queue_dialog
+        dialog.set_can_run(not self._is_running and self._logged_in)
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+        return dialog
+
+    def _scene_capture(self) -> dict:
+        """지금 화면의 생성 설정 — `파일 → 설정 저장`이 쓰는 것과 같은 모양 (시드는 빼고)."""
+        return settings_file.to_dict(self._get_current_preset_config())
+
+    def _apply_scene_settings(self, data: dict, source: str = "") -> bool:
+        """씬의 설정을 화면에 적용한다 (세팅 파일을 불러올 때와 같은 길 — 잠금 구간이 남는다)."""
+        defaults = self._get_current_preset_config().model_dump()
+        try:
+            loaded = settings_file.from_dict(data, defaults=defaults, source=source)
+        except PresetError as e:
+            QMessageBox.warning(self, self._i18n.get_text("errors.title"), self._preset_error_text(e))
+            return False
+        self._on_preset_loaded(loaded.preset)
+        return True
+
+    def start_scene_queue(self, scene_set: SceneSet) -> int:
+        """씬 큐를 돌린다. 시작한 총 장수를 돌려준다 (시작하지 못했으면 0).
+
+        씬마다 `결과 폴더/<씬 이름>/`에 저장한다. 순서는 `scene_set.interleave`가 정한다 —
+        차례로(씬을 하나씩 다 뽑고 다음) 또는 번갈아(한 장씩 돌아가며).
+        """
+        tr = self._i18n.get_text
+        if self._is_running or not self._logged_in:
+            return 0
+        steps = plan_steps(scene_set.scenes, interleave=scene_set.interleave)
+        total = total_images(steps)
+        if not steps:
+            QMessageBox.information(self, tr("errors.warning"), tr("scene_queue.nothing_to_run"))
+            return 0
+        # 고정 시드로 여러 장을 뽑으면 같은 그림만 반복된다 (연속 생성과 같은 규칙).
+        if total > 1 and not self.seed_random_check.isChecked():
+            QMessageBox.warning(self, tr("errors.title"), tr("errors.fixed_seed_batch"))
+            return 0
+        self._scene_run = list(scene_set.scenes)
+        self._scene_queue.start(steps)
+        if not self._advance_scene_queue():
+            self._scene_queue.reset()
+            return 0
+        return total
+
+    def _advance_scene_queue(self) -> bool:
+        """다음 씬을 화면에 적용하고 그 씬의 잡을 시작한다. 시작했으면 True."""
+        step = self._scene_queue.next_step()
+        if step is None:
+            return False
+        scene = self._scene_run[step.scene_index]
+        if not self._apply_scene_settings(scene.settings, scene.name):
+            return False
+        job = self.build_job(count=step.count)
+        job = dataclasses.replace(job, save_dir=str(Path(job.save_dir) / folder_name(scene.name)))
+        try:
+            self._service.start(job)
+        except RuntimeError:
+            return False
+        self._scene_name = scene.name
+        self._running_request = job.request
+        self._set_running(True)
+        self.status_label.setText(self._scene_status(1, step.count))
+        return True
+
+    def _scene_status(self, index: int, total: int) -> str:
+        """`씬 큐 2/5 · 이름 (3/10)` — 몇 번째 잡의 몇 번째 장인지."""
+        queue = self._scene_queue
+        return self._i18n.get_text(
+            "statusbar.scene_progress", queue.position + 1, queue.step_count, self._scene_name, index, total
+        )
+
+    def _advance_scene_queue_after_delay(self) -> None:
+        """씬 사이 간격 대기 후 호출 — 그사이 중지됐으면 큐를 끝낸다."""
+        if not shiboken6.isValid(self):
+            return
+        queue = self._scene_queue
+        if not queue.active:
+            return
+        if queue.stop_requested or not self._advance_scene_queue():
+            queue.reset()
+            self._set_running(False)
+            tr = self._i18n.get_text
+            key = "statusbar.job_stopped" if queue.stop_requested else "statusbar.job_finished"
+            self.status_label.setText(tr(key, queue.completed))
+            self._notify_finished()
+
+    # ── 전체 백업 ────────────────────────────────────────
+
+    def _backup_locations(self) -> BackupLocations:
+        """백업이 읽고 쓰는 자리 — 전부 지금 설정된 폴더다."""
+        s = self._settings
+        data_dir = Path(platformdirs.user_data_dir(APP_NAME))
+        return BackupLocations(
+            settings_file=system_settings_path(),
+            presets_dir=Path(s.presets_dir),
+            wildcards_dir=Path(s.wildcards_dir),
+            artist_combos_dir=Path(s.artist_combos_dir),
+            data_files=(
+                # 모듈을 거쳐 부른다 — 테스트가 이 함수들을 임시 폴더로 바꿔 끼운다
+                scene_queue.default_queue_path(),
+                gallery_search.default_favorites_path(),
+                data_dir / LLM_PROMPTS_FILENAME,
+                data_dir / "credit_costs.json",
+            ),
+            arena_file=Path(s.arena_dir) / ARENA_DATA_FILENAME,
+        )
+
+    def _on_backup_export(self) -> None:
+        """파일 → 백업 내보내기. 고른 구획을 zip 하나로 쓴다."""
+        tr = self._i18n.get_text
+        dialog = BackupDialog(self._i18n, parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            tr("backup.export_title"),
+            str(Path.home() / suggested_name()),
+            f"{tr('backup.file_filter')} (*.zip)",
+        )
+        if path:
+            self.export_backup_file(Path(path), dialog.sections())
+
+    def export_backup_file(self, path: Path, sections: set[str]) -> bool:
+        """고른 구획을 `path`에 쓴다. 성공하면 True."""
+        tr = self._i18n.get_text
+        try:
+            # 설정 파일은 종료할 때만 쓰인다 — 지금 화면 값이 백업에 들어가도록 먼저 내려쓴다.
+            save_settings(self.settings_to_save())
+            result = create_backup(path, self._backup_locations(), sections, app_version=__version__)
+        except (BackupError, OSError) as e:
+            QMessageBox.warning(self, tr("errors.title"), tr("backup.err_write_failed", e))
+            return False
+        QMessageBox.information(self, tr("backup.export_title"), tr("backup.export_done", result.total, path))
+        return True
+
+    def _on_backup_import(self) -> None:
+        """파일 → 백업 가져오기. 지금 설정된 폴더로 푼다 (설정은 다음 실행부터)."""
+        tr = self._i18n.get_text
+        path, _ = QFileDialog.getOpenFileName(
+            self, tr("backup.import_title"), str(Path.home()), f"{tr('backup.file_filter')} (*.zip)"
+        )
+        if not path:
+            return
+        try:
+            manifest = read_manifest(Path(path))
+        except BackupError:
+            QMessageBox.warning(self, tr("errors.title"), tr("backup.err_not_a_backup", ""))
+            return
+        dialog = BackupDialog(self._i18n, counts=manifest["counts"], parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.restore_backup_file(Path(path), dialog.sections(), overwrite=dialog.overwrite)
+
+    def restore_backup_file(self, path: Path, sections: set[str], *, overwrite: bool) -> bool:
+        """백업을 풀고, 풀린 파일을 쓰는 곳들이 다시 읽게 한다. 성공하면 True."""
+        tr = self._i18n.get_text
+        try:
+            result = restore_backup(path, self._backup_locations(), sections, overwrite=overwrite)
+        except BackupError as e:
+            QMessageBox.warning(self, tr("errors.title"), tr(f"backup.err_{e.code}", e.detail))
+            return False
+
+        if SECTION_ARTIST_COMBOS in result.counts:
+            self._service.reload_artist_combos(self._settings.artist_combos_dir)
+            if self._artist_combo_dialog is not None:
+                self._artist_combo_dialog.reload()
+        if SECTION_APP_DATA in result.counts:
+            # 씬 큐·즐겨찾기 파일이 바뀌었다. 떠 있는 창은 옛 내용을 들고 있다가 다음 저장 때
+            # 방금 푼 파일을 덮어쓰므로, 닫고 다음에 열 때 새로 읽게 한다.
+            for name in ("_scene_queue_dialog", "_gallery_view"):
+                window = getattr(self, name)
+                if window is not None:
+                    window.close()
+                    window.deleteLater()
+                    setattr(self, name, None)
+            self._credit_estimator.load()
+            self._refresh_cost_estimate()
+        if SECTION_ARENA in result.counts and self._arena is not None:
+            self._arena.reload(self._settings.arena_dir)
+
+        lines = [tr("backup.import_done", result.total, result.skipped)]
+        if result.settings is not None:
+            self._restored_settings = merge_restored_settings(result.settings, self._settings)
+            lines.append(tr("backup.import_restart"))
+        if result.rejected:
+            lines.append(tr("backup.import_rejected", result.rejected))
+        QMessageBox.information(self, tr("backup.import_title"), "\n\n".join(lines))
+        return True
+
+    def settings_to_save(self) -> AppSettings:
+        """종료할 때 저장할 설정 — 보통은 화면 값, 백업에서 설정을 가져왔으면 그 설정.
+
+        화면 값은 어느 쪽이든 모은다 (`collect_settings`가 창 크기·분할 폭도 함께 내려쓴다).
+        """
+        current = self.collect_settings()
+        return self._restored_settings if self._restored_settings is not None else current
 
     # ── NAI 프롬프트 어시스턴트 (WD 태거 + LM Studio 통합) ──
 
@@ -1333,6 +1692,7 @@ class MainWindow(QMainWindow):
         """
         self._sync_position_aspect()
         self._push_live_resolution()
+        self._refresh_cost_estimate()
 
     def _on_image_source_changed(self) -> None:
         """i2i / 인페인팅 원본이 있으면 해상도 입력을 잠근다 (Req 10.13).
@@ -1348,6 +1708,7 @@ class MainWindow(QMainWindow):
         self.resolution_panel.set_source_locked(size is not None, size)
         self._sync_position_aspect()
         self._push_live_resolution()
+        self._refresh_cost_estimate()
 
     def _on_enhance_changed(self) -> None:
         """강화 원본·배율이 바뀌면 잠긴 해상도 표시를 다시 맞춘다."""
@@ -1567,7 +1928,9 @@ class MainWindow(QMainWindow):
         )
         self.enhance_action.setChecked(self._settings.show_enhance and self.enhance_action.isEnabled())
         self.result_overlay_action.setChecked(self._settings.show_result_overlay)
+        self.result_history_action.setChecked(self._settings.show_result_history)
         self.measure_credit_action.setChecked(self._settings.measure_credit)
+        self._apply_shortcuts()
         self._apply_prompts()
         self._lock_fixed_settings()
         self._apply_prompt_font()
@@ -1645,6 +2008,7 @@ class MainWindow(QMainWindow):
         s.show_image_source = self.image_source_action.isChecked()
         s.show_enhance = self.enhance_action.isChecked()
         s.show_result_overlay = self.result_overlay_action.isChecked()
+        s.show_result_history = self.result_history_action.isChecked()
         s.measure_credit = self.measure_credit_action.isChecked()
         p = s.prompts
         p.prompt = self.prompt_edit.toPlainText()
@@ -1668,6 +2032,51 @@ class MainWindow(QMainWindow):
             button.setToolTip(hint if has_value else "")
             button.setVisible(has_value)
             button.setEnabled(has_value and not self._is_running and self._logged_in)
+
+    def _apply_shortcuts(self) -> None:
+        """설정의 생성 단축키를 액션에 건다 (빈 값이면 단축키 없음)."""
+        shortcuts = self._settings.shortcuts
+        for action, value in (
+            (self.generate_once_action, shortcuts.generate_once),
+            (self.generate_auto_action, shortcuts.generate_auto),
+            (self.stop_action, shortcuts.stop),
+        ):
+            action.setShortcut(QKeySequence(value))
+        self._refresh_shortcut_tooltips()
+
+    def _refresh_shortcut_tooltips(self) -> None:
+        """버튼에 마우스를 올리면 단축키가 보이게 한다."""
+        for button, action in (
+            (self.once_button, self.generate_once_action),
+            (self.auto_button, self.generate_auto_action),
+            (self.stop_button, self.stop_action),
+        ):
+            button.setToolTip(action.shortcut().toString(QKeySequence.SequenceFormat.NativeText))
+
+    @staticmethod
+    def _click_if_enabled(button: QPushButton) -> None:
+        if button.isEnabled():
+            button.click()
+
+    def _refresh_cost_estimate(self) -> None:
+        """생성 바의 예상 소모량 문구 — 지금 해상도·스텝·매수 기준.
+
+        숫자는 `도구 → V5 크레딧 소모량 측정`을 켜고 돌린 배치에서만 나온다. 측정한 적 없는
+        해상도·스텝이면 추정하지 않고 "측정값 없음"으로 둔다 (공식을 지어내지 않는다).
+        """
+        tr = self._i18n.get_text
+        count = self.count_spin.value()
+        estimate = self._credit_estimator.estimate_cost(self.target_size(), self.steps_spin.value(), count)
+        if estimate is None:
+            self.cost_label.setText(tr("generate.cost_unknown"))
+            self.cost_label.setToolTip(tr("generate.cost_unknown_hint"))
+            return
+        per_image, total = format_estimate(estimate)
+        if total:
+            self.cost_label.setText(tr("generate.cost_with_total", per_image, count, total))
+        else:
+            self.cost_label.setText(tr("generate.cost_per_image", per_image))
+        self.cost_label.setToolTip(tr("generate.cost_hint"))
 
     def _seed_value(self) -> int:
         try:
@@ -1713,6 +2122,9 @@ class MainWindow(QMainWindow):
         ensure_dirs(s)  # 새로 지정한 폴더를 미리 만들어 둔다
         self._preset_store = PresetStore(Path(s.presets_dir))  # Req 2.5
         self._service.reload_artist_combos(s.artist_combos_dir)
+        if self._artist_combo_dialog is not None:
+            self._artist_combo_dialog.set_directory(s.artist_combos_dir)
+        self._apply_shortcuts()
         self._rebuild_resolution_catalog()  # Req 5.9, 5.10
         self._apply_section_states()  # Req 6.4 (섹션 접힘 상태 초기화)
         self._refresh_section_summaries()
@@ -1981,7 +2393,13 @@ class MainWindow(QMainWindow):
         모두 모드리스라 그냥 두면 메인 창이 사라져도 남아 있고, 창이 하나라도 열려 있는
         동안은 `app.exec()`이 돌아오지 않아 앱이 끝나지 않는다 (설정 저장도 그 뒤다).
         """
-        for window in (self._assistant_dialog, self._gallery_view, self._image_info_dialog):
+        for window in (
+            self._assistant_dialog,
+            self._gallery_view,
+            self._image_info_dialog,
+            self._scene_queue_dialog,
+            self._artist_combo_dialog,
+        ):
             if window is not None:
                 window.close()
         self._tag_knowledge.shutdown()
@@ -2242,6 +2660,7 @@ class MainWindow(QMainWindow):
     def _on_stop_clicked(self) -> None:
         """세팅별 연속 생성 중이면 이번 이미지를 끝으로 순환도 멈춘다 (V4와 동일)."""
         self._settings_batch.request_stop()
+        self._scene_queue.request_stop()
         self._service.stop()
 
     # ── 세팅별 연속 생성 (V4의 "세팅별 연속 생성") ──────────────
@@ -2320,6 +2739,8 @@ class MainWindow(QMainWindow):
         self.enhance_panel.set_busy(not can_start)
         self.stop_button.setEnabled(self._is_running)
         self._refresh_quick_buttons()
+        if self._scene_queue_dialog is not None:
+            self._scene_queue_dialog.set_can_run(can_start)
 
     # ── 서비스 이벤트 (메인 스레드에서 수신) ──────────────
 
@@ -2332,7 +2753,9 @@ class MainWindow(QMainWindow):
         if isinstance(event, JobStarted):
             self._job_total = event.total
         elif isinstance(event, ImageStarted):
-            if self._job_total == 1:
+            if self._scene_queue.active:
+                self.status_label.setText(self._scene_status(event.index, self._job_total or 0))
+            elif self._job_total == 1:
                 self.status_label.setText(tr("statusbar.generating"))
             elif self._job_total in (0, None):
                 self.status_label.setText(tr("statusbar.auto_generating_inf"))
@@ -2344,19 +2767,33 @@ class MainWindow(QMainWindow):
             self.status_label.setText(tr("statusbar.auto_error_wait", int(event.wait_seconds)))
         elif isinstance(event, ImageCompleted):
             self._last_completed_request = self._running_request
-            self._overlay_request = event.request
-            self._refresh_result_overlay()
-            self._show_image(event.path)
+            # 히스토리 끝(가장 최근 장)을 보고 있을 때만 새 이미지로 넘어간다. 예전 장을
+            # 들여다보는 중이면 화면을 채 가지 않고 줄에만 붙인다.
+            entry = HistoryEntry(path=event.path, request=event.request)
+            if self._result_history.add(entry):
+                self._show_history_entry(entry)
+            self._sync_history_strip()
             # 저장 위치를 바로 확인할 수 있게 파일명 표시 + 전체 경로 툴팁
             self.status_label.setToolTip(event.path)
-            self.preview_label.setToolTip(event.path)
             self.enhance_panel.set_last_result(event.path)  # "최근 결과" 버튼이 쓴다
             # M3: Gallery — 새 이미지 자동 추가
             if self._gallery_view is not None:
                 self._gallery_view.append_image(event.path)
         elif isinstance(event, JobFinished):
             continuing = False
-            if self._settings_batch.active:
+            advance = self._advance_settings_batch_after_delay
+            # 한 장짜리 생성이 끝난 것까지 알릴 필요는 없다 — 자리를 비울 만한 작업만 알린다.
+            notable = self._job_total != 1 or self._settings_batch.active or self._scene_queue.active
+            if self._scene_queue.active:
+                # 씬 큐 도중 — 이 잡은 씬 하나(차례로) 또는 한 장(번갈아)이다.
+                queued = self._scene_queue.job_finished(
+                    completed=event.completed, error=event.error is not None, stopped=event.stopped
+                )
+                continuing = queued.continuing
+                advance = self._advance_scene_queue_after_delay
+                if not continuing:
+                    event = dataclasses.replace(event, completed=queued.completed, stopped=queued.stopped)
+            elif self._settings_batch.active:
                 # 세팅별 연속 생성 도중 — 이 잡은 세팅 파일 하나로 만든 이미지 1장이다.
                 progress = self._settings_batch.job_finished(
                     error=event.error is not None, stopped=event.stopped
@@ -2378,6 +2815,8 @@ class MainWindow(QMainWindow):
                     self.status_label.setText(tr("statusbar.job_stopped", event.completed))
                 else:
                     self.status_label.setText(tr("statusbar.job_finished", event.completed))
+                if notable or event.error is not None:
+                    self._notify_finished()
             # M3: Credit Estimator — compute and store batch cost from observations
             if event.credit_observations and event.completed > 0:
                 size = self.target_size()
@@ -2387,7 +2826,12 @@ class MainWindow(QMainWindow):
                 observations = [
                     obs
                     if isinstance(obs, CreditObservation)
-                    else CreditObservation(index=obs.index, percent=obs.percent, timestamp=obs.timestamp)
+                    else CreditObservation(
+                        index=obs.index,
+                        percent=obs.percent,
+                        timestamp=obs.timestamp,
+                        anlas=getattr(obs, "anlas", None),
+                    )
                     for obs in event.credit_observations
                 ]
                 cost = self._credit_estimator.compute_batch_cost(
@@ -2399,10 +2843,11 @@ class MainWindow(QMainWindow):
                 )
                 if cost is not None:
                     self._credit_estimator.store_cost(cost)
+                    self._refresh_cost_estimate()
                 # Update gauge with latest percent if observations available
-                if observations:
-                    latest_percent = observations[-1].percent
-                    self._update_credit_gauge(latest_percent)
+                # (크레딧이 없는 계정은 percent가 비어 온다 — 그때는 게이지를 건드리지 않는다)
+                if observations and observations[-1].percent is not None:
+                    self._update_credit_gauge(observations[-1].percent)
             self.refresh_anlas()
 
             if continuing:
@@ -2410,9 +2855,9 @@ class MainWindow(QMainWindow):
                 # count=1짜리 개별 잡은 자기 안에서 대기하지 않으므로 여기서 직접 기다린다.
                 delay_ms = int(self.delay_spin.value() * 1000)
                 if delay_ms > 0:
-                    QTimer.singleShot(delay_ms, self._advance_settings_batch_after_delay)
+                    QTimer.singleShot(delay_ms, advance)
                 else:
-                    self._advance_settings_batch_after_delay()
+                    advance()
 
     def _advance_settings_batch_after_delay(self) -> None:
         """세팅별 연속 생성 간격 대기 후 호출 — 그사이 중지됐으면 순환을 끝낸다."""
@@ -2429,6 +2874,55 @@ class MainWindow(QMainWindow):
                 self.status_label.setText(tr("statusbar.job_stopped", batch.completed))
             else:
                 self.status_label.setText(tr("statusbar.job_finished", batch.completed))
+            self._notify_finished()
+
+    def _notify_finished(self) -> None:
+        """작업이 끝났음을 알린다 (옵션 → 생성). 다른 창을 보고 있어도 알 수 있게.
+
+        `alert`는 창이 이미 앞에 있으면 아무 일도 하지 않는다 — 작업 표시줄 단추가
+        깜빡이는 것은 다른 프로그램을 보고 있을 때뿐이다.
+        """
+        batch = self._settings.batch
+        if batch.notify_flash:
+            QApplication.alert(self)
+        if batch.notify_sound:
+            QApplication.beep()
+
+    # ── 결과 히스토리 줄 ─────────────────────────────────
+
+    def _show_history_entry(self, entry: HistoryEntry) -> None:
+        """히스토리의 한 장을 결과 패널에 올린다 (이미지 + 그 장의 프롬프트 오버레이)."""
+        self._overlay_request = entry.request  # type: ignore[assignment]
+        self._refresh_result_overlay()
+        self._show_image(entry.path)
+        self.preview_label.setToolTip(entry.path)
+
+    def _sync_history_strip(self) -> None:
+        """썸네일 줄을 히스토리에 맞춘다. 결과가 없거나 보기 메뉴에서 껐으면 숨긴다."""
+        history = self._result_history
+        self.history_strip.set_entries([entry.path for entry in history.entries], history.cursor)
+        self.history_strip.setVisible(self.result_history_action.isChecked() and len(history) > 0)
+        self.history_prev_action.setEnabled(history.cursor > 0)
+        self.history_next_action.setEnabled(0 <= history.cursor < len(history) - 1)
+
+    def _on_history_selected(self, index: int) -> None:
+        entry = self._result_history.select(index)
+        if entry is not None:
+            self._show_history_entry(entry)
+            self._sync_history_strip()
+
+    def _on_history_activated(self, index: int) -> None:
+        """썸네일 더블클릭 — 그 이미지의 생성 정보를 연다."""
+        entries = self._result_history.entries
+        if 0 <= index < len(entries):
+            self.open_image_info(entries[index].path)
+
+    def _step_history(self, delta: int) -> None:
+        """앞(-1)·뒤(+1) 결과로 옮긴다 (`Alt+←`/`Alt+→`)."""
+        entry = self._result_history.step(delta)
+        if entry is not None:
+            self._show_history_entry(entry)
+            self._sync_history_strip()
 
     # ── 결과 프롬프트 오버레이 (V4의 "프롬프트 결과 표시") ──────
 
@@ -2634,6 +3128,8 @@ class MainWindow(QMainWindow):
         self.auto_button.setText(tr("generate.auto"))
         self.by_settings_button.setText(tr("generate.by_settings"))
         self.stop_button.setText(tr("generate.stop"))
+        self._refresh_shortcut_tooltips()
+        self._refresh_cost_estimate()
         self.character_prompts.retranslate()
         self.image_source.retranslate()
         self.enhance_panel.retranslate()
@@ -2646,6 +3142,8 @@ class MainWindow(QMainWindow):
         self.image_info_action.setText(tr("image_info.menu"))
         self.save_settings_action.setText(tr("menu.save_settings"))
         self.load_settings_action.setText(tr("menu.load_settings"))
+        self.backup_export_action.setText(tr("backup.menu_export"))
+        self.backup_import_action.setText(tr("backup.menu_import"))
         self.options_action.setText(tr("ui.options_menu"))
         self.view_menu.setTitle(tr("menu.view"))
         self.result_panel_action.setText(tr("menu.toggle_panel"))
@@ -2660,6 +3158,9 @@ class MainWindow(QMainWindow):
         self.result_overlay_action.setText(tr("result.overlay_toggle"))
         self.result_overlay_check.setText(tr("result.overlay_toggle"))
         self.result_overlay_check.setToolTip(tr("result.overlay_toggle_hint"))
+        self.result_history_action.setText(tr("result.history_toggle"))
+        self.history_prev_action.setText(tr("result.history_prev"))
+        self.history_next_action.setText(tr("result.history_next"))
         self.tools_menu.setTitle(tr("menu.tools"))
         self.log_action.setText(tr("logs.menu"))
         self.measure_credit_action.setText(tr("logs.measure_credit"))
@@ -2668,6 +3169,11 @@ class MainWindow(QMainWindow):
         self.assistant_action.setText(tr("menu.prompt_assistant"))
         self.arena_action.setText(tr("menu.arena"))
         self.presets_action.setText(tr("menu.presets"))
+        self.scene_queue_action.setText(tr("scene_queue.menu"))
+        self.artist_combos_action.setText(tr("artist_combo.editor_menu"))
+        for dialog in (self._scene_queue_dialog, self._artist_combo_dialog):
+            if dialog is not None:
+                dialog.retranslate()
         self.gallery_action.setText(tr("menu.gallery_view"))
         self.folders_menu.setTitle(tr("folders.title"))
         self.open_results_action.setText(tr("folders.results"))

@@ -51,7 +51,8 @@
       "job_error": "오류로 중단: {}",
       "by_settings_progress": "세팅별 연속 생성 중 ({}/{}) - {}",
       "by_settings_progress_inf": "세팅별 연속 생성 중 ({}장) - {}",
-      "duplicate_seed_changed": "직전 생성과 조건이 같아 시드를 {}(으)로 바꿨습니다."
+      "duplicate_seed_changed": "직전 생성과 조건이 같아 시드를 {}(으)로 바꿨습니다.",
+      "scene_progress": "씬 큐 {}/{} · {} ({}/{})"
     },
     "status": {
       "tags_reloaded": "태그 자동완성이 새로고침되었습니다."
@@ -153,7 +154,12 @@
       "stop": "생성 중지",
       "pause": "일시정지",
       "pause_short": "정지",
-      "resume": "재개"
+      "resume": "재개",
+      "cost_unknown": "예상 소모량: 측정값 없음",
+      "cost_unknown_hint": "이 해상도·스텝으로 측정한 적이 없습니다. 도구 → V5 크레딧 소모량 측정을 켜고 2장 이상 연속 생성하면 채워집니다.",
+      "cost_per_image": "예상 소모량: 장당 약 {}",
+      "cost_with_total": "예상 소모량: 장당 약 {} · {}장 약 {}",
+      "cost_hint": "이 해상도·스텝으로 측정해 둔 값입니다. i2i·강화·세팅별 생성처럼 장마다 조건이 다르면 실제와 다를 수 있습니다."
     },
     "validation": {
       "title": "입력 오류",
@@ -236,7 +242,10 @@
       "field_rescale": "Rescale",
       "field_scheduler": "노이즈 스케줄",
       "overlay_waiting": "생성을 시작하면 이 자리에 그 이미지의 프롬프트와 설정이 표시됩니다.",
-      "overlay_toggle_hint": "방금 생성한 이미지의 프롬프트와 설정을 결과 이미지 위에 겹쳐 보여 줍니다 (F8). 와일드카드·아티스트 조합이 전개된 뒤의 실제 전송 값입니다."
+      "overlay_toggle_hint": "방금 생성한 이미지의 프롬프트와 설정을 결과 이미지 위에 겹쳐 보여 줍니다 (F8). 와일드카드·아티스트 조합이 전개된 뒤의 실제 전송 값입니다.",
+      "history_toggle": "결과 히스토리 줄 표시",
+      "history_prev": "이전 결과",
+      "history_next": "다음 결과"
     },
     "dialogs": {
       "login_title": "NAI API 로그인",
@@ -500,7 +509,15 @@
       "llm_prompt_config_exists": "이미 파일이 있어 덮어쓰지 않았습니다: {}",
       "llm_prompt_config_open_failed": "파일을 열지 못했습니다: {}",
       "llm_prompt_config": "프롬프트 세트 파일",
-      "folder_arena_dir": "그림체 아레나 폴더"
+      "folder_arena_dir": "그림체 아레나 폴더",
+      "notify_flash": "연속 생성·씬 큐가 끝나면 작업 표시줄 단추 깜빡이기",
+      "notify_sound": "끝나면 알림음 내기",
+      "shortcuts_title": "생성 단축키",
+      "shortcut_generate_once": "1회 생성",
+      "shortcut_generate_auto": "연속 생성",
+      "shortcut_stop": "생성 중지",
+      "shortcuts_hint": "칸을 누르고 쓸 키를 누르세요. 비워 두면 그 동작에는 단축키가 없습니다. 메뉴가 이미 쓰는 키(F2, Ctrl+S 등)는 고를 수 없습니다.",
+      "err_shortcut_conflict": "{} 은(는) 이미 다른 동작이 쓰고 있습니다."
     },
     "resolution": {
       "title": "해상도",
@@ -617,7 +634,20 @@
       "apply_model": "모델",
       "apply_characters": "캐릭터",
       "nothing_to_apply": "적용할 항목이 선택되지 않았습니다.",
-      "empty": "이미지가 없습니다"
+      "empty": "이미지가 없습니다",
+      "search_tooltip": "파일 이름과 프롬프트에서 찾습니다. 쉼표로 나누면 모두 든 것만, 앞에 -를 붙이면 그 말이 없는 것만 남습니다. 예: blue eyes, -hat",
+      "favorites_only": "즐겨찾기만",
+      "menu_send_i2i": "i2i 원본으로 보내기",
+      "menu_send_enhance": "강화 원본으로 보내기",
+      "menu_favorite_add": "즐겨찾기에 추가",
+      "menu_favorite_remove": "즐겨찾기에서 빼기",
+      "menu_delete": "휴지통으로 보내기 ({}장)",
+      "delete_title": "이미지 삭제",
+      "delete_confirm": "이미지 {}장을 휴지통으로 보낼까요?",
+      "delete_failed": "{}장은 지우지 못했습니다. 다른 프로그램이 열고 있는지 확인하세요.",
+      "count": "{} / {}장",
+      "indexing": "프롬프트 읽는 중…",
+      "no_match": "조건에 맞는 이미지가 없습니다"
     },
     "artist_combo": {
       "title": "작가 프롬프트 조합",
@@ -667,7 +697,32 @@
       "nothing_to_shuffle": "섞을 작가가 없습니다. 작가 풀을 선택하거나 고정을 해제하세요.",
       "col_order": "순서",
       "move_up": "위로 이동",
-      "move_down": "아래로 이동"
+      "move_down": "아래로 이동",
+      "editor_title": "아티스트 조합 편집",
+      "editor_menu": "아티스트 조합 편집...",
+      "new_group": "새 그룹",
+      "name_prompt": "그룹 이름 (영문·숫자·밑줄):",
+      "delete_group": "그룹 삭제",
+      "delete_confirm": "'{}' 그룹을 삭제할까요?",
+      "save_first": "먼저 그룹을 저장하세요. 저장하지 않은 그룹은 생성할 때 치환되지 않습니다.",
+      "saved": "'{}' 그룹을 저장했습니다.",
+      "empty_hint": "왼쪽에서 그룹을 고르거나 `새 그룹`을 누르세요.",
+      "tag_count": "태그 {}개",
+      "name": "이름:",
+      "name_hint": "프롬프트에서 {artist:이름}으로 부르는 이름입니다. 영문·숫자·밑줄만 쓸 수 있습니다.",
+      "tags": "태그 (한 줄에 하나 — 여러 작가를 섞은 한 줄도 됩니다)",
+      "save": "저장",
+      "insert_random": "프롬프트에 넣기 (랜덤)",
+      "insert_random_hint": "{artist:이름} — 생성할 때마다 그룹에서 하나를 무작위로 고릅니다.",
+      "insert_loop": "프롬프트에 넣기 (순차)",
+      "insert_loop_hint": "{artist_loop:이름} — 생성할 때마다 다음 줄로 넘어갑니다.",
+      "err_no_tags": "태그를 한 줄 이상 적어야 합니다.",
+      "err_too_many_tags": "태그는 그룹당 {}개까지 넣을 수 있습니다.",
+      "err_tag_too_long": "태그 한 줄은 {}자까지입니다: {}…",
+      "err_invalid_name": "그룹 이름은 영문·숫자·밑줄만, {}자까지 쓸 수 있습니다.",
+      "err_duplicate_name": "'{}' 그룹이 이미 있습니다.",
+      "err_file_unreadable": "조합 파일을 읽을 수 없습니다: {}",
+      "err_file_unwritable": "조합 파일에 쓸 수 없습니다: {}"
     },
     "batch": {
       "count": "생성 매수 (0=무한):",
@@ -1229,6 +1284,64 @@
       "judge_export_run_info": "결과 저장에 판독 조건도 함께",
       "judge_export_run_info_hint": "CSV에 줄마다 `model` 칸을 붙이고, 아래에 모델·주소·참조 장수·채점 지시 수정 여부·시각을 적습니다. 모델을 바꿔 가며 판독해 성능을 견줄 때 필요합니다. 끄면 예전과 같은 네 칸(순위·점수·조합·근거)만 나갑니다.",
       "judge_by_model": "{} 로 판독"
+    },
+    "scene_queue": {
+      "menu": "씬 큐...",
+      "title": "씬 큐",
+      "col_name": "씬 이름",
+      "col_count": "매수",
+      "col_prompt": "프롬프트",
+      "add_current": "현재 설정으로 추가",
+      "add_current_hint": "메인 창에 지금 잡혀 있는 프롬프트·모델·해상도 등을 새 씬으로 담습니다.",
+      "import_files": "세팅 파일 가져오기...",
+      "import_files_hint": "`파일 → 설정 저장`으로 만든 파일을 씬으로 가져옵니다. 파일 이름이 씬 이름이 됩니다.",
+      "update": "현재 설정으로 덮어쓰기",
+      "update_hint": "고른 씬의 설정을 메인 창의 지금 값으로 바꿉니다. 이름과 매수는 그대로입니다.",
+      "apply": "화면에 적용",
+      "apply_hint": "고른 씬의 설정을 메인 창에 불러옵니다.",
+      "move_up": "위로",
+      "move_down": "아래로",
+      "remove": "삭제",
+      "interleave": "한 장씩 번갈아 생성",
+      "interleave_hint": "끄면 씬을 차례로 끝냅니다 (씬 1을 다 뽑고 씬 2). 켜면 씬을 한 장씩 돌아가며 뽑고, 매수를 채운 씬은 빠집니다.",
+      "hint": "체크한 씬만 돌립니다. 씬마다 결과 폴더 아래 씬 이름의 하위 폴더에 저장됩니다. 프롬프트의 <lock> 구간은 씬을 적용해도 남습니다.",
+      "save_set": "세트 저장...",
+      "load_set": "세트 불러오기...",
+      "run": "큐 실행",
+      "close": "닫기",
+      "total": "씬 {}개 · 합계 {}장",
+      "default_name": "씬",
+      "import_failed": "읽지 못한 파일: {}",
+      "set_filter": "씬 세트",
+      "nothing_to_run": "돌릴 씬이 없습니다. 씬을 추가하고 체크하세요."
+    },
+    "backup": {
+      "menu_export": "백업 내보내기...",
+      "menu_import": "백업 가져오기...",
+      "export_title": "백업 내보내기",
+      "import_title": "백업 가져오기",
+      "export_intro": "고른 항목을 zip 파일 하나로 묶습니다.",
+      "import_intro": "백업에 든 항목 중 가져올 것을 고르세요. 지금 설정된 폴더로 풉니다.",
+      "section_settings": "앱 설정",
+      "section_presets": "프리셋 폴더",
+      "section_wildcards": "와일드카드 폴더",
+      "section_artist_combos": "아티스트 조합 폴더",
+      "section_app_data": "씬 큐 · 갤러리 즐겨찾기 · LLM 프롬프트 세트 · 크레딧 측정값",
+      "section_arena": "그림체 아레나 기록 (그림 파일 제외)",
+      "overwrite": "이미 있는 파일 덮어쓰기",
+      "overwrite_hint": "끄면 같은 이름의 파일이 이미 있을 때 건너뜁니다.",
+      "export_note": "API 토큰, 결과 이미지, 아레나 그림, WD14 모델, 로그는 담지 않습니다.",
+      "import_note": "앱 설정은 다시 시작한 뒤에 적용되고, 폴더 경로는 이 PC의 지금 값을 그대로 씁니다.",
+      "export_button": "내보내기",
+      "import_button": "가져오기",
+      "file_filter": "백업 파일",
+      "err_write_failed": "백업 파일을 쓰지 못했습니다:\n{}",
+      "err_not_a_backup": "NAI-Auto-V5 백업 파일이 아닙니다.",
+      "err_restore_failed": "백업을 풀지 못했습니다:\n{}",
+      "export_done": "파일 {}개를 백업했습니다.\n{}",
+      "import_done": "{}개를 가져왔습니다 (이미 있어서 건너뜀: {}개).",
+      "import_restart": "앱 설정은 프로그램을 다시 시작하면 적용됩니다.",
+      "import_rejected": "대상 폴더를 벗어나는 경로라서 버린 항목: {}개"
     }
   }
 }

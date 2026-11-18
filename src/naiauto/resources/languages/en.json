@@ -51,7 +51,8 @@
       "job_error": "Aborted: {}",
       "by_settings_progress": "Generating by settings ({}/{}) - {}",
       "by_settings_progress_inf": "Generating by settings ({}) - {}",
-      "duplicate_seed_changed": "Same settings as the last generation — seed changed to {}."
+      "duplicate_seed_changed": "Same settings as the last generation — seed changed to {}.",
+      "scene_progress": "Scene queue {}/{} · {} ({}/{})"
     },
     "status": {
       "tags_reloaded": "Tag completion reloaded successfully."
@@ -153,7 +154,12 @@
       "stop": "Stop Generation",
       "pause": "Pause",
       "pause_short": "Pause",
-      "resume": "Resume"
+      "resume": "Resume",
+      "cost_unknown": "Estimated cost: not measured",
+      "cost_unknown_hint": "This resolution and step count has not been measured. Turn on Tools → Measure V5 credit usage and generate two or more images in a row to fill it in.",
+      "cost_per_image": "Estimated cost: about {} per image",
+      "cost_with_total": "Estimated cost: about {} per image · {} images about {}",
+      "cost_hint": "Based on a measurement at this resolution and step count. It may differ when conditions change per image, as with Image to Image, Enhance or per-settings generation."
     },
     "validation": {
       "title": "Input Error",
@@ -236,7 +242,10 @@
       "field_rescale": "Rescale",
       "field_scheduler": "Noise schedule",
       "overlay_waiting": "Once you generate an image, its prompt and settings appear here.",
-      "overlay_toggle_hint": "Overlays the prompt and settings of the image you just generated on the result view (F8). Shows the values actually sent, after wildcards and artist combos are expanded."
+      "overlay_toggle_hint": "Overlays the prompt and settings of the image you just generated on the result view (F8). Shows the values actually sent, after wildcards and artist combos are expanded.",
+      "history_toggle": "Show result history strip",
+      "history_prev": "Previous result",
+      "history_next": "Next result"
     },
     "dialogs": {
       "login_title": "NAI API Login",
@@ -491,7 +500,15 @@
       "llm_prompt_config_exists": "A file is already there and was not overwritten: {}",
       "llm_prompt_config_open_failed": "Could not open the file: {}",
       "llm_prompt_config": "Prompt set file",
-      "folder_arena_dir": "Style Arena Folder"
+      "folder_arena_dir": "Style Arena Folder",
+      "notify_flash": "Flash the taskbar button when a batch or scene queue finishes",
+      "notify_sound": "Play the system alert sound when it finishes",
+      "shortcuts_title": "Generation shortcuts",
+      "shortcut_generate_once": "Generate once",
+      "shortcut_generate_auto": "Generate continuously",
+      "shortcut_stop": "Stop generation",
+      "shortcuts_hint": "Click a field and press the key to use. Leave it empty for no shortcut. Keys already used by the menus (F2, Ctrl+S, …) cannot be chosen.",
+      "err_shortcut_conflict": "{} is already used by another action."
     },
     "resolution": {
       "title": "Resolution",
@@ -617,7 +634,20 @@
       "apply_model": "Model",
       "apply_characters": "Characters",
       "nothing_to_apply": "No items selected to apply.",
-      "empty": "No images available"
+      "empty": "No images available",
+      "search_tooltip": "Searches file names and prompts. Separate terms with commas to require all of them; prefix a term with - to exclude it. Example: blue eyes, -hat",
+      "favorites_only": "Favorites only",
+      "menu_send_i2i": "Send to Image to Image",
+      "menu_send_enhance": "Send to Enhance",
+      "menu_favorite_add": "Add to favorites",
+      "menu_favorite_remove": "Remove from favorites",
+      "menu_delete": "Move to trash ({})",
+      "delete_title": "Delete images",
+      "delete_confirm": "Move {} image(s) to the trash?",
+      "delete_failed": "{} image(s) could not be deleted. Check whether another program has them open.",
+      "count": "{} / {} images",
+      "indexing": "Reading prompts…",
+      "no_match": "No images match the filter"
     },
     "artist_combo": {
       "title": "Artist Prompt Combination",
@@ -667,7 +697,32 @@
       "nothing_to_shuffle": "Nothing to shuffle. Select an artist pool or unpin some artists.",
       "col_order": "Order",
       "move_up": "Move up",
-      "move_down": "Move down"
+      "move_down": "Move down",
+      "editor_title": "Artist combo editor",
+      "editor_menu": "Artist combo editor...",
+      "new_group": "New group",
+      "name_prompt": "Group name (letters, digits, underscore):",
+      "delete_group": "Delete group",
+      "delete_confirm": "Delete the group '{}'?",
+      "save_first": "Save the group first. An unsaved group is not replaced during generation.",
+      "saved": "Saved the group '{}'.",
+      "empty_hint": "Pick a group on the left, or press New group.",
+      "tag_count": "{} tags",
+      "name": "Name:",
+      "name_hint": "The name used in prompts as {artist:name}. Letters, digits and underscores only.",
+      "tags": "Tags (one per line — a line may mix several artists)",
+      "save": "Save",
+      "insert_random": "Insert into prompt (random)",
+      "insert_random_hint": "{artist:name} — picks one tag from the group at random for every image.",
+      "insert_loop": "Insert into prompt (in order)",
+      "insert_loop_hint": "{artist_loop:name} — moves to the next line for every image.",
+      "err_no_tags": "Enter at least one tag.",
+      "err_too_many_tags": "A group can hold at most {} tags.",
+      "err_tag_too_long": "A tag line can be at most {} characters: {}…",
+      "err_invalid_name": "A group name may use letters, digits and underscores only, up to {} characters.",
+      "err_duplicate_name": "A group named '{}' already exists.",
+      "err_file_unreadable": "Cannot read the combo file: {}",
+      "err_file_unwritable": "Cannot write the combo file: {}"
     },
     "batch": {
       "count": "Count (0=infinite):",
@@ -1229,6 +1284,64 @@
       "judge_export_run_info": "Include judging conditions in the export",
       "judge_export_run_info_hint": "Adds a `model` column to every row and, below the data, the model, host, reference count, whether the rubric was edited, and the time. Needed when comparing models against each other. Off gives the same four columns as before (rank, score, combo, reason).",
       "judge_by_model": "judged by {}"
+    },
+    "scene_queue": {
+      "menu": "Scene queue...",
+      "title": "Scene queue",
+      "col_name": "Scene",
+      "col_count": "Count",
+      "col_prompt": "Prompt",
+      "add_current": "Add current settings",
+      "add_current_hint": "Stores the prompt, model, resolution and other settings currently in the main window as a new scene.",
+      "import_files": "Import settings files...",
+      "import_files_hint": "Imports files made with File → Save settings as scenes. The file name becomes the scene name.",
+      "update": "Overwrite with current settings",
+      "update_hint": "Replaces the selected scene's settings with the main window's current values. Name and count are kept.",
+      "apply": "Apply to main window",
+      "apply_hint": "Loads the selected scene's settings into the main window.",
+      "move_up": "Move up",
+      "move_down": "Move down",
+      "remove": "Remove",
+      "interleave": "Alternate one image at a time",
+      "interleave_hint": "Off: scenes run one after another (all of scene 1, then scene 2). On: scenes take turns one image at a time, and a scene drops out once its count is reached.",
+      "hint": "Only checked scenes run. Each scene saves into a subfolder named after it under the results folder. <lock> sections in the prompt survive when a scene is applied.",
+      "save_set": "Save set...",
+      "load_set": "Load set...",
+      "run": "Run queue",
+      "close": "Close",
+      "total": "{} scenes · {} images in total",
+      "default_name": "Scene",
+      "import_failed": "Could not read: {}",
+      "set_filter": "Scene set",
+      "nothing_to_run": "There is no scene to run. Add a scene and check it."
+    },
+    "backup": {
+      "menu_export": "Export backup...",
+      "menu_import": "Import backup...",
+      "export_title": "Export backup",
+      "import_title": "Import backup",
+      "export_intro": "Packs the selected items into a single zip file.",
+      "import_intro": "Choose which items in the backup to import. They are extracted into the folders currently configured.",
+      "section_settings": "App settings",
+      "section_presets": "Presets folder",
+      "section_wildcards": "Wildcards folder",
+      "section_artist_combos": "Artist combos folder",
+      "section_app_data": "Scene queue · gallery favorites · LLM prompt set · credit measurements",
+      "section_arena": "Style arena records (without image files)",
+      "overwrite": "Overwrite existing files",
+      "overwrite_hint": "When off, a file is skipped if one with the same name already exists.",
+      "export_note": "The API token, result images, arena images, WD14 models and logs are not included.",
+      "import_note": "App settings take effect after a restart, and folder paths keep this PC's current values.",
+      "export_button": "Export",
+      "import_button": "Import",
+      "file_filter": "Backup file",
+      "err_write_failed": "Could not write the backup file:\n{}",
+      "err_not_a_backup": "This is not a NAI-Auto-V5 backup file.",
+      "err_restore_failed": "Could not restore the backup:\n{}",
+      "export_done": "Backed up {} file(s).\n{}",
+      "import_done": "Imported {} item(s) ({} skipped because they already exist).",
+      "import_restart": "App settings will take effect after you restart the program.",
+      "import_rejected": "Entries discarded because their paths point outside the target folder: {}"
     }
   }
 }

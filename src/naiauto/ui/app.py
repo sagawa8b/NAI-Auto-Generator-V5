@@ -361,7 +361,7 @@ def main() -> int:
 
     watchdog.stop()  # 아래 정리 작업은 이벤트 루프 밖이다 — 멈춤으로 세지 않는다
     service.shutdown()
-    save_settings(window.collect_settings())
+    save_settings(window.settings_to_save())
     return exit_code
 
 
