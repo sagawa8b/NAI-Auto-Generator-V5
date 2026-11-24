@@ -23,7 +23,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QMimeData, QPoint, Qt, Signal
+from PySide6.QtCore import QMimeData, QPoint, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -173,6 +173,11 @@ class ScenePromptDialog(QDialog):
 
     `decorate`가 있으면 편집기마다 메인 창과 같은 자동완성(태그·와일드카드 이름)을 붙인다.
     `preview`가 있으면 `미리보기`가 지금 탭의 글을 한 번 전개해 아래에 보여 준다.
+
+    모든 위젯을 만들 때부터 이 창에 매단다 (부모 없는 레이아웃에 먼저 넣었다가 나중에
+    옮기지 않는다) — 파이썬 쪽 객체와 Qt 객체의 수명이 어긋날 틈을 남기지 않기 위해서다.
+    창은 닫히면 지워진다(`WA_DeleteOnClose`). 여는 쪽은 `exec()` 대신 `open()`을 쓴다
+    (`SceneQueueDialog.edit_prompt` 참고).
     """
 
     def __init__(
@@ -189,10 +194,13 @@ class ScenePromptDialog(QDialog):
         self._preview = preview
         self._cleanups: list[Callable[[], None]] = []
         self._highlighters: list[PromptHighlighter] = []
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setWindowTitle(tr("scene_queue.edit_prompt_title", scene.name))
 
         settings = scene.settings
-        self.tabs = QTabWidget()
+        layout = QVBoxLayout(self)
+        self.tabs = QTabWidget(self)
+        layout.addWidget(self.tabs, 1)
         self.prompt_edit = self._editor(str(settings.get("prompt", "")), decorate)
         self.negative_edit = self._editor(str(settings.get("negative_prompt", "")), decorate)
         self.tabs.addTab(self.prompt_edit, tr("scene_queue.edit_prompt_tab"))
@@ -204,47 +212,45 @@ class ScenePromptDialog(QDialog):
             prompt = self._editor(str(character.get("prompt", "")), decorate)
             uc = self._editor(str(character.get("uc", "")), decorate)
             uc.setPlaceholderText(tr("scene_queue.edit_character_uc"))
-            splitter = QSplitter(Qt.Orientation.Vertical)
+            splitter = QSplitter(Qt.Orientation.Vertical, self.tabs)
             splitter.addWidget(prompt)
             splitter.addWidget(uc)
             splitter.setSizes([3, 1])
             self.tabs.addTab(splitter, tr("scene_queue.edit_character_tab", index + 1))
             self.character_edits.append((prompt, uc))
 
-        self.preview_button = QPushButton(tr("scene_queue.preview"))
-        self.preview_button.setToolTip(tr("scene_queue.preview_hint"))
-        self.preview_button.clicked.connect(self.show_preview)
-        self.preview_button.setVisible(preview is not None)
-        self.preview_view = QPlainTextEdit()
+        self.preview_view = QPlainTextEdit(self)
         self.preview_view.setReadOnly(True)
         self.preview_view.setPlaceholderText(tr("scene_queue.preview_placeholder"))
         self.preview_view.setMaximumHeight(110)
         self.preview_view.setVisible(preview is not None)
-        hint = QLabel(tr("scene_queue.edit_prompt_hint"))
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color: gray;")
+        layout.addWidget(self.preview_view)
+        self.hint_label = QLabel(tr("scene_queue.edit_prompt_hint"), self)
+        self.hint_label.setWordWrap(True)
+        self.hint_label.setStyleSheet("color: gray;")
+        layout.addWidget(self.hint_label)
 
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
+        # 아래 줄 레이아웃은 위젯을 넣기 전에 먼저 창의 레이아웃에 매단다
         bottom = QHBoxLayout()
+        layout.addLayout(bottom)
+        self.preview_button = QPushButton(tr("scene_queue.preview"), self)
+        self.preview_button.setToolTip(tr("scene_queue.preview_hint"))
+        self.preview_button.clicked.connect(self.show_preview)
+        self.preview_button.setVisible(preview is not None)
+        self.buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self
+        )
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
         bottom.addWidget(self.preview_button)
         bottom.addStretch(1)
-        bottom.addWidget(buttons)
-
-        layout = QVBoxLayout(self)
-        layout.addWidget(self.tabs, 1)
-        layout.addWidget(self.preview_view)
-        layout.addWidget(hint)
-        layout.addLayout(bottom)
+        bottom.addWidget(self.buttons)
         self.resize(620, 460)
         enable_window_controls(self)
         self.prompt_edit.setFocus()
 
     def _editor(self, text: str, decorate: EditorDecorator | None) -> QPlainTextEdit:
-        edit = QPlainTextEdit()
+        edit = QPlainTextEdit(self)
         edit.setPlainText(text)
         self._highlighters.append(PromptHighlighter(edit.document()))
         if decorate is not None:
@@ -282,10 +288,14 @@ class ScenePromptDialog(QDialog):
 
     def done(self, result: int) -> None:
         # 자동완성 드롭다운은 메인 창이 들고 있다 — 편집기가 사라지기 전에 떼어 낸다
-        for cleanup in self._cleanups:
-            cleanup()
-        self._cleanups = []
+        self.detach_editors()
         super().done(result)
+
+    def detach_editors(self) -> None:
+        """편집기에 붙인 자동완성을 뗀다. 두 번 불러도 된다."""
+        cleanups, self._cleanups = self._cleanups, []
+        for cleanup in cleanups:
+            cleanup()
 
 
 class SceneQueueDialog(QDialog):
@@ -322,6 +332,8 @@ class SceneQueueDialog(QDialog):
         self._queue_path = queue_path or scene_queue_store.default_queue_path()
         self._set = load_scene_set_or_empty(self._queue_path)
         self._can_run = True
+        #: 떠 있는 프롬프트 편집 창 (한 번에 하나).
+        self._prompt_editor: ScenePromptDialog | None = None
         #: 표를 코드로 채우는 중인가 — 그때의 `itemChanged`는 사용자 편집이 아니다.
         self._filling = False
 
@@ -583,29 +595,47 @@ class SceneQueueDialog(QDialog):
         self._refill(select=moved)
         return True
 
-    def edit_prompt(self, row: int) -> bool:
-        """`row`번 씬의 프롬프트 편집 창을 띄운다. 확인을 눌러 바꿨으면 True."""
+    def edit_prompt(self, row: int) -> ScenePromptDialog | None:
+        """`row`번 씬의 프롬프트 편집 창을 띄운다 (돌려주는 창은 이미 떠 있다).
+
+        `exec()`로 막고 기다리지 않고 `open()`으로 띄운 뒤 `finished`에서 결과를 받는다.
+        v0.21.0은 표의 더블클릭 처리 **안에서** `exec()`의 중첩 이벤트 루프를 돌렸는데,
+        PySide 6.12 실행 파일에서 그 창이 뜨는 순간 네이티브 크래시가 났다 (접근 위반,
+        `naiauto.crash.log`). 중첩 루프를 없애고, 여는 것도 표의 이벤트가 끝난 뒤로 미룬다
+        (`_on_cell_double_clicked`). 이미 편집 창이 떠 있으면 그 창을 앞으로 가져온다.
+        """
+        if self._prompt_editor is not None:
+            self._prompt_editor.raise_()
+            self._prompt_editor.activateWindow()
+            return self._prompt_editor
         if not 0 <= row < len(self._set.scenes):
-            return False
+            return None
         scene = self._set.scenes[row]
-        dialog = self._prompt_dialog(scene)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return False
+        dialog = ScenePromptDialog(
+            self._i18n, scene, decorate=self._decorate_editor, preview=self._preview, parent=self
+        )
+        self._prompt_editor = dialog
+        dialog.finished.connect(lambda result: self._on_prompt_editor_finished(dialog, scene, result))
+        dialog.open()
+        return dialog
+
+    def _on_prompt_editor_finished(self, dialog: ScenePromptDialog, scene: Scene, result: int) -> None:
+        self._prompt_editor = None
+        if result != QDialog.DialogCode.Accepted:
+            return
+        # 창이 떠 있는 동안 목록이 바뀌었을 수 있다 — 행 번호가 아니라 씬으로 찾는다
+        row = next((index for index, item in enumerate(self._set.scenes) if item is scene), -1)
+        if row < 0:
+            return
         dialog.apply_to(scene)
         self._persist()
         self._refill(select=row)
-        return True
-
-    def _prompt_dialog(self, scene: Scene) -> ScenePromptDialog:
-        """테스트가 이 자리를 바꿔 끼워 모달 없이 확인한다."""
-        return ScenePromptDialog(
-            self._i18n, scene, decorate=self._decorate_editor, preview=self._preview, parent=self
-        )
 
     def _on_cell_double_clicked(self, row: int, column: int) -> None:
-        # 이름·매수 칸은 그 자리에서 고친다. 프롬프트 칸만 편집 창을 띄운다.
+        # 이름·매수 칸은 그 자리에서 고친다. 프롬프트 칸만 편집 창을 띄운다 — 표가 더블클릭을
+        # 다 처리한 다음에 (표의 마우스 이벤트 처리 도중에 창을 띄우지 않는다).
         if column == COL_SUMMARY:
-            self.edit_prompt(row)
+            QTimer.singleShot(0, lambda: self.edit_prompt(row))
 
     def move_selected(self, delta: int) -> bool:
         row = self.selected_row()
@@ -656,7 +686,10 @@ class SceneQueueDialog(QDialog):
         tr = self._i18n.get_text
         menu = QMenu(self)
         if 0 <= row < len(self._set.scenes):
-            menu.addAction(tr("scene_queue.menu_edit"), lambda: self.edit_prompt(row))
+            # 메뉴가 닫힌 다음에 연다 (메뉴의 이벤트 루프 안에서 창을 띄우지 않는다)
+            menu.addAction(
+                tr("scene_queue.menu_edit"), lambda: QTimer.singleShot(0, lambda: self.edit_prompt(row))
+            )
             delete = menu.addAction(tr("scene_queue.remove"), self.remove_selected)
             delete.setShortcut(Qt.Key.Key_Delete)  # 표시용 — 실제 키는 SceneTable이 받는다
         return menu
