@@ -1,4 +1,4 @@
-"""씬 큐 창 — 씬마다 설정과 매수를 정해 두고 한 번에 돌린다.
+"""씬 에디터 창 (옛 이름 씬 큐) — 씬마다 설정과 매수를 정해 두고 한 번에 돌린다.
 
 자료와 실행 순서는 `core/scene_queue.py`가 갖는다. 이 창은 씬 목록을 고치고, 메인 창에
 "이 씬을 화면에 적용해 달라"·"이 큐를 돌려 달라"고 알리기만 한다 — 생성은 메인 창의
@@ -8,7 +8,14 @@
 큐가 남는다. `세트 저장…`은 그와 별개로, 이름 붙여 따로 보관해 둘 때 쓴다.
 
 창은 모드리스다 — 띄워 둔 채 메인 창에서 프롬프트를 고치고 `현재 설정으로 추가`를
-누르는 것이 기본 흐름이다.
+누르는 것이 기본 흐름이다. 그 밖에:
+
+- 이미지(.png/.webp)나 세팅 파일을 표에 끌어다 놓으면 씬으로 담는다 (이미지는
+  NovelAI 메타데이터를 읽는다)
+- 행을 끌어 순서를 바꾼다
+- 프롬프트 칸을 두 번 누르면 프롬프트 편집 창이 뜬다 — 메인 창과 같은 구문 강조·
+  자동완성(와일드카드 이름 포함)이 붙고, `미리보기`로 와일드카드·랜덤 문법을 한 번
+  전개해 볼 수 있다. 실제 전개는 생성할 때 장마다 한다 (메인 창의 생성 경로 그대로).
 """
 
 from __future__ import annotations
@@ -16,19 +23,24 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QMimeData, QPoint, Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMenu,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -39,23 +51,245 @@ from ..core.i18n.manager import I18nManager
 from ..core.presets import PresetError
 from ..core.scene_queue import (
     SCENE_COUNT_RANGE,
+    SCENE_IMAGE_SUFFIXES,
+    SCENE_SETTINGS_SUFFIXES,
     Scene,
     SceneSet,
     load_scene_set,
     load_scene_set_or_empty,
+    move_scene,
     plan_steps,
+    read_scene_from_image,
     save_scene_set,
+    scene_is_dynamic,
     total_images,
     unique_name,
 )
+from .widgets.prompt_highlighter import PromptHighlighter
 from .widgets.window_chrome import enable_window_controls
 
 COL_NAME, COL_COUNT, COL_SUMMARY = range(3)
 _SUMMARY_LENGTH = 80
+#: 와일드카드·랜덤 문법이 든 씬의 프롬프트 칸 앞에 붙는 표시.
+DYNAMIC_MARK = "🎲 "
+
+#: 편집기 하나에 자동완성을 붙이고, 뗄 때 부를 함수를 돌려준다 (메인 창이 준다).
+EditorDecorator = Callable[[QPlainTextEdit], Callable[[], None]]
+
+
+def dropped_paths(mime: QMimeData | None) -> list[str]:
+    """끌어다 놓은 것 중 씬으로 담을 수 있는 파일 (이미지·세팅 파일) 경로."""
+    if mime is None or not mime.hasUrls():
+        return []
+    accepted = SCENE_IMAGE_SUFFIXES + SCENE_SETTINGS_SUFFIXES
+    paths = []
+    for url in mime.urls():
+        local = url.toLocalFile()
+        if local and Path(local).suffix.lower() in accepted:
+            paths.append(local)
+    return paths
+
+
+class SceneTable(QTableWidget):
+    """행을 끌어 순서를 바꾸고, 밖에서 끌어온 파일을 받는 표.
+
+    `QTableWidget`의 기본 내부 이동은 칸을 덮어쓰거나 원본 행을 지워 버린다 — 여기서는
+    놓을 자리만 계산해 알리고, 실제 순서는 다이얼로그가 자료(`SceneSet`)에서 바꾼 뒤 표를
+    다시 채운다.
+
+    Signals:
+        row_moved(int, int): `source`행을 `target` 자리(빼기 전 기준, 0 ~ 행 수)로.
+        files_dropped(list): 밖에서 끌어다 놓은 파일 경로.
+        delete_pressed(): 칸을 고치는 중이 아닐 때 Delete 키를 눌렀다.
+    """
+
+    row_moved = Signal(int, int)
+    files_dropped = Signal(list)
+    delete_pressed = Signal()
+
+    def __init__(self, rows: int, columns: int, parent: QWidget | None = None) -> None:
+        super().__init__(rows, columns, parent)
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.viewport().setAcceptDrops(True)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
+        self.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self.setDragDropOverwriteMode(False)
+        self.setDropIndicatorShown(True)
+
+    def insertion_row(self, y: int) -> int:
+        """뷰포트 y 좌표에 놓으면 끼워질 자리 — 행의 위쪽 절반이면 그 행 앞, 아래쪽이면 뒤."""
+        row = self.rowAt(y)
+        if row < 0:
+            return self.rowCount()
+        rect = self.visualRect(self.model().index(row, 0))
+        return row + 1 if y > rect.center().y() else row
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802 (Qt 콜백 이름)
+        # 칸을 고치는 중에는 편집기가 키를 먼저 받는다 — 글자를 지우는 Delete는 여기 오지 않는다
+        if event.key() == Qt.Key.Key_Delete and self.state() != QAbstractItemView.State.EditingState:
+            self.delete_pressed.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802 (Qt 콜백 이름)
+        if event.source() is self:
+            super().dragEnterEvent(event)
+        elif dropped_paths(event.mimeData()):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event) -> None:  # noqa: N802 (Qt 콜백 이름)
+        if event.source() is self:
+            super().dragMoveEvent(event)
+            event.accept()
+        elif dropped_paths(event.mimeData()):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event) -> None:  # noqa: N802 (Qt 콜백 이름)
+        if event.source() is self:
+            rows = self.selectionModel().selectedRows()
+            target = self.insertion_row(int(event.position().y()))
+            # 이동(Move)으로 끝나면 Qt가 원본 행을 지운다 — 복사로 마무리하고 순서는 우리가 바꾼다
+            event.setDropAction(Qt.DropAction.CopyAction)
+            event.accept()
+            if rows:
+                self.row_moved.emit(rows[0].row(), target)
+            return
+        paths = dropped_paths(event.mimeData())
+        if paths:
+            event.acceptProposedAction()
+            self.files_dropped.emit(paths)
+        else:
+            event.ignore()
+
+
+class ScenePromptDialog(QDialog):
+    """씬 하나의 프롬프트 편집 — 메인·네거티브, 캐릭터 슬롯마다 프롬프트·UC.
+
+    `decorate`가 있으면 편집기마다 메인 창과 같은 자동완성(태그·와일드카드 이름)을 붙인다.
+    `preview`가 있으면 `미리보기`가 지금 탭의 글을 한 번 전개해 아래에 보여 준다.
+    """
+
+    def __init__(
+        self,
+        i18n: I18nManager,
+        scene: Scene,
+        *,
+        decorate: EditorDecorator | None = None,
+        preview: Callable[[str], str] | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        tr = i18n.get_text
+        self._preview = preview
+        self._cleanups: list[Callable[[], None]] = []
+        self._highlighters: list[PromptHighlighter] = []
+        self.setWindowTitle(tr("scene_queue.edit_prompt_title", scene.name))
+
+        settings = scene.settings
+        self.tabs = QTabWidget()
+        self.prompt_edit = self._editor(str(settings.get("prompt", "")), decorate)
+        self.negative_edit = self._editor(str(settings.get("negative_prompt", "")), decorate)
+        self.tabs.addTab(self.prompt_edit, tr("scene_queue.edit_prompt_tab"))
+        self.tabs.addTab(self.negative_edit, tr("scene_queue.edit_negative_tab"))
+        #: 캐릭터 슬롯마다 (프롬프트, UC) 편집기.
+        self.character_edits: list[tuple[QPlainTextEdit, QPlainTextEdit]] = []
+        for index, character in enumerate(settings.get("characters") or []):
+            character = character if isinstance(character, dict) else {}
+            prompt = self._editor(str(character.get("prompt", "")), decorate)
+            uc = self._editor(str(character.get("uc", "")), decorate)
+            uc.setPlaceholderText(tr("scene_queue.edit_character_uc"))
+            splitter = QSplitter(Qt.Orientation.Vertical)
+            splitter.addWidget(prompt)
+            splitter.addWidget(uc)
+            splitter.setSizes([3, 1])
+            self.tabs.addTab(splitter, tr("scene_queue.edit_character_tab", index + 1))
+            self.character_edits.append((prompt, uc))
+
+        self.preview_button = QPushButton(tr("scene_queue.preview"))
+        self.preview_button.setToolTip(tr("scene_queue.preview_hint"))
+        self.preview_button.clicked.connect(self.show_preview)
+        self.preview_button.setVisible(preview is not None)
+        self.preview_view = QPlainTextEdit()
+        self.preview_view.setReadOnly(True)
+        self.preview_view.setPlaceholderText(tr("scene_queue.preview_placeholder"))
+        self.preview_view.setMaximumHeight(110)
+        self.preview_view.setVisible(preview is not None)
+        hint = QLabel(tr("scene_queue.edit_prompt_hint"))
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: gray;")
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        bottom = QHBoxLayout()
+        bottom.addWidget(self.preview_button)
+        bottom.addStretch(1)
+        bottom.addWidget(buttons)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.tabs, 1)
+        layout.addWidget(self.preview_view)
+        layout.addWidget(hint)
+        layout.addLayout(bottom)
+        self.resize(620, 460)
+        enable_window_controls(self)
+        self.prompt_edit.setFocus()
+
+    def _editor(self, text: str, decorate: EditorDecorator | None) -> QPlainTextEdit:
+        edit = QPlainTextEdit()
+        edit.setPlainText(text)
+        self._highlighters.append(PromptHighlighter(edit.document()))
+        if decorate is not None:
+            self._cleanups.append(decorate(edit))
+        return edit
+
+    def current_text(self) -> str:
+        """지금 탭의 프롬프트 글 (캐릭터 탭이면 그 슬롯의 프롬프트)."""
+        index = self.tabs.currentIndex()
+        if index == 0:
+            return self.prompt_edit.toPlainText()
+        if index == 1:
+            return self.negative_edit.toPlainText()
+        return self.character_edits[index - 2][0].toPlainText()
+
+    def show_preview(self) -> str:
+        if self._preview is None:
+            return ""
+        text = self._preview(self.current_text())
+        self.preview_view.setPlainText(text)
+        return text
+
+    def apply_to(self, scene: Scene) -> None:
+        """편집한 글을 씬 설정에 쓴다 (프롬프트 밖의 값은 건드리지 않는다)."""
+        settings = dict(scene.settings)
+        settings["prompt"] = self.prompt_edit.toPlainText()
+        settings["negative_prompt"] = self.negative_edit.toPlainText()
+        characters = [dict(c) if isinstance(c, dict) else {} for c in settings.get("characters") or []]
+        for character, (prompt, uc) in zip(characters, self.character_edits, strict=False):
+            character["prompt"] = prompt.toPlainText()
+            character["uc"] = uc.toPlainText()
+        if characters:
+            settings["characters"] = characters
+        scene.settings = settings
+
+    def done(self, result: int) -> None:
+        # 자동완성 드롭다운은 메인 창이 들고 있다 — 편집기가 사라지기 전에 떼어 낸다
+        for cleanup in self._cleanups:
+            cleanup()
+        self._cleanups = []
+        super().done(result)
 
 
 class SceneQueueDialog(QDialog):
-    """씬 목록 편집 + 실행 요청.
+    """씬 에디터 — 씬 목록 편집 + 실행 요청.
 
     Signals:
         apply_requested(dict): 이 씬의 설정을 메인 화면에 적용해 달라.
@@ -72,10 +306,15 @@ class SceneQueueDialog(QDialog):
         *,
         default_dir: str = "",
         queue_path: Path | None = None,
+        decorate_editor: EditorDecorator | None = None,
+        preview: Callable[[str], str] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._i18n = i18n
+        #: 프롬프트 편집 창의 편집기에 자동완성을 붙이는 함수 / 한 번 전개해 보는 함수.
+        self._decorate_editor = decorate_editor
+        self._preview = preview
         #: 지금 메인 화면의 생성 설정을 dict로 (`settings_file.to_dict` 형식).
         self._capture = capture
         self._default_dir = default_dir
@@ -86,7 +325,7 @@ class SceneQueueDialog(QDialog):
         #: 표를 코드로 채우는 중인가 — 그때의 `itemChanged`는 사용자 편집이 아니다.
         self._filling = False
 
-        self.table = QTableWidget(0, 3)
+        self.table = SceneTable(0, 3)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.verticalHeader().setVisible(False)
@@ -97,6 +336,14 @@ class SceneQueueDialog(QDialog):
         self.table.setColumnWidth(COL_NAME, 180)
         self.table.itemChanged.connect(self._on_item_changed)
         self.table.itemSelectionChanged.connect(self._refresh_buttons)
+        self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
+        self.table.row_moved.connect(self.move_scene)
+        self.table.files_dropped.connect(self.import_files)
+        self.table.delete_pressed.connect(self.remove_selected)
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._on_context_menu)
+        # 표 밖(버튼 줄 등)에 놓아도 받는다
+        self.setAcceptDrops(True)
 
         self.add_button = QPushButton()
         self.add_button.clicked.connect(self.add_current)
@@ -116,6 +363,9 @@ class SceneQueueDialog(QDialog):
         self.interleave_check = QCheckBox()
         self.interleave_check.setChecked(self._set.interleave)
         self.interleave_check.toggled.connect(self._on_interleave_toggled)
+        self.single_folder_check = QCheckBox()
+        self.single_folder_check.setChecked(self._set.single_folder)
+        self.single_folder_check.toggled.connect(self._on_single_folder_toggled)
         self.total_label = QLabel()
         self.hint_label = QLabel()
         self.hint_label.setWordWrap(True)
@@ -140,6 +390,7 @@ class SceneQueueDialog(QDialog):
 
         option_row = QHBoxLayout()
         option_row.addWidget(self.interleave_check)
+        option_row.addWidget(self.single_folder_check)
         option_row.addStretch(1)
         option_row.addWidget(self.total_label)
 
@@ -196,9 +447,13 @@ class SceneQueueDialog(QDialog):
                 name_item.setCheckState(Qt.CheckState.Checked if scene.enabled else Qt.CheckState.Unchecked)
                 count_item = QTableWidgetItem(str(scene.clamped_count()))
                 count_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                summary_item = QTableWidgetItem(_summary(scene))
+                dynamic = scene_is_dynamic(scene)
+                summary_item = QTableWidgetItem((DYNAMIC_MARK if dynamic else "") + _summary(scene))
                 summary_item.setFlags(summary_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                summary_item.setToolTip(str(scene.settings.get("prompt", "")))
+                tooltip = str(scene.settings.get("prompt", ""))
+                if dynamic:
+                    tooltip = f"{self._i18n.get_text('scene_queue.dynamic_hint')}\n\n{tooltip}"
+                summary_item.setToolTip(tooltip)
                 self.table.setItem(row, COL_NAME, name_item)
                 self.table.setItem(row, COL_COUNT, count_item)
                 self.table.setItem(row, COL_SUMMARY, summary_item)
@@ -265,15 +520,28 @@ class SceneQueueDialog(QDialog):
         return self.add_scene(base, self._capture())
 
     def import_files(self, paths: list[str]) -> int:
-        """세팅 파일(`파일 → 설정 저장`으로 만든 것)을 씬으로 가져온다. 가져온 개수.
+        """세팅 파일·이미지를 씬으로 가져온다. 가져온 개수.
 
-        읽을 수 없는 파일은 건너뛰고, 다 끝난 뒤 한 번에 알린다. 파일 이름이 씬 이름이
-        된다. 파일에 없는 항목은 지금 화면 값으로 채운다 (V4 파일은 항목이 빠져 있다).
+        - 세팅 파일(`파일 → 설정 저장`으로 만든 것) — 파일에 없는 항목은 지금 화면 값으로
+          채운다 (V4 파일은 항목이 빠져 있다).
+        - 이미지(.png/.webp) — NovelAI 메타데이터를 읽어 지금 화면 값 위에 얹는다
+          (`scene_settings_from_image`).
+
+        파일 이름이 씬 이름이 된다. 읽을 수 없는 파일은 건너뛰고, 다 끝난 뒤 한 번에 알린다.
         """
-        defaults = {key: value for key, value in self._capture().items() if key not in ("format", "version")}
+        current = self._capture()
+        defaults = {key: value for key, value in current.items() if key not in ("format", "version")}
         failed: list[str] = []
         imported = 0
         for path in paths:
+            if Path(path).suffix.lower() in SCENE_IMAGE_SUFFIXES:
+                data = read_scene_from_image(Path(path), current)
+                if data is None:
+                    failed.append(Path(path).name)
+                    continue
+                self.add_scene(Path(path).stem, data)
+                imported += 1
+                continue
             try:
                 loaded = settings_file.load(Path(path), defaults=defaults)
             except PresetError:
@@ -306,6 +574,39 @@ class SceneQueueDialog(QDialog):
         self.apply_requested.emit(dict(self._set.scenes[row].settings))
         return True
 
+    def move_scene(self, source: int, target: int) -> bool:
+        """`source`번 씬을 `target` 자리(빼기 전 기준)로 옮긴다 — 행 끌어 놓기."""
+        moved = move_scene(self._set.scenes, source, target)
+        if moved < 0 or moved == source:
+            return False
+        self._persist()
+        self._refill(select=moved)
+        return True
+
+    def edit_prompt(self, row: int) -> bool:
+        """`row`번 씬의 프롬프트 편집 창을 띄운다. 확인을 눌러 바꿨으면 True."""
+        if not 0 <= row < len(self._set.scenes):
+            return False
+        scene = self._set.scenes[row]
+        dialog = self._prompt_dialog(scene)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return False
+        dialog.apply_to(scene)
+        self._persist()
+        self._refill(select=row)
+        return True
+
+    def _prompt_dialog(self, scene: Scene) -> ScenePromptDialog:
+        """테스트가 이 자리를 바꿔 끼워 모달 없이 확인한다."""
+        return ScenePromptDialog(
+            self._i18n, scene, decorate=self._decorate_editor, preview=self._preview, parent=self
+        )
+
+    def _on_cell_double_clicked(self, row: int, column: int) -> None:
+        # 이름·매수 칸은 그 자리에서 고친다. 프롬프트 칸만 편집 창을 띄운다.
+        if column == COL_SUMMARY:
+            self.edit_prompt(row)
+
     def move_selected(self, delta: int) -> bool:
         row = self.selected_row()
         target = row + delta
@@ -331,6 +632,58 @@ class SceneQueueDialog(QDialog):
         self._persist()
         self._refresh_total()
 
+    def _on_single_folder_toggled(self, on: bool) -> None:
+        self._set.single_folder = on
+        self._persist()
+        self._refresh_set_name()
+
+    def _refresh_set_name(self) -> None:
+        """창 제목에 지금 세트 이름을, 한 폴더 체크의 툴팁에 저장될 폴더를 보인다."""
+        tr = self._i18n.get_text
+        name = self._set.set_name
+        title = tr("scene_queue.title")
+        self.setWindowTitle(f"{title} — {name}" if name else title)
+        hint = tr("scene_queue.single_folder_hint")
+        target = (
+            tr("scene_queue.single_folder_target", name) if name else tr("scene_queue.single_folder_unsaved")
+        )
+        self.single_folder_check.setToolTip(f"{hint}\n\n{target}")
+
+    # ── 오른쪽 클릭 메뉴 ─────────────────────────────────
+
+    def context_menu(self, row: int) -> QMenu:
+        """`row`번 씬의 메뉴 — 편집 · 삭제. 행이 없으면 빈 메뉴."""
+        tr = self._i18n.get_text
+        menu = QMenu(self)
+        if 0 <= row < len(self._set.scenes):
+            menu.addAction(tr("scene_queue.menu_edit"), lambda: self.edit_prompt(row))
+            delete = menu.addAction(tr("scene_queue.remove"), self.remove_selected)
+            delete.setShortcut(Qt.Key.Key_Delete)  # 표시용 — 실제 키는 SceneTable이 받는다
+        return menu
+
+    def _on_context_menu(self, pos: QPoint) -> None:
+        row = self.table.rowAt(pos.y())
+        if row < 0:
+            return
+        self.table.selectRow(row)  # 메뉴의 `삭제`가 지울 행을 오른쪽 클릭한 행으로 맞춘다
+        self.context_menu(row).exec(self.table.viewport().mapToGlobal(pos))
+
+    # ── 끌어다 놓기 (표 밖) ───────────────────────────────
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802 (Qt 콜백 이름)
+        if dropped_paths(event.mimeData()):
+            event.acceptProposedAction()
+
+    def dragMoveEvent(self, event) -> None:  # noqa: N802 (Qt 콜백 이름)
+        if dropped_paths(event.mimeData()):
+            event.acceptProposedAction()
+
+    def dropEvent(self, event) -> None:  # noqa: N802 (Qt 콜백 이름)
+        paths = dropped_paths(event.mimeData())
+        if paths:
+            event.acceptProposedAction()
+            self.import_files(paths)
+
     # ── 파일 ─────────────────────────────────────────────
 
     def _file_filter(self) -> str:
@@ -343,25 +696,42 @@ class SceneQueueDialog(QDialog):
             self,
             tr("scene_queue.import_files"),
             self._default_dir,
-            f"{tr('menu.settings_file_filter')} (*.json *.txt);;{tr('menu.all_files_filter')} (*)",
+            f"{tr('scene_queue.import_filter')} (*.json *.txt *.png *.webp);;"
+            f"{tr('menu.settings_file_filter')} (*.json *.txt);;"
+            f"{tr('scene_queue.image_filter')} (*.png *.webp);;"
+            f"{tr('menu.all_files_filter')} (*)",
         )
         if paths:
             self.import_files(paths)
 
-    def _on_save_set(self) -> None:
+    def _on_save_set(self) -> bool:
+        """세트를 파일로 저장한다. 저장했으면 True (취소·실패면 False)."""
         tr = self._i18n.get_text
+        default_name = f"{self._set.set_name or 'scenes'}.json"
         path, _ = QFileDialog.getSaveFileName(
             self,
             tr("scene_queue.save_set"),
-            str(Path(self._default_dir) / "scenes.json"),
+            str(Path(self._default_dir) / default_name),
             self._file_filter(),
         )
         if not path:
-            return
+            return False
+        return self.save_set(Path(path))
+
+    def save_set(self, path: Path) -> bool:
+        """세트를 `path`에 저장하고, 그 파일 이름을 세트 이름으로 삼는다."""
+        tr = self._i18n.get_text
+        previous = self._set.set_name
+        self._set.set_name = Path(path).stem
         try:
             save_scene_set(Path(path), self._set)
         except OSError as e:
+            self._set.set_name = previous
             QMessageBox.warning(self, tr("errors.title"), f"{tr('scene_queue.save_set')}\n\n{e}")
+            return False
+        self._persist()
+        self._refresh_set_name()
+        return True
 
     def _on_load_set(self) -> None:
         tr = self._i18n.get_text
@@ -380,22 +750,39 @@ class SceneQueueDialog(QDialog):
             text = tr(e.i18n_key, *e.i18n_args) if e.i18n_key else str(e)
             QMessageBox.warning(self, tr("errors.title"), text)
             return False
+        # 세트 이름은 파일 안의 값이 아니라 지금 고른 파일의 이름이다 (이름을 바꿔 복사한 파일 등)
+        loaded.set_name = Path(path).stem
         self._set = loaded
-        self.interleave_check.blockSignals(True)
-        self.interleave_check.setChecked(loaded.interleave)
-        self.interleave_check.blockSignals(False)
+        for check, value in (
+            (self.interleave_check, loaded.interleave),
+            (self.single_folder_check, loaded.single_folder),
+        ):
+            check.blockSignals(True)
+            check.setChecked(value)
+            check.blockSignals(False)
+        self._refresh_set_name()
         self._persist()
         self._refill(select=0)
         return True
 
     def _on_run(self) -> None:
+        # 한 폴더 저장은 세트 이름이 폴더 이름이다 — 저장한 적 없으면 먼저 저장하게 한다
+        if self._set.single_folder and not self._set.set_name.strip():
+            tr = self._i18n.get_text
+            answer = QMessageBox.question(
+                self,
+                tr("errors.warning"),
+                tr("scene_queue.save_before_run"),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes or not self._on_save_set():
+                return
         self.run_requested.emit(self._set.model_copy(deep=True))
 
     # ── i18n ─────────────────────────────────────────────
 
     def retranslate(self) -> None:
         tr = self._i18n.get_text
-        self.setWindowTitle(tr("scene_queue.title"))
         self.table.setHorizontalHeaderLabels(
             [tr("scene_queue.col_name"), tr("scene_queue.col_count"), tr("scene_queue.col_prompt")]
         )
@@ -412,11 +799,13 @@ class SceneQueueDialog(QDialog):
         self.remove_button.setText(tr("scene_queue.remove"))
         self.interleave_check.setText(tr("scene_queue.interleave"))
         self.interleave_check.setToolTip(tr("scene_queue.interleave_hint"))
+        self.single_folder_check.setText(tr("scene_queue.single_folder"))
         self.hint_label.setText(tr("scene_queue.hint"))
         self.save_set_button.setText(tr("scene_queue.save_set"))
         self.load_set_button.setText(tr("scene_queue.load_set"))
         self.run_button.setText(tr("scene_queue.run"))
         self.close_button.setText(tr("scene_queue.close"))
+        self._refresh_set_name()
         self._refresh_total()
 
 
@@ -426,4 +815,4 @@ def _summary(scene: Scene) -> str:
     return prompt if len(prompt) <= _SUMMARY_LENGTH else prompt[: _SUMMARY_LENGTH - 1] + "…"
 
 
-__all__ = ["SceneQueueDialog"]
+__all__ = ["SceneQueueDialog", "ScenePromptDialog", "SceneTable"]

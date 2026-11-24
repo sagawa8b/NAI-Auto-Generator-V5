@@ -72,7 +72,7 @@ from ..core.llm.prompt_config import DEFAULT_CONFIG_FILENAME as LLM_PROMPTS_FILE
 from ..core.logging_setup import configure_logging, crash_log_path, log_path
 from ..core.metadata.reuse import ReusableSettings
 from ..core.presets import CharacterPromptPreset, GenerationPreset, PresetError, PresetStore
-from ..core.prompt_dynamics import has_dynamic_syntax
+from ..core.prompt_dynamics import expand_preview, has_dynamic_syntax
 from ..core.prompt_lock import apply_locked, apply_locked_characters
 from ..core.resolution_catalog import ResolutionCatalog, parse_group
 from ..core.result_history import HistoryEntry, ResultHistory
@@ -81,7 +81,6 @@ from ..core.scene_queue import (
     Scene,
     SceneQueueController,
     SceneSet,
-    folder_name,
     plan_steps,
     total_images,
 )
@@ -259,6 +258,7 @@ class MainWindow(QMainWindow):
         #: 창에서 씬을 고쳐도 돌고 있는 큐는 흔들리지 않는다.
         self._scene_queue = SceneQueueController()
         self._scene_run: list[Scene] = []
+        self._scene_run_set = SceneSet()
         self._scene_name = ""
         self._scene_queue_dialog: SceneQueueDialog | None = None
         self._artist_combo_dialog: ArtistComboDialog | None = None
@@ -940,12 +940,14 @@ class MainWindow(QMainWindow):
     # ── 씬 큐 ────────────────────────────────────────────
 
     def _on_open_scene_queue(self) -> SceneQueueDialog:
-        """씬 큐 창 (모드리스). 띄워 둔 채 메인 창에서 설정을 고쳐 씬으로 담는다."""
+        """씬 에디터 창 (모드리스). 띄워 둔 채 메인 창에서 설정을 고쳐 씬으로 담는다."""
         if self._scene_queue_dialog is None:
             dialog = SceneQueueDialog(
                 self._i18n,
                 self._scene_capture,
                 default_dir=self._settings.presets_dir,
+                decorate_editor=self._decorate_scene_editor,
+                preview=self._preview_scene_prompt,
                 parent=self,
             )
             dialog.apply_requested.connect(lambda data: self._apply_scene_settings(data))
@@ -957,6 +959,25 @@ class MainWindow(QMainWindow):
         dialog.raise_()
         dialog.activateWindow()
         return dialog
+
+    def _decorate_scene_editor(self, edit: QPlainTextEdit) -> Callable[[], None]:
+        """씬 에디터의 프롬프트 편집기에도 메인 창과 같은 자동완성을 붙인다. 떼는 함수를 돌려준다."""
+        self._attach_completer(edit)
+
+        def detach() -> None:
+            dropdown = self._completer_dropdowns.pop(edit, None)
+            if dropdown is not None:
+                dropdown.detach()
+
+        return detach
+
+    def _preview_scene_prompt(self, text: str) -> str:
+        """와일드카드·랜덤 문법을 한 번 전개해 본다 (생성 때와 같은 폴더·순서)."""
+        return expand_preview(
+            text,
+            wildcards_dir=self._settings.wildcards_dir,
+            artist_combos_dir=self._settings.artist_combos_dir,
+        )
 
     def _scene_capture(self) -> dict:
         """지금 화면의 생성 설정 — `파일 → 설정 저장`이 쓰는 것과 같은 모양 (시드는 빼고)."""
@@ -976,7 +997,8 @@ class MainWindow(QMainWindow):
     def start_scene_queue(self, scene_set: SceneSet) -> int:
         """씬 큐를 돌린다. 시작한 총 장수를 돌려준다 (시작하지 못했으면 0).
 
-        씬마다 `결과 폴더/<씬 이름>/`에 저장한다. 순서는 `scene_set.interleave`가 정한다 —
+        씬마다 `결과 폴더/<씬 이름>/`에 저장한다 (`한 폴더에 저장`이면 모두
+        `결과 폴더/<세트 이름>/`). 순서는 `scene_set.interleave`가 정한다 —
         차례로(씬을 하나씩 다 뽑고 다음) 또는 번갈아(한 장씩 돌아가며).
         """
         tr = self._i18n.get_text
@@ -992,6 +1014,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, tr("errors.title"), tr("errors.fixed_seed_batch"))
             return 0
         self._scene_run = list(scene_set.scenes)
+        self._scene_run_set = scene_set
         self._scene_queue.start(steps)
         if not self._advance_scene_queue():
             self._scene_queue.reset()
@@ -1007,7 +1030,8 @@ class MainWindow(QMainWindow):
         if not self._apply_scene_settings(scene.settings, scene.name):
             return False
         job = self.build_job(count=step.count)
-        job = dataclasses.replace(job, save_dir=str(Path(job.save_dir) / folder_name(scene.name)))
+        folder = scene_queue.scene_folder(self._scene_run_set, scene)
+        job = dataclasses.replace(job, save_dir=str(Path(job.save_dir) / folder))
         try:
             self._service.start(job)
         except RuntimeError:
@@ -2855,6 +2879,10 @@ class MainWindow(QMainWindow):
                 # count=1짜리 개별 잡은 자기 안에서 대기하지 않으므로 여기서 직접 기다린다.
                 delay_ms = int(self.delay_spin.value() * 1000)
                 if delay_ms > 0:
+                    # 잡 안의 대기와 똑같이 상태바에 남은 간격을 보인다 — 비어 있으면 멈춘 줄 안다
+                    self.status_label.setText(
+                        tr("statusbar.auto_wait", _format_seconds(self.delay_spin.value()))
+                    )
                     QTimer.singleShot(delay_ms, advance)
                 else:
                     advance()
