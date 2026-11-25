@@ -50,21 +50,44 @@ V4 대비 확인된 변화:
   (웹 UI가 쓰는 image_cache_secret_key 경로는 이미 업로드해 둔 이미지를
    키로 재참조하는 별도 최적화이며, 여기서는 필요하지 않다.)
 
-NovelAI가 아직 V5로 출시하지 않은 기능 (출시 공지 "Still In Progress"):
-  Precise Reference, Vibe Transfer → 캡처를 구할 수 없으므로 명시적 거부.
+Precise Reference (2026-11-24 출시, journal.novelai.net/precise-reference-v5)
+  캡처: spec/v5/captures/v5_precise_reference_{character,style,character_style,outfit}
+  V4.5 Character Reference와 같은 director_reference_* 키를 쓴다:
+      director_reference_descriptions[i].caption.base_caption = 종류
+          ("character" / "style" / "character&style" / "costume"=Outfit)
+      director_reference_information_extracted = 1
+      director_reference_strength_values       = 강도 (V5는 5.0까지)
+      director_reference_secondary_strength_values = 0  (V5는 Fidelity 슬라이더가 없다)
+  이미지는 image/mask처럼 multipart 파트로 보낸다. 다만 base64 목록
+  (director_reference_images) 대신 이렇게 참조한다:
+      director_reference_images_cached = [{"cache_secret_key": <64자 hex>,
+                                           "data": "director_ref_0"}, ...]
+  웹 UI는 이미 올린 이미지면 data 없이 키만 보낸다 (캡처 3건). 처음 올릴 때는 data에
+  파트 이름을 넣고 바이트를 그 파트로 함께 보낸다 (outfit 캡처). 키는 길이(64 hex)로
+  보아 이미지의 SHA-256이라, 우리는 보내는 PNG 바이트의 SHA-256을 쓰고 매번 data를
+  함께 보낸다 — 서버 캐시 상태에 기대지 않는다.
+  웹 UI의 "Prefer same outfit" 토글은 base_caption 접미사다 — 종류별 기본값과 다를 때만
+  "_mainoutfit"(켬) / "_anyoutfit"(끔)이 붙는다 (CharacterReference.caption,
+  캡처 v5_precise_reference_character_outfit_on / character_style_outfit_off).
+  인페인팅과 함께 쓰는 것은 아직 지원되지 않는다 (출시 공지) → 거부한다.
+
+NovelAI가 아직 V5로 출시하지 않은 기능:
+  Vibe Transfer → 캡처를 구할 수 없으므로 명시적 거부.
   ※ Curated Inpainting(=V5 Curated 모델의 인페인팅)은 미출시지만,
     Full 모델의 인페인팅은 위 캡처로 확인되어 지원한다.
 """
 
 from __future__ import annotations
 
+import hashlib
 import io
 from typing import TYPE_CHECKING
 
 from PIL import Image
 
 from .errors import ModelSpecIncompleteError
-from .models import GenerationRequest
+from .models import CharacterReference, GenerationRequest
+from .payload_v4 import letterbox
 
 if TYPE_CHECKING:
     from .model_specs import ModelSpec
@@ -76,6 +99,8 @@ _UC_PRESET_TAG_HINT = {"none": 0, "light": 1, "heavy": 2, "human_focus": 3}
 # parameters.image/mask에 넣는 multipart 파트 이름
 IMAGE_PART = "image"
 MASK_PART = "mask"
+#: Precise Reference 이미지 파트 이름 접두사 — 웹 UI와 같은 "director_ref_0", "director_ref_1", ...
+REFERENCE_PART_PREFIX = "director_ref_"
 
 #: 잠재 공간 축소 배율. 마스크 경계를 이 격자에 맞춘다 (`_normalize_mask`).
 LATENT_BLOCK = 8
@@ -88,7 +113,18 @@ def build_binary_parts_v5(req: GenerationRequest, spec: ModelSpec) -> dict[str, 
         parts[IMAGE_PART] = req.image
     if req.action == "infill" and req.mask is not None:
         parts[MASK_PART] = _normalize_mask(req.mask, (req.width, req.height))
+    for i, png in enumerate(_reference_pngs(req.character_refs)):
+        parts[f"{REFERENCE_PART_PREFIX}{i}"] = png
     return parts
+
+
+def _reference_pngs(refs: tuple[CharacterReference, ...]) -> list[bytes]:
+    """레퍼런스 이미지를 V4.5와 같은 규칙으로 레터박스한 PNG 바이트.
+
+    payload(키)와 바이너리 파트(바이트)가 같은 바이트에서 나와야 키가 이미지와 맞는다.
+    결정적인 변환이라 두 번 불러도 같은 바이트가 나온다.
+    """
+    return [letterbox(r.image) for r in refs]
 
 
 def _normalize_mask(mask_bytes: bytes, size: tuple[int, int]) -> bytes:
@@ -158,6 +194,9 @@ def build_payload_v5(req: GenerationRequest, spec: ModelSpec) -> dict:
         params["add_original_image"] = req.add_original_image
         model_name = spec.api_name + "-inpainting"
 
+    if req.character_refs:
+        _apply_precise_reference(params, req.character_refs)
+
     params.update(req.extra_params)
 
     return {
@@ -175,9 +214,12 @@ def _reject_unreleased(req: GenerationRequest, spec: ModelSpec) -> None:
             'Vibe Transfer has not been released for V5 yet (NovelAI launch notes, "Still In Progress").'
         )
     if req.character_refs:
-        raise ModelSpecIncompleteError(
-            'Precise Reference has not been released for V5 yet (NovelAI launch notes, "Still In Progress").'
-        )
+        if "char_ref" not in spec.supports:
+            raise ModelSpecIncompleteError(f"Precise Reference is not available for model '{spec.key}'.")
+        if req.action == "infill":
+            raise ModelSpecIncompleteError(
+                "Precise Reference cannot be combined with inpainting on V5 yet (NovelAI release notes)."
+            )
     if req.action == "infill" and "inpaint" not in spec.supports:
         raise ModelSpecIncompleteError(
             f"Inpainting has not been released for model '{spec.key}' yet "
@@ -255,3 +297,18 @@ def _build_base_parameters(req: GenerationRequest, spec: ModelSpec) -> dict:
         params["skip_cfg_above_sigma"] = spec.var_plus_sigma
 
     return params
+
+
+def _apply_precise_reference(params: dict, refs: tuple[CharacterReference, ...]) -> None:
+    """Precise Reference 키 — 모듈 docstring의 캡처 설명 참조."""
+    params["director_reference_descriptions"] = [
+        {"caption": {"base_caption": r.caption, "char_captions": []}, "legacy_uc": False} for r in refs
+    ]
+    params["director_reference_information_extracted"] = [1] * len(refs)
+    params["director_reference_strength_values"] = [r.strength for r in refs]
+    # V5에는 Fidelity가 없다 — 웹 UI는 늘 0을 보낸다
+    params["director_reference_secondary_strength_values"] = [0] * len(refs)
+    params["director_reference_images_cached"] = [
+        {"cache_secret_key": hashlib.sha256(png).hexdigest(), "data": f"{REFERENCE_PART_PREFIX}{i}"}
+        for i, png in enumerate(_reference_pngs(refs))
+    ]

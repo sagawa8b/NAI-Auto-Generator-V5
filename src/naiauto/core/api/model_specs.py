@@ -243,7 +243,7 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
     # 확정: api_name, endpoint(V4와 동일), params_version=4, multipart 전송,
     # quality tags(", very aesthetic, masterpiece, no text"), UC heavy 프리셋
     # (V4.5F heavy와 동일 텍스트), noise_schedule=karras, autoSmea=false.
-    # 미확정: i2i/inpaint/vibe/char_ref payload, Variety+ 시그마(var_plus_sigma=None
+    # 미확정: vibe payload, Variety+ 시그마(var_plus_sigma=None
     # → 전송 안 함), 샘플러 전체 목록(캡처는 k_euler_ancestral만 — V4 목록 가정),
     # curated의 api_name은 전례 기반 추정이었으나 2026-10-09 실생성으로 확인됐다.
     "naid5f": ModelSpec(
@@ -263,8 +263,9 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
         quality_tags=", very aesthetic, masterpiece, no text",
         uc_presets=_UC_5,
         # inpaint는 v5_infill 캡처(nai-diffusion-5-full-inpainting)로 확인됨.
-        # vibe / char_ref는 NovelAI 미출시라 넣지 않는다.
-        supports=frozenset({"v4_prompt", "characters", "img2img", "inpaint"}),
+        # char_ref(Precise Reference)는 2026-11-24 출시, v5_precise_reference_* 캡처로 확인됨.
+        # vibe는 NovelAI 미출시라 넣지 않는다.
+        supports=frozenset({"v4_prompt", "characters", "img2img", "inpaint", "char_ref"}),
         var_plus_sigma=None,
         # 0ADF9AB7은 실생성 PNG로 확인(2026-10-09), 657484A5는 서드파티 자료
         # (zer0thgear/zer0-novel-utillities PR #11)
@@ -286,8 +287,9 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
         },
         quality_tags=", very aesthetic, masterpiece, no text",
         uc_presets=_UC_5,
-        # Curated Inpainting은 출시 공지의 "Still In Progress" 항목이라 제외
-        supports=frozenset({"v4_prompt", "characters", "img2img"}),
+        # Curated Inpainting은 출시 공지의 "Still In Progress" 항목이라 제외.
+        # Precise Reference는 공지가 "Curated and Full" 모두 지원한다고 밝혔다.
+        supports=frozenset({"v4_prompt", "characters", "img2img", "char_ref"}),
         var_plus_sigma=None,
         # 실생성 PNG로 확인(2026-10-09)
         source_hashes=frozenset({"DB276663"}),
@@ -322,6 +324,7 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
         },
         quality_tags=", very aesthetic, masterpiece, no text",
         uc_presets=_UC_5,
+        # Precise Reference는 공지가 Full·Curated만 언급하고 캡처도 없어 넣지 않는다
         supports=frozenset({"v4_prompt", "characters", "img2img", "inpaint"}),
         var_plus_sigma=None,
         fixed_params={"steps": 14, "sampler": "k_euler_ancestral"},

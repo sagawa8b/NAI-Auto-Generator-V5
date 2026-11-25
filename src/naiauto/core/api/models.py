@@ -39,14 +39,55 @@ class VibeTransfer:
     information_extracted: float = 1.0
 
 
+#: Precise Reference 종류 — payload의 director_reference_descriptions[].caption.base_caption 값
+#: 그대로다. "costume"(웹 UI 이름 Outfit)은 V5에서 새로 생겼다
+#: (spec/v5/captures/v5_precise_reference_*.sanitized.json).
+ReferenceType = Literal["character", "style", "character&style", "costume"]
+REFERENCE_TYPES: tuple[ReferenceType, ...] = ("character", "style", "character&style", "costume")
+
+#: "Prefer same outfit" 토글이 있는 종류와 웹 UI 기본값. 기본값과 **다를 때만** base_caption에
+#: 접미사가 붙는다 (spec/v5/captures/v5_precise_reference_*outfit*.sanitized.json):
+#:   character        off(기본) → "character"        on  → "character_mainoutfit"
+#:   character&style  on(기본)  → "character&style"  off → "character&style_anyoutfit"
+PREFER_SAME_OUTFIT_DEFAULTS: dict[str, bool] = {"character": False, "character&style": True}
+_OUTFIT_SUFFIX = {True: "_mainoutfit", False: "_anyoutfit"}
+
+
 @dataclass(frozen=True)
 class CharacterReference:
-    """참조 이미지에서 캐릭터/스타일 추출 (V4.5 이상, ModelSpec.supports 참조)."""
+    """Precise Reference — 참조 이미지에서 캐릭터/스타일/의상을 가져온다.
+
+    V4.5에서는 Character Reference, V5에서는 Precise Reference라 부른다. 같은 payload 키
+    (director_reference_*)를 쓴다. 지원 모델은 ModelSpec.supports의 "char_ref".
+
+    - strength: V5는 0~5 (웹 UI 슬라이더가 1.0을 넘어 5.0까지 간다), V4.5는 0~1.
+    - fidelity: V4.5 전용. V5는 Fidelity 슬라이더가 사라져 무시된다
+      (캡처의 secondary_strength가 늘 0).
+    """
 
     image: bytes
-    type: Literal["character", "style", "character&style"] = "character&style"
+    type: ReferenceType = "character&style"
     strength: float = 0.6
     fidelity: float = 1.0
+    #: V5 "Prefer same outfit". None이면 종류별 웹 UI 기본값을 따른다. 토글이 없는 종류
+    #: (style / costume)에서는 무시된다.
+    prefer_same_outfit: bool | None = None
+
+    @property
+    def outfit_preference(self) -> bool | None:
+        """실제로 적용되는 토글 값. 토글이 없는 종류면 None."""
+        default = PREFER_SAME_OUTFIT_DEFAULTS.get(self.type)
+        if default is None:
+            return None
+        return default if self.prefer_same_outfit is None else self.prefer_same_outfit
+
+    @property
+    def caption(self) -> str:
+        """payload의 base_caption — 종류에 토글 접미사를 붙인다 (기본값이면 접미사 없음)."""
+        preference = self.outfit_preference
+        if preference is None or preference == PREFER_SAME_OUTFIT_DEFAULTS[self.type]:
+            return self.type
+        return self.type + _OUTFIT_SUFFIX[preference]
 
 
 @dataclass(frozen=True)

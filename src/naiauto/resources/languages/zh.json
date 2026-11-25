@@ -1360,6 +1360,30 @@
       "import_done": "已导入 {} 项（因已存在而跳过：{} 项）。",
       "import_restart": "应用设置将在重启程序后生效。",
       "import_rejected": "因路径超出目标文件夹而丢弃的项目：{} 项"
+    },
+    "precise_reference": {
+      "title": "Precise Reference",
+      "menu": "Precise Reference（参考图）",
+      "empty": "无参考图",
+      "add": "添加图片",
+      "clear": "全部移除",
+      "remove": "移除此参考图",
+      "strength": "强度",
+      "strength_tooltip": "数值越高越贴近参考图（V5 最高 5.0）。风格参考通常设得较高效果更好。",
+      "type_character": "角色",
+      "type_character_tooltip": "参考角色的外观",
+      "type_style": "风格",
+      "type_style_tooltip": "参考画风",
+      "type_character_style": "角色和风格",
+      "type_character_style_tooltip": "同时参考角色和画风",
+      "type_outfit": "服装",
+      "type_outfit_tooltip": "参考服装（V5 新增）",
+      "prefer_same_outfit": "优先相同服装",
+      "prefer_same_outfit_tooltip": "尽量保持参考图中的服装 — 网页版的 Prefer same outfit。角色默认关闭，角色和风格默认开启。",
+      "cost": "{} 张参考图 — 每生成一张额外消耗 {} Anlas（Opus 免费生成也会扣除）。",
+      "cost_note": "每张参考图消耗 {} Anlas。不能与局部重绘同时使用。",
+      "unsupported": "当前模型不支持 Precise Reference（仅限 V5 Full 和 Curated）。",
+      "load_failed": "无法加载图片：{}"
     }
   }
 }

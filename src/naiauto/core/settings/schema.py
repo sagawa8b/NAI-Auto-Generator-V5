@@ -192,6 +192,7 @@ SECTION_RESOLUTION = "resolution"
 SECTION_AI_SETTINGS = "ai_settings"
 SECTION_IMAGE_SOURCE = "image_source"
 SECTION_ENHANCE = "enhance"
+SECTION_PRECISE_REFERENCE = "precise_reference"
 #: 생성 바 — 목록이 아니라 스크롤 영역 위/아래에 고정된다.
 SECTION_GENERATE = "generate"
 DEFAULT_SECTION_ORDER = (
@@ -202,6 +203,7 @@ DEFAULT_SECTION_ORDER = (
     SECTION_AI_SETTINGS,
     SECTION_IMAGE_SOURCE,
     SECTION_ENHANCE,
+    SECTION_PRECISE_REFERENCE,
 )
 
 
@@ -422,6 +424,9 @@ class AppSettings(BaseModel):
     debug_logging: bool = False  # 로그 뷰어에서 켜면 DEBUG 레벨로 기록
     show_image_source: bool = False  # i2i 패널은 보기 메뉴(F2)로 켤 때만 표시
     show_enhance: bool = False  # 강화(업스케일) 패널은 보기 메뉴(F4)로 켤 때만 표시
+    #: Precise Reference 패널은 보기 메뉴(F12)로 켤 때만 표시. 레퍼런스 이미지 자체는 저장하지 않는다
+    #: (장당 Anlas가 드는 입력이라, 다음 실행에서 모르는 사이 다시 붙지 않게 한다).
+    show_precise_reference: bool = False
     #: 결과 이미지 위에 그 장의 프롬프트를 겹쳐 보여 준다 (보기 메뉴 F8, V4의 '프롬프트 결과 표시')
     show_result_overlay: bool = False
     measure_credit: bool = False  # V5 크레딧 소모량 측정 로그 (도구 메뉴)

@@ -1360,6 +1360,30 @@
       "import_done": "Imported {} item(s) ({} skipped because they already exist).",
       "import_restart": "App settings will take effect after you restart the program.",
       "import_rejected": "Entries discarded because their paths point outside the target folder: {}"
+    },
+    "precise_reference": {
+      "title": "Precise Reference",
+      "menu": "Precise Reference",
+      "empty": "No reference images",
+      "add": "Add Images",
+      "clear": "Remove All",
+      "remove": "Remove this reference",
+      "strength": "Strength",
+      "strength_tooltip": "Higher values follow the reference more closely (up to 5.0 on V5). Style references often work best fairly high.",
+      "type_character": "Character",
+      "type_character_tooltip": "Copies the character's appearance",
+      "type_style": "Style",
+      "type_style_tooltip": "Copies the art style",
+      "type_character_style": "Character & Style",
+      "type_character_style_tooltip": "Copies both the character and the art style",
+      "type_outfit": "Outfit",
+      "type_outfit_tooltip": "Copies the outfit (new in V5)",
+      "prefer_same_outfit": "Prefer same outfit",
+      "prefer_same_outfit_tooltip": "Tries to keep the reference's outfit. Off by default for Character, on by default for Character & Style.",
+      "cost": "{} reference(s) — each generated image costs {} extra Anlas (also charged on Opus free generations).",
+      "cost_note": "Each reference costs {} Anlas. Cannot be combined with inpainting.",
+      "unsupported": "The current model does not support Precise Reference (V5 Full and Curated only).",
+      "load_failed": "Failed to load image: {}"
     }
   }
 }

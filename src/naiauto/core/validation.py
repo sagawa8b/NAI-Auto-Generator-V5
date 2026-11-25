@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .api.models import GenerationRequest
+from .api.models import REFERENCE_TYPES, GenerationRequest
 
 
 @dataclass(frozen=True)
@@ -79,10 +79,10 @@ VIBE_TRANSFER_PARAMS: dict[str, ParamSpec] = {
 }
 
 CHARACTER_REFERENCE_PARAMS: dict[str, ParamSpec] = {
-    "type": ParamSpec(
-        type="str", default="character&style", choices=("character", "style", "character&style")
-    ),
-    "strength": ParamSpec(type="float", default=0.6, min=0.0, max=1.0),
+    "type": ParamSpec(type="str", default="character&style", choices=REFERENCE_TYPES),
+    # V5는 5.0까지 (출시 공지 "the strength slider runs past 1.0, all the way up to 5.0").
+    # V4.5의 상한 1.0은 V4 payload 빌더가 따로 막는다.
+    "strength": ParamSpec(type="float", default=0.6, min=0.0, max=5.0),
     "fidelity": ParamSpec(type="float", default=1.0, min=0.0, max=1.0),
 }
 

@@ -74,6 +74,7 @@ RESERVED_SHORTCUTS: tuple[str, ...] = (
     "F8",
     "F9",
     "F11",
+    "F12",  # 보기 → Precise Reference
 )
 
 

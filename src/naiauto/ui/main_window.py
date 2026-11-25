@@ -94,6 +94,7 @@ from ..core.settings.schema import (
     SECTION_GENERATE,
     SECTION_IMAGE_SOURCE,
     SECTION_MODEL,
+    SECTION_PRECISE_REFERENCE,
     SECTION_PROMPT,
     SECTION_RESOLUTION,
     AppSettings,
@@ -139,6 +140,7 @@ from .widgets.enhance_panel import EnhancePanel
 from .widgets.flow_layout import FlowLayout
 from .widgets.history_strip import HistoryStrip
 from .widgets.image_source import ImageSourceWidget
+from .widgets.precise_reference import PreciseReferencePanel
 from .widgets.prompt_overlay import PromptOverlay
 from .widgets.prompt_tabs import PromptTabs
 from .widgets.resize_handle import ResizeHandle
@@ -419,11 +421,20 @@ class MainWindow(QMainWindow):
         self.enhance_panel.setVisible(False)  # 보기 메뉴(F4)로 켠다
         left.add_section(SECTION_ENHANCE, "enhance.title", self.enhance_panel, show_title=False)
 
+        # Precise Reference (V5) — 레퍼런스 장당 Anlas가 들어 기본은 숨긴다 (보기 메뉴 F12).
+        # t2i·i2i 어느 쪽과도 같이 쓸 수 있으므로 i2i·강화와 배타로 묶지 않는다.
+        self.precise_reference = PreciseReferencePanel(self._i18n)
+        self.precise_reference.setVisible(False)
+        left.add_section(
+            SECTION_PRECISE_REFERENCE, "precise_reference.title", self.precise_reference, show_title=False
+        )
+
         self._wire_sections()
 
         # 스크롤하다 커서가 지나가는 것만으로 값이 바뀌지 않게 한다
         self._wheel_guard = guard_wheel(left)
         self.character_prompts.share_wheel_guard(self._wheel_guard)
+        self.precise_reference.share_wheel_guard(self._wheel_guard)
 
         # 좌측 패널이 길어 세로 공간을 넘기므로 스크롤 영역으로 감싼다
         left_scroll = QScrollArea()
@@ -557,6 +568,11 @@ class MainWindow(QMainWindow):
         self.enhance_action.setShortcut("F4")
         self.enhance_action.toggled.connect(self.enhance_panel.set_active)
         self.enhance_action.toggled.connect(self._on_enhance_toggled)
+
+        self.precise_reference_action = self.view_menu.addAction("")
+        self.precise_reference_action.setCheckable(True)
+        self.precise_reference_action.setShortcut("F12")
+        self.precise_reference_action.toggled.connect(self.precise_reference.set_active)
 
         # 결과 프롬프트 오버레이 (V4의 "프롬프트 결과 표시" 체크박스)
         self.result_overlay_action = self.view_menu.addAction("")
@@ -1384,8 +1400,10 @@ class MainWindow(QMainWindow):
 
         작가 블록은 여기 없다. 아레나가 조합마다 프롬프트에 끼워 넣는다.
         강화(업스케일)는 빼고 만든다 — 습작 한 장에 배율까지 얹을 이유가 없다.
+        Precise Reference도 뺀다 — 작가 조합을 비교하는 자리라 스타일 레퍼런스가 끼면 비교가
+        흐려지고, 습작 장마다 레퍼런스 Anlas가 든다.
         """
-        return self.build_job(1, enhance=False).request
+        return dataclasses.replace(self.build_job(1, enhance=False).request, character_refs=())
 
     def _on_open_arena(self) -> None:
         """그림체 아레나를 연다 (없으면 만들고, 있으면 앞으로 가져온다)."""
@@ -1432,7 +1450,7 @@ class MainWindow(QMainWindow):
         job = self.build_job(count=total, enhance=False)
         arena = self._settings.arena
         provider = build_finale_provider(
-            job.request,
+            dataclasses.replace(job.request, character_refs=()),  # arena_base_request와 같은 이유
             combos,
             per_combo,
             insert_position=arena.insert_position,
@@ -1828,6 +1846,8 @@ class MainWindow(QMainWindow):
         self.enhance_action.setEnabled(supports_i2i)
         if not supports_i2i:
             self.enhance_action.setChecked(False)
+        # Precise Reference — 미지원 모델에서는 들고 있는 레퍼런스를 요청에 넣지 않는다 (패널이 안내)
+        self.precise_reference.set_supported("char_ref" in spec.supports)
         # 스텝·Prompt Guidance·Rescale은 모델을 바꿔도 사용자 값을 유지한다 (V5 모델들은 기본값이
         # 같다). 예전에는 매번 기본값(28 / 5.0)으로 되돌려, 절약 모드를 다녀오면 값을 잃었다.
         self._lock_fixed_settings(previous)
@@ -1951,6 +1971,7 @@ class MainWindow(QMainWindow):
             self._settings.show_image_source and self.image_source_action.isEnabled()
         )
         self.enhance_action.setChecked(self._settings.show_enhance and self.enhance_action.isEnabled())
+        self.precise_reference_action.setChecked(self._settings.show_precise_reference)
         self.result_overlay_action.setChecked(self._settings.show_result_overlay)
         self.result_history_action.setChecked(self._settings.show_result_history)
         self.measure_credit_action.setChecked(self._settings.measure_credit)
@@ -2031,6 +2052,7 @@ class MainWindow(QMainWindow):
         s.batch.random_resolution_aspects = [a.value for a in self.resolution_panel.random_pair_aspects()]
         s.show_image_source = self.image_source_action.isChecked()
         s.show_enhance = self.enhance_action.isChecked()
+        s.show_precise_reference = self.precise_reference_action.isChecked()
         s.show_result_overlay = self.result_overlay_action.isChecked()
         s.show_result_history = self.result_history_action.isChecked()
         s.measure_credit = self.measure_credit_action.isChecked()
@@ -2139,6 +2161,7 @@ class MainWindow(QMainWindow):
             s.show_image_source and self.image_source_action.isEnabled()
         )
         self.enhance_action.setChecked(s.show_enhance and self.enhance_action.isEnabled())
+        self.precise_reference_action.setChecked(s.show_precise_reference)
         self.result_overlay_action.setChecked(s.show_result_overlay)
         self.measure_credit_action.setChecked(s.measure_credit)  # Req 8.8
         self._refresh_tag_completer()  # Req 7.3
@@ -2532,6 +2555,7 @@ class MainWindow(QMainWindow):
             strength=self.image_source.strength,
             noise=self.image_source.noise,
             add_original_image=self.image_source.add_original_image,
+            character_refs=self.precise_reference.references(),
         )
         if enhance:
             request = self._with_enhance(request)
@@ -3161,6 +3185,7 @@ class MainWindow(QMainWindow):
         self.character_prompts.retranslate()
         self.image_source.retranslate()
         self.enhance_panel.retranslate()
+        self.precise_reference.retranslate()
         self.file_menu.setTitle(tr("menu.file"))
         self.login_action.setText(tr("menu.login"))
         self.accounts_action.setText(tr("menu.accounts"))
@@ -3183,6 +3208,7 @@ class MainWindow(QMainWindow):
         self.generate_dock.retranslate()
         self.image_source_action.setText(tr("image_source.menu"))
         self.enhance_action.setText(tr("enhance.menu"))
+        self.precise_reference_action.setText(tr("precise_reference.menu"))
         self.result_overlay_action.setText(tr("result.overlay_toggle"))
         self.result_overlay_check.setText(tr("result.overlay_toggle"))
         self.result_overlay_check.setToolTip(tr("result.overlay_toggle_hint"))

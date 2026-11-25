@@ -102,6 +102,7 @@ def _build_base_parameters(req: GenerationRequest, spec: ModelSpec) -> dict:
     if req.character_refs:
         if "char_ref" not in spec.supports:
             raise ValueError(f"Character Reference is not supported on model '{req.model}'")
+        _check_v45_references(req.character_refs)
         _apply_character_reference(params, list(req.character_refs))
 
     return params
@@ -138,6 +139,17 @@ def _apply_vibe_transfer(params: dict, vibes: list[VibeTransfer]) -> None:
     params["reference_strength_multiple"] = [v.strength for v in vibes]
     params["reference_information_extracted_multiple"] = [v.information_extracted for v in vibes]
     params["normalize_reference_strength_multiple"] = True
+
+
+def _check_v45_references(refs: tuple[CharacterReference, ...]) -> None:
+    """V5에서 생긴 값은 V4.5로 보내지 않는다 (Outfit 종류, Prefer same outfit, 1.0을 넘는 강도)."""
+    for r in refs:
+        if r.type == "costume":
+            raise ValueError("Outfit Reference is only available on V5 models")
+        if r.caption != r.type:
+            raise ValueError("'Prefer same outfit' is only available on V5 models")
+        if r.strength > 1.0:
+            raise ValueError(f"V4.5 Character Reference strength must be at most 1.0 (got {r.strength})")
 
 
 def _apply_character_reference(params: dict, refs: list[CharacterReference]) -> None:

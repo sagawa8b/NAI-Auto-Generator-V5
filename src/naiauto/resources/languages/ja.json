@@ -1360,6 +1360,30 @@
       "import_done": "{} 個を読み込みました（すでにあるためスキップ: {} 個）。",
       "import_restart": "アプリ設定はプログラムを再起動すると適用されます。",
       "import_rejected": "対象フォルダーの外を指すパスのため破棄した項目: {} 個"
+    },
+    "precise_reference": {
+      "title": "Precise Reference",
+      "menu": "Precise Reference（リファレンス）",
+      "empty": "リファレンス画像なし",
+      "add": "画像を追加",
+      "clear": "すべて削除",
+      "remove": "このリファレンスを削除",
+      "strength": "強度",
+      "strength_tooltip": "高いほどリファレンスに強く従います（V5は最大5.0）。スタイルリファレンスは高めに設定すると効きやすい傾向があります。",
+      "type_character": "キャラクター",
+      "type_character_tooltip": "キャラクターの外見を参照します",
+      "type_style": "スタイル",
+      "type_style_tooltip": "画風を参照します",
+      "type_character_style": "キャラクター＆スタイル",
+      "type_character_style_tooltip": "キャラクターと画風の両方を参照します",
+      "type_outfit": "衣装",
+      "type_outfit_tooltip": "衣装を参照します（V5新機能）",
+      "prefer_same_outfit": "同じ衣装を優先",
+      "prefer_same_outfit_tooltip": "リファレンスと同じ衣装にしようとします — Web UIのPrefer same outfit。キャラクターは既定でオフ、キャラクター＆スタイルは既定でオンです。",
+      "cost": "リファレンス{}枚 — 生成1枚ごとに{} Anlasが追加でかかります（Opusの無料生成でも消費）。",
+      "cost_note": "リファレンス1枚につき{} Anlasかかります。インペイントとは併用できません。",
+      "unsupported": "現在のモデルはPrecise Referenceに対応していません（V5 Full・Curatedのみ）。",
+      "load_failed": "画像を読み込めませんでした: {}"
     }
   }
 }

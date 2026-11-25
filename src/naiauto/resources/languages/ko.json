@@ -1360,6 +1360,30 @@
       "import_done": "{}개를 가져왔습니다 (이미 있어서 건너뜀: {}개).",
       "import_restart": "앱 설정은 프로그램을 다시 시작하면 적용됩니다.",
       "import_rejected": "대상 폴더를 벗어나는 경로라서 버린 항목: {}개"
+    },
+    "precise_reference": {
+      "title": "Precise Reference",
+      "menu": "Precise Reference (레퍼런스)",
+      "empty": "레퍼런스 이미지 없음",
+      "add": "이미지 추가",
+      "clear": "모두 제거",
+      "remove": "이 레퍼런스 제거",
+      "strength": "강도",
+      "strength_tooltip": "높을수록 레퍼런스를 강하게 따릅니다 (V5는 최대 5.0). 스타일 레퍼런스는 꽤 높게 둘 때 잘 듣는 편입니다.",
+      "type_character": "캐릭터",
+      "type_character_tooltip": "캐릭터의 외형을 가져옵니다",
+      "type_style": "스타일",
+      "type_style_tooltip": "그림체를 가져옵니다",
+      "type_character_style": "캐릭터 & 스타일",
+      "type_character_style_tooltip": "캐릭터와 그림체를 함께 가져옵니다",
+      "type_outfit": "의상",
+      "type_outfit_tooltip": "의상을 가져옵니다 (V5 신규)",
+      "prefer_same_outfit": "같은 의상 우선",
+      "prefer_same_outfit_tooltip": "레퍼런스와 같은 의상을 입히려 합니다 — 웹 UI의 Prefer same outfit. 캐릭터는 기본 꺼짐, 캐릭터 & 스타일은 기본 켜짐입니다.",
+      "cost": "레퍼런스 {}장 — 생성 1장마다 {} Anlas가 추가로 듭니다 (Opus 무료 생성에서도 차감).",
+      "cost_note": "레퍼런스 1장당 {} Anlas가 듭니다. 인페인팅과는 함께 쓸 수 없습니다.",
+      "unsupported": "현재 모델은 Precise Reference를 지원하지 않습니다 (V5 Full·Curated 전용).",
+      "load_failed": "이미지를 불러오지 못했습니다: {}"
     }
   }
 }
