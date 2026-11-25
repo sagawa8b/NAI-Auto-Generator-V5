@@ -16,6 +16,7 @@ from PIL import Image
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -26,6 +27,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSlider,
     QVBoxLayout,
     QWidget,
@@ -116,7 +118,13 @@ class ReferenceRow(QFrame):
         self.strength_spin.setRange(0.0, STRENGTH_MAX)
         self.strength_spin.setSingleStep(0.1)
         self.strength_spin.setDecimals(2)
-        self.strength_spin.setFixedWidth(64)
+        # 올림/내림 화살표는 뺀다 — 값 조절은 슬라이더가 하고, 이 칸은 숫자를 보여 주고 직접 넣는
+        # 자리다. 예전에는 64px로 고정했더니 스타일에 따라 화살표가 칸을 거의 다 차지해 숫자가
+        # 보이지 않았다. 폭은 고정 픽셀 대신 글꼴로 잰 "5.00"이 늘 들어가게 정한다.
+        self.strength_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.strength_spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.strength_spin.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.strength_spin.setMinimumWidth(_number_width(self.strength_spin))
         self.strength_slider.valueChanged.connect(self._on_slider_moved)
         self.strength_spin.valueChanged.connect(self._on_spin_changed)
         self.strength_spin.setValue(DEFAULT_STRENGTH)
@@ -198,6 +206,12 @@ class ReferenceRow(QFrame):
         self.strength_spin.setToolTip(tr("precise_reference.strength_tooltip"))
         self.strength_slider.setToolTip(tr("precise_reference.strength_tooltip"))
         self.remove_button.setToolTip(tr("precise_reference.remove"))
+
+
+def _number_width(spin: QDoubleSpinBox) -> int:
+    """강도 칸이 가장 넓은 값("5.00")을 잘림 없이 보이는 폭 — 글꼴 크기를 따라간다."""
+    text = spin.textFromValue(spin.maximum())
+    return spin.fontMetrics().horizontalAdvance(text) + 24  # 좌우 안쪽 여백 + 테두리
 
 
 def _type_key(ref_type: str) -> str:
